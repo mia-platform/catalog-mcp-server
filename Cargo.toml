@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+
+[workspace.package]
+edition = "2024"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = "symbols"
+
+[package]
+name = "catalog-mcp-server"
+version = "0.0.1"
+authors = ["Mia-Platform core team"]
+edition.workspace = true
+description = "A Model Context Protocol server to integrate with Mia-Platform Catalog APIs."
+documentation = "https://docs.mia-platform.eu/"
+homepage = "https://mia-platform.eu/"
+repository = "https://github.com/mia-platform/catalog-mcp-server"
+license-file = "./LICENSE"

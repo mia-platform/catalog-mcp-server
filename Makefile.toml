@@ -1,0 +1,32 @@
+[tasks.run]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = ["run", "--all-features"]
+
+[tasks.build]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = ["build", "--all-features"]
+
+########################################################################################################################
+
+[tasks.fmt]
+workspace = false
+script = "cargo +nightly fmt --all --check"
+
+[tasks.check_all]
+env = { RUSTFLAGS = "-D warnings" }
+script = "cargo clippy"
+
+[tasks.udeps_all]
+workspace = false
+install_crate = { crate_name = "cargo-udeps", binary = "cargo-udeps", test_arg = "--help" }
+toolchain = "nightly"
+script = '''
+    echo "\nChecking for unused dependencies..."
+    cargo +nightly udeps --all-targets --all-features
+
+    echo "\n✓ All valid feature combinations checked for unused dependencies!"
+'''
