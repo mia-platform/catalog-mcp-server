@@ -20,3 +20,49 @@ documentation = "https://docs.mia-platform.eu/"
 homepage = "https://mia-platform.eu/"
 repository = "https://github.com/mia-platform/catalog-mcp-server"
 license-file = "./LICENSE"
+
+[workspace.dependencies]
+schemars = "1.0.4"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+
+[dependencies]
+anyhow = "1.0.100"
+axum = { version = "0.8.6", default-features = false, features = [
+    "http1",
+    "http2",
+    "json",
+    "tokio",
+] }
+clap = { version = "4.5.53", features = ["derive"] }
+colored = "3.0.0"
+configuration = { path = "configuration" }
+dirs = "6.0.0"
+futures = "0.3.31"
+once_cell = "1.21.3"
+rmcp = { version = "0.11.0", features = ["server", "transport-streamable-http-server"] }
+rmcp-openapi = "0.21.0"
+serde_json.workspace = true
+tokio = { version = "1.48.0", features = ["rt", "signal"] }
+tokio-util = "0.7.17"
+tower = "0.5.2"
+tower-http = { version = "0.6.6", features = [
+    "cors",
+    "normalize-path",
+    "request-id",
+    "trace",
+] }
+tracing = "0.1.41"
+tracing-subscriber = { version = "0.3.20", features = [
+    "env-filter",
+    "fmt",
+    "json",
+] }
+url = "2.5.7"
+uuid = "1.19.0"
+
+[build-dependencies]
+configuration = { path = "configuration" }
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

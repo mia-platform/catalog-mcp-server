@@ -1,0 +1,8 @@
+[package]
+name = "configuration"
+edition.workspace = true
+
+[dependencies]
+schemars.workspace = true
+serde.workspace = true
+serde_json.workspace = true

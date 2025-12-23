@@ -2,7 +2,13 @@
 workspace = false
 env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
-args = ["run", "--all-features"]
+args = ["run", "--all-features", "${@}"]
+
+[tasks.help]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = ["run", "--all-features", "--", "--help"]
 
 [tasks.build]
 workspace = false

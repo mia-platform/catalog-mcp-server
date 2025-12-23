@@ -1,0 +1,9 @@
+{
+	"servers": {
+		"catalog-mcp-server-local": {
+			"url": "http://localhost:3001/catalog/mcp",
+			"type": "http"
+		}
+	},
+	"inputs": []
+}

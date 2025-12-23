@@ -1,0 +1,2135 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "catalog-engine",
+    "description": "The backend service powering up the Mia-Platform Catalog.",
+    "contact": {
+      "name": "Mia-Platform core team"
+    },
+    "license": {
+      "name": ""
+    },
+    "version": "0.0.1"
+  },
+  "paths": {
+    "/ingestion/{group}/{version}/resources/{resource}/{name}": {
+      "post": {
+        "tags": [
+          "ingestion"
+        ],
+        "summary": "Exec ingestion operation",
+        "description": "Performs an ingestion operation from an external data source. Ingestion operations are usually executed by connectors (see [IBDM](https://github.com/mia-platform/ibdm/tree/main)).\n\nSupported operations are:\n- `upsert`, to insert or update an object with the provided data, and\n- `delete`, to delete a specific object.",
+        "operationId": "exec_ingestion_operation",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The API group of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "The API group version of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "description": "The resource name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "data",
+                      "operation"
+                    ],
+                    "properties": {
+                      "data": {
+                        "type": "object",
+                        "additionalProperties": {},
+                        "propertyNames": {
+                          "type": "string"
+                        }
+                      },
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "upsert"
+                        ]
+                      }
+                    },
+                    "examples": [
+                      {
+                        "operation": "upsert",
+                        "data": {
+                          "key": "value"
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "operation"
+                    ],
+                    "properties": {
+                      "operation": {
+                        "type": "string",
+                        "enum": [
+                          "delete"
+                        ]
+                      }
+                    },
+                    "examples": [
+                      {
+                        "operation": "delete"
+                      }
+                    ]
+                  }
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Operation completed successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "operation"
+                      ],
+                      "properties": {
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "inserted"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "operation"
+                      ],
+                      "properties": {
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "updated"
+                          ]
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": [
+                        "operation"
+                      ],
+                      "properties": {
+                        "operation": {
+                          "type": "string",
+                          "enum": [
+                            "deleted"
+                          ]
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Requested resource does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mia-platform.eu/v1alpha1/resources/custom-resource-definitions": {
+      "get": {
+        "tags": [
+          "custom-resource-definitions"
+        ],
+        "summary": "List Custom Resource Definitions",
+        "description": "Returns a list of Custom Resource Definitions.",
+        "operationId": "list_crds",
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of items to return.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "continue",
+            "in": "query",
+            "description": "The server-generated token to retrieve more results in a paginated request.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "description": "A selector to restrict the list of returned objects by their labels. The `label` query parameter can contain only a single selector. To add more selectors, you can specify the parameter multiple times in the same request, The selectors will be chained in *AND*.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "env=production"
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "description": "A selector to restrict the list of returned objects by their fields. The `field` query parameter can contain only a single selector. To add more selectors, you can specify the parameter multiple times in the same request. The selectors will be chained in *AND*.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "spec.foo!=bar"
+          },
+          {
+            "name": "rawq",
+            "in": "query",
+            "description": "A selector to restrict the list of returned objects by a complex query on their labels and fields. Queries made with the `rawq` are expressed as JSON objects written in a Catalog-specific query language. They must be sent in the URL as [URL-safe base64](https://developer.mozilla.org/en-US/docs/Glossary/Base64#url_and_filename_safe_base64) encoded strings, and are chained in *AND* with the other filtering query parameters.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "The field by which results should be sorted. The default sorting order is ascending lexicographical order. If the field name is prefixed by a `-`, than descending lexicographical order will be applied. Specifying the query parameter multiple times means that the results will be sorted for multiple fields, with the sort order evaluated from the first-appearing query parameter to the last.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "-metadata.name"
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Requested resource provided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.List_miaplatform.eu.v1alpha1.CustomResourceDefinition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/mia-platform.eu/v1alpha1/resources/custom-resource-definitions/{name}": {
+      "get": {
+        "tags": [
+          "custom-resource-definitions"
+        ],
+        "summary": "Get Custom Resource Definition by name",
+        "description": "Returns the requests Custom Resource Definition if found.",
+        "operationId": "get_crd_by_name",
+        "parameters": [
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The name of the Custom Resource Definition.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Requested resource provided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.CustomResourceDefinition"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Requested resource does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{group}/{version}/resources/{resource}": {
+      "get": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "List objects",
+        "description": "Returns a list of objects.",
+        "operationId": "list_objects",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The API group of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "The API group version of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "description": "The resource name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "description": "The maximum number of items to return.",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "format": "int64",
+              "default": 50,
+              "maximum": 200,
+              "minimum": 1
+            }
+          },
+          {
+            "name": "continue",
+            "in": "query",
+            "description": "The server-generated token to retrieve more results in a paginated request.",
+            "required": false,
+            "schema": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          {
+            "name": "label",
+            "in": "query",
+            "description": "A selector to restrict the list of returned objects by their labels. The `label` query parameter can contain only a single selector. To add more selectors, you can specify the parameter multiple times in the same request, The selectors will be chained in *AND*.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "env=production"
+          },
+          {
+            "name": "field",
+            "in": "query",
+            "description": "A selector to restrict the list of returned objects by their fields. The `field` query parameter can contain only a single selector. To add more selectors, you can specify the parameter multiple times in the same request. The selectors will be chained in *AND*.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "spec.foo!=bar"
+          },
+          {
+            "name": "rawq",
+            "in": "query",
+            "description": "A selector to restrict the list of returned objects by a complex query on their labels and fields. Queries made with the `rawq` are expressed as JSON objects written in a Catalog-specific query language. They must be sent in the URL as [URL-safe base64](https://developer.mozilla.org/en-US/docs/Glossary/Base64#url_and_filename_safe_base64) encoded strings, and are chained in *AND* with the other filtering query parameters.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "description": "The field by which results should be sorted. The default sorting order is ascending lexicographical order. If the field name is prefixed by a `-`, than descending lexicographical order will be applied. Specifying the query parameter multiple times means that the results will be sorted for multiple fields, with the sort order evaluated from the first-appearing query parameter to the last.",
+            "required": false,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "example": "-metadata.name"
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Requested resource provided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.List_miaplatform.eu.v1alpha1.Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Requested resource does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/{group}/{version}/resources/{resource}/{name}": {
+      "get": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "Get object by name",
+        "description": "Returns the requested object if found.",
+        "operationId": "get_object_by_name",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The API group of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "The API group version of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "description": "The resource name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Requested resource provided.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Requested resource does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "Create or update an object",
+        "description": "Creates a new object or updates an existing one.",
+        "operationId": "update_object",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The API group of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "The API group version of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "description": "The resource name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.Object"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Object updated successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.Object"
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Object created successfully.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.Object"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Request is invalid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Requested resource does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict between the `resourceVersion` in the request body and the `resourceVersion` saved on the system.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "objects"
+        ],
+        "summary": "Delete object by name",
+        "description": "Deletes the requested object if found.",
+        "operationId": "delete_object_by_name",
+        "parameters": [
+          {
+            "name": "group",
+            "in": "path",
+            "description": "The API group of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "version",
+            "in": "path",
+            "description": "The API group version of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resource",
+            "in": "path",
+            "description": "The resource name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "name",
+            "in": "path",
+            "description": "The name of the object.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "resourceVersion",
+            "in": "query",
+            "description": "The resource version for concurrency control.",
+            "required": false,
+            "schema": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "int32"
+            }
+          },
+          {
+            "name": "x-catalog-org",
+            "in": "header",
+            "description": "Identifier of the organization in the context of which the action should be performed.",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Requested resource deleted."
+          },
+          "404": {
+            "description": "Requested resource does not exist.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Conflict between the `resourceVersion` in the query parameter and the `resourceVersion` saved on the system.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          },
+          "5XX": {
+            "description": "Server-side error.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.StatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "miaplatform.eu.v1alpha1.CustomResourceDefinition": {
+        "type": "object",
+        "description": "A resource that extends the Catalog API by defining a custom resource type.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "spec"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string",
+            "description": "The versioned schema of this representation of an object.",
+            "enum": [
+              "mia-platform.eu/v1alpha1"
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "description": "The family of resources this object belongs to.",
+            "enum": [
+              "CustomResourceDefinition"
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.ObjectMetadata"
+          },
+          "resourceVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "An opaque value that represents the internal version of this object. Clients may not set this value and must treat it as opaque. Read-only."
+          },
+          "spec": {
+            "oneOf": [
+              {
+                "type": "object",
+                "required": [
+                  "group",
+                  "names",
+                  "scope",
+                  "versions"
+                ],
+                "properties": {
+                  "group": {
+                    "type": "string",
+                    "description": "The API group of the defined custom resource. The custom resources will be serve under `/{group}/*`. Must match the `metadata.name` of this object in the form `<spec.names.plural>.<spec.group>`. Read-only.",
+                    "examples": [
+                      "stable.example.com"
+                    ],
+                    "maxLength": 253,
+                    "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
+                  },
+                  "names": {
+                    "oneOf": [
+                      {
+                        "type": "object",
+                        "required": [
+                          "kind",
+                          "plural"
+                        ],
+                        "properties": {
+                          "displayPlural": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "The display name of the resource in plural form. It is used only for display purposes. Defaults to the `spec.names.plural` of this object.",
+                            "examples": [
+                              "Docker Images"
+                            ]
+                          },
+                          "displaySingular": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "The display name of the resource in singular form. It is used only for display purposes. Defaults to the `spec.names.singular` of this object.",
+                            "examples": [
+                              "Docker Image"
+                            ]
+                          },
+                          "kind": {
+                            "type": "string",
+                            "description": "The serialized kind of the resource. It is normally CamelCase and singular. Custom resource instances will use this value as the `kind` attribute in API calls. Read-only.",
+                            "examples": [
+                              "DockerImage"
+                            ],
+                            "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+                          },
+                          "plural": {
+                            "type": "string",
+                            "description": "The plural name of the resource to serve. The custom resources are served under `/{group}/{version}/resources/{plural}/*`. Must match the `metadata.name` of this object in the form `<spec.names.plural>.<spec.group>`. Must be all lowercase. Read-only.",
+                            "examples": [
+                              "dockerimages"
+                            ],
+                            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                          },
+                          "singular": {
+                            "type": [
+                              "string",
+                              "null"
+                            ],
+                            "description": "The singular name of the resource. It must be all lowercase. Defaults to the lowercased `spec.names.kind` of this object. Read-only.",
+                            "examples": [
+                              "dockerimage"
+                            ],
+                            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                          }
+                        }
+                      }
+                    ],
+                    "description": "The resource and kind names for the custom resource."
+                  },
+                  "scope": {
+                    "oneOf": [
+                      {
+                        "type": "string",
+                        "enum": [
+                          "Organization",
+                          "Project"
+                        ]
+                      }
+                    ],
+                    "description": "An indication whether the defined custom resource is organization- or project-scoped. Read-only."
+                  },
+                  "versions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "name",
+                        "schema",
+                        "served"
+                      ],
+                      "properties": {
+                        "deprecated": {
+                          "type": [
+                            "boolean",
+                            "null"
+                          ],
+                          "description": "A flag stating if this version of the custom resource API is deprecated. When set to `true`, API requests to this version receive a warning header in the server response."
+                        },
+                        "deprecationWarning": {
+                          "type": [
+                            "string",
+                            "null"
+                          ],
+                          "description": "An override for the default warning returned to API clients. May only be set when `deprecated` is true. The default warning indicates this version is deprecated and recommends use of the newest served version of equal or greater stability, if one exists."
+                        },
+                        "name": {
+                          "type": "string",
+                          "description": "The version name. It must start with a `v` followed by a number (the major version), then optionally the string `alpha` or `beta` and another number (the minor version). The custom resources are served under this version at `/{group}/{version}/*` if `spec.versions.served` is `true`. The name must be unique across all versions.",
+                          "examples": [
+                            "v1alpha1"
+                          ],
+                          "pattern": "^v[0-9]+(alpha[0-9]+|beta[0-9]+)?$"
+                        },
+                        "schema": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "openAPIV31Schema"
+                              ],
+                              "properties": {
+                                "openAPIV31Schema": {
+                                  "type": "object",
+                                  "description": "The validation schema for custom resources. Based on the OpenAPI v3.1 schema object.",
+                                  "required": [
+                                    "type",
+                                    "properties"
+                                  ],
+                                  "properties": {
+                                    "properties": {
+                                      "type": "object",
+                                      "required": [
+                                        "spec"
+                                      ],
+                                      "properties": {
+                                        "metadata": {
+                                          "type": "object",
+                                          "description": "A validation on the `metadata.name` property to apply specific restrictions.",
+                                          "required": [
+                                            "type",
+                                            "properties"
+                                          ],
+                                          "properties": {
+                                            "properties": {
+                                              "type": "object",
+                                              "required": [
+                                                "name"
+                                              ],
+                                              "properties": {
+                                                "name": {
+                                                  "type": "object",
+                                                  "required": [
+                                                    "type"
+                                                  ],
+                                                  "properties": {
+                                                    "type": {
+                                                      "type": "string",
+                                                      "enum": [
+                                                        "string"
+                                                      ]
+                                                    }
+                                                  },
+                                                  "additionalProperties": true
+                                                }
+                                              }
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "enum": [
+                                                "object"
+                                              ]
+                                            }
+                                          }
+                                        },
+                                        "spec": {
+                                          "type": "object",
+                                          "description": "A validation on the `spec` property.",
+                                          "required": [
+                                            "type",
+                                            "properties"
+                                          ],
+                                          "properties": {
+                                            "properties": {
+                                              "type": "object",
+                                              "additionalProperties": true
+                                            },
+                                            "type": {
+                                              "type": "string",
+                                              "enum": [
+                                                "object"
+                                              ]
+                                            }
+                                          }
+                                        }
+                                      }
+                                    },
+                                    "type": {
+                                      "type": "string",
+                                      "enum": [
+                                        "object"
+                                      ]
+                                    }
+                                  }
+                                }
+                              }
+                            }
+                          ],
+                          "description": "The list of validation methods for the custom resources."
+                        },
+                        "selectableFields": {
+                          "type": [
+                            "array",
+                            "null"
+                          ],
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "jsonPath"
+                            ],
+                            "properties": {
+                              "jsonPath": {
+                                "type": "string",
+                                "description": "A simple JSON path which is evaluated against each custom resource to produce a field selector value. Only JSON paths without the array notation are allowed. It must point to a field yielding a primitive or homogeneous array of primitives value. Types with enum values and strings with formats are allowed."
+                              }
+                            },
+                            "examples": [
+                              {
+                                "jsonPath": "spec.imageName"
+                              }
+                            ]
+                          },
+                          "description": "A list of paths to fields that may be used as field selectors. A maximum of 8 selectable fields are allowed.",
+                          "maxItems": 8
+                        },
+                        "served": {
+                          "type": "boolean",
+                          "description": "A flag enabling/disabling this version from being served via REST APIs."
+                        }
+                      }
+                    },
+                    "description": "The list of all API versions of the defined custom resource."
+                  }
+                }
+              }
+            ],
+            "description": "The state of this object."
+          }
+        },
+        "examples": [
+          {
+            "apiVersion": "servicecatalog.mia-platform.eu/v1alpha1",
+            "kind": "CustomResourceDefinition",
+            "metadata": {
+              "annotations": {
+                "mia-platform.eu/version": "14.0.0"
+              },
+              "creationTimestamp": "2025-09-17T10:30:45Z",
+              "description": "A single Docker image.",
+              "labels": {
+                "environment": "demo"
+              },
+              "links": [
+                {
+                  "title": "Documentation",
+                  "url": "https://docs.mia-platform.eu/"
+                }
+              ],
+              "name": "dockerimages.servicecatalog.example.com",
+              "uid": "550e8400-e29b-41d4-a716-446655440000"
+            },
+            "spec": {
+              "group": "servicecatalog.example.com",
+              "names": {
+                "kind": "DockerImage",
+                "plural": "dockerimages",
+                "displayPlural": "Docker Images",
+                "singular": "dockerimage",
+                "displaySingular": "Docker Image"
+              },
+              "scope": "Organization",
+              "versions": [
+                {
+                  "name": "v1alpha1",
+                  "schema": {
+                    "openAPIV31Schema": {
+                      "properties": {
+                        "imageName": {
+                          "type": "string"
+                        },
+                        "registry": {
+                          "default": "docker.io",
+                          "type": "string"
+                        },
+                        "tag": {
+                          "pattern": "(latest|[0-9]+.[0-9]+.[0-9]+(-[a-z]+[0-9]*)?|[0-9]+.[0-9]+.[0-9]+)$",
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "imageName",
+                        "tag"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "selectableFields": [
+                    {
+                      "jsonPath": "spec.imageName"
+                    }
+                  ],
+                  "served": true
+                }
+              ]
+            },
+            "resourceVersion": "1"
+          }
+        ]
+      },
+      "miaplatform.eu.v1alpha1.ListMetadata": {
+        "type": "object",
+        "description": "The standard list metadata.",
+        "properties": {
+          "continue": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A token used for pagination. It is returned if the client has set a limit on the number of items, and indicates that the server has more data available. The value is opaque and may be used to issue another request to the endpoint that served this list to retrieve the next set of available objects."
+          }
+        },
+        "examples": [
+          {
+            "continue": "eyJ2IjoibWV0YS5rOHMuaW8"
+          }
+        ]
+      },
+      "miaplatform.eu.v1alpha1.List_miaplatform.eu.v1alpha1.CustomResourceDefinition": {
+        "type": "object",
+        "description": "A collection of objects of a single kind.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "items"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string",
+            "description": "The versioned schema of this representation of an object.",
+            "enum": [
+              "mia-platform.eu/v1alpha1"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A resource that extends the Catalog API by defining a custom resource type.",
+              "required": [
+                "apiVersion",
+                "kind",
+                "metadata",
+                "spec"
+              ],
+              "properties": {
+                "apiVersion": {
+                  "type": "string",
+                  "description": "The versioned schema of this representation of an object.",
+                  "enum": [
+                    "mia-platform.eu/v1alpha1"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "The family of resources this object belongs to.",
+                  "enum": [
+                    "CustomResourceDefinition"
+                  ]
+                },
+                "metadata": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.ObjectMetadata"
+                },
+                "resourceVersion": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "description": "An opaque value that represents the internal version of this object. Clients may not set this value and must treat it as opaque. Read-only."
+                },
+                "spec": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": [
+                        "group",
+                        "names",
+                        "scope",
+                        "versions"
+                      ],
+                      "properties": {
+                        "group": {
+                          "type": "string",
+                          "description": "The API group of the defined custom resource. The custom resources will be serve under `/{group}/*`. Must match the `metadata.name` of this object in the form `<spec.names.plural>.<spec.group>`. Read-only.",
+                          "examples": [
+                            "stable.example.com"
+                          ],
+                          "maxLength": 253,
+                          "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$"
+                        },
+                        "names": {
+                          "oneOf": [
+                            {
+                              "type": "object",
+                              "required": [
+                                "kind",
+                                "plural"
+                              ],
+                              "properties": {
+                                "displayPlural": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "description": "The display name of the resource in plural form. It is used only for display purposes. Defaults to the `spec.names.plural` of this object.",
+                                  "examples": [
+                                    "Docker Images"
+                                  ]
+                                },
+                                "displaySingular": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "description": "The display name of the resource in singular form. It is used only for display purposes. Defaults to the `spec.names.singular` of this object.",
+                                  "examples": [
+                                    "Docker Image"
+                                  ]
+                                },
+                                "kind": {
+                                  "type": "string",
+                                  "description": "The serialized kind of the resource. It is normally CamelCase and singular. Custom resource instances will use this value as the `kind` attribute in API calls. Read-only.",
+                                  "examples": [
+                                    "DockerImage"
+                                  ],
+                                  "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+                                },
+                                "plural": {
+                                  "type": "string",
+                                  "description": "The plural name of the resource to serve. The custom resources are served under `/{group}/{version}/resources/{plural}/*`. Must match the `metadata.name` of this object in the form `<spec.names.plural>.<spec.group>`. Must be all lowercase. Read-only.",
+                                  "examples": [
+                                    "dockerimages"
+                                  ],
+                                  "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                                },
+                                "singular": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ],
+                                  "description": "The singular name of the resource. It must be all lowercase. Defaults to the lowercased `spec.names.kind` of this object. Read-only.",
+                                  "examples": [
+                                    "dockerimage"
+                                  ],
+                                  "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+                                }
+                              }
+                            }
+                          ],
+                          "description": "The resource and kind names for the custom resource."
+                        },
+                        "scope": {
+                          "oneOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "Organization",
+                                "Project"
+                              ]
+                            }
+                          ],
+                          "description": "An indication whether the defined custom resource is organization- or project-scoped. Read-only."
+                        },
+                        "versions": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": [
+                              "name",
+                              "schema",
+                              "served"
+                            ],
+                            "properties": {
+                              "deprecated": {
+                                "type": [
+                                  "boolean",
+                                  "null"
+                                ],
+                                "description": "A flag stating if this version of the custom resource API is deprecated. When set to `true`, API requests to this version receive a warning header in the server response."
+                              },
+                              "deprecationWarning": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ],
+                                "description": "An override for the default warning returned to API clients. May only be set when `deprecated` is true. The default warning indicates this version is deprecated and recommends use of the newest served version of equal or greater stability, if one exists."
+                              },
+                              "name": {
+                                "type": "string",
+                                "description": "The version name. It must start with a `v` followed by a number (the major version), then optionally the string `alpha` or `beta` and another number (the minor version). The custom resources are served under this version at `/{group}/{version}/*` if `spec.versions.served` is `true`. The name must be unique across all versions.",
+                                "examples": [
+                                  "v1alpha1"
+                                ],
+                                "pattern": "^v[0-9]+(alpha[0-9]+|beta[0-9]+)?$"
+                              },
+                              "schema": {
+                                "oneOf": [
+                                  {
+                                    "type": "object",
+                                    "required": [
+                                      "openAPIV31Schema"
+                                    ],
+                                    "properties": {
+                                      "openAPIV31Schema": {
+                                        "type": "object",
+                                        "description": "The validation schema for custom resources. Based on the OpenAPI v3.1 schema object.",
+                                        "required": [
+                                          "type",
+                                          "properties"
+                                        ],
+                                        "properties": {
+                                          "properties": {
+                                            "type": "object",
+                                            "required": [
+                                              "spec"
+                                            ],
+                                            "properties": {
+                                              "metadata": {
+                                                "type": "object",
+                                                "description": "A validation on the `metadata.name` property to apply specific restrictions.",
+                                                "required": [
+                                                  "type",
+                                                  "properties"
+                                                ],
+                                                "properties": {
+                                                  "properties": {
+                                                    "type": "object",
+                                                    "required": [
+                                                      "name"
+                                                    ],
+                                                    "properties": {
+                                                      "name": {
+                                                        "type": "object",
+                                                        "required": [
+                                                          "type"
+                                                        ],
+                                                        "properties": {
+                                                          "type": {
+                                                            "type": "string",
+                                                            "enum": [
+                                                              "string"
+                                                            ]
+                                                          }
+                                                        },
+                                                        "additionalProperties": true
+                                                      }
+                                                    }
+                                                  },
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "object"
+                                                    ]
+                                                  }
+                                                }
+                                              },
+                                              "spec": {
+                                                "type": "object",
+                                                "description": "A validation on the `spec` property.",
+                                                "required": [
+                                                  "type",
+                                                  "properties"
+                                                ],
+                                                "properties": {
+                                                  "properties": {
+                                                    "type": "object",
+                                                    "additionalProperties": true
+                                                  },
+                                                  "type": {
+                                                    "type": "string",
+                                                    "enum": [
+                                                      "object"
+                                                    ]
+                                                  }
+                                                }
+                                              }
+                                            }
+                                          },
+                                          "type": {
+                                            "type": "string",
+                                            "enum": [
+                                              "object"
+                                            ]
+                                          }
+                                        }
+                                      }
+                                    }
+                                  }
+                                ],
+                                "description": "The list of validation methods for the custom resources."
+                              },
+                              "selectableFields": {
+                                "type": [
+                                  "array",
+                                  "null"
+                                ],
+                                "items": {
+                                  "type": "object",
+                                  "required": [
+                                    "jsonPath"
+                                  ],
+                                  "properties": {
+                                    "jsonPath": {
+                                      "type": "string",
+                                      "description": "A simple JSON path which is evaluated against each custom resource to produce a field selector value. Only JSON paths without the array notation are allowed. It must point to a field yielding a primitive or homogeneous array of primitives value. Types with enum values and strings with formats are allowed."
+                                    }
+                                  },
+                                  "examples": [
+                                    {
+                                      "jsonPath": "spec.imageName"
+                                    }
+                                  ]
+                                },
+                                "description": "A list of paths to fields that may be used as field selectors. A maximum of 8 selectable fields are allowed.",
+                                "maxItems": 8
+                              },
+                              "served": {
+                                "type": "boolean",
+                                "description": "A flag enabling/disabling this version from being served via REST APIs."
+                              }
+                            }
+                          },
+                          "description": "The list of all API versions of the defined custom resource."
+                        }
+                      }
+                    }
+                  ],
+                  "description": "The state of this object."
+                }
+              },
+              "examples": [
+                {
+                  "apiVersion": "servicecatalog.mia-platform.eu/v1alpha1",
+                  "kind": "CustomResourceDefinition",
+                  "metadata": {
+                    "annotations": {
+                      "mia-platform.eu/version": "14.0.0"
+                    },
+                    "creationTimestamp": "2025-09-17T10:30:45Z",
+                    "description": "A single Docker image.",
+                    "labels": {
+                      "environment": "demo"
+                    },
+                    "links": [
+                      {
+                        "title": "Documentation",
+                        "url": "https://docs.mia-platform.eu/"
+                      }
+                    ],
+                    "name": "dockerimages.servicecatalog.example.com",
+                    "uid": "550e8400-e29b-41d4-a716-446655440000"
+                  },
+                  "spec": {
+                    "group": "servicecatalog.example.com",
+                    "names": {
+                      "kind": "DockerImage",
+                      "plural": "dockerimages",
+                      "displayPlural": "Docker Images",
+                      "singular": "dockerimage",
+                      "displaySingular": "Docker Image"
+                    },
+                    "scope": "Organization",
+                    "versions": [
+                      {
+                        "name": "v1alpha1",
+                        "schema": {
+                          "openAPIV31Schema": {
+                            "properties": {
+                              "imageName": {
+                                "type": "string"
+                              },
+                              "registry": {
+                                "default": "docker.io",
+                                "type": "string"
+                              },
+                              "tag": {
+                                "pattern": "(latest|[0-9]+.[0-9]+.[0-9]+(-[a-z]+[0-9]*)?|[0-9]+.[0-9]+.[0-9]+)$",
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "imageName",
+                              "tag"
+                            ],
+                            "type": "object"
+                          }
+                        },
+                        "selectableFields": [
+                          {
+                            "jsonPath": "spec.imageName"
+                          }
+                        ],
+                        "served": true
+                      }
+                    ]
+                  },
+                  "resourceVersion": "1"
+                }
+              ]
+            },
+            "description": "The list of objects."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The family of resources this object belongs to.",
+            "enum": [
+              "List"
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.ListMetadata"
+          }
+        },
+        "examples": [
+          {
+            "apiVersion": "mia-platform.eu/v1alpha1",
+            "kind": "List",
+            "metadata": {
+              "continue": "eyJ2IjoibWV0YS5rOHMuaW8"
+            },
+            "items": [
+              {
+                "apiVersion": "stable.example.com/v1",
+                "kind": "DockerImage",
+                "metadata": {
+                  "creationTimestamp": "2025-09-17T10:30:45Z",
+                  "name": "mia-api-gateway-100",
+                  "resourceVersion": "1",
+                  "uid": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "spec": {
+                  "imageName": "api-gateway"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "miaplatform.eu.v1alpha1.List_miaplatform.eu.v1alpha1.Object": {
+        "type": "object",
+        "description": "A collection of objects of a single kind.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "items"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string",
+            "description": "The versioned schema of this representation of an object.",
+            "enum": [
+              "mia-platform.eu/v1alpha1"
+            ]
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "description": "A persistent entity in the Catalog system.",
+              "required": [
+                "apiVersion",
+                "kind",
+                "metadata",
+                "spec"
+              ],
+              "properties": {
+                "apiVersion": {
+                  "type": "string",
+                  "description": "The versioned schema of this representation of an object.",
+                  "examples": [
+                    "stable.example.com/v1alpha1"
+                  ],
+                  "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])*)*/v[0-9]+(alpha[0-9]+|beta[0-9]+)?$"
+                },
+                "kind": {
+                  "type": "string",
+                  "description": "The family of resources this object belongs to.",
+                  "examples": [
+                    "DockerImage"
+                  ],
+                  "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+                },
+                "metadata": {
+                  "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.ObjectMetadata"
+                },
+                "resourceVersion": {
+                  "type": [
+                    "integer",
+                    "null"
+                  ],
+                  "format": "int32",
+                  "description": "An opaque value that represents the internal version of this object. Clients may not set this value and must treat it as opaque. Read-only."
+                },
+                "spec": {
+                  "type": "object",
+                  "description": "The state of this object."
+                }
+              },
+              "examples": [
+                {
+                  "apiVersion": "stable.example.com/v1",
+                  "kind": "DockerImage",
+                  "metadata": {
+                    "annotations": {
+                      "mia-platform.eu/version": "14.0.0"
+                    },
+                    "creationTimestamp": "2025-09-17T10:30:45Z",
+                    "description": "The Docker image of the Mia-Platform API Gateway",
+                    "labels": {
+                      "environment": "demo"
+                    },
+                    "links": [
+                      {
+                        "title": "Documentation",
+                        "url": "https://docs.mia-platform.eu/"
+                      }
+                    ],
+                    "name": "mia-api-gateway-100",
+                    "tags": [
+                      "api"
+                    ],
+                    "title": "Mia API Gateway",
+                    "uid": "550e8400-e29b-41d4-a716-446655440000"
+                  },
+                  "spec": {
+                    "imageName": "api-gateway",
+                    "registry": "nexus.mia-platform.eu",
+                    "tag": "1.0.0"
+                  },
+                  "resourceVersion": 1
+                }
+              ]
+            },
+            "description": "The list of objects."
+          },
+          "kind": {
+            "type": "string",
+            "description": "The family of resources this object belongs to.",
+            "enum": [
+              "List"
+            ]
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.ListMetadata"
+          }
+        },
+        "examples": [
+          {
+            "apiVersion": "mia-platform.eu/v1alpha1",
+            "kind": "List",
+            "metadata": {
+              "continue": "eyJ2IjoibWV0YS5rOHMuaW8"
+            },
+            "items": [
+              {
+                "apiVersion": "stable.example.com/v1",
+                "kind": "DockerImage",
+                "metadata": {
+                  "creationTimestamp": "2025-09-17T10:30:45Z",
+                  "name": "mia-api-gateway-100",
+                  "resourceVersion": "1",
+                  "uid": "550e8400-e29b-41d4-a716-446655440000"
+                },
+                "spec": {
+                  "imageName": "api-gateway"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "miaplatform.eu.v1alpha1.Object": {
+        "type": "object",
+        "description": "A persistent entity in the Catalog system.",
+        "required": [
+          "apiVersion",
+          "kind",
+          "metadata",
+          "spec"
+        ],
+        "properties": {
+          "apiVersion": {
+            "type": "string",
+            "description": "The versioned schema of this representation of an object.",
+            "examples": [
+              "stable.example.com/v1alpha1"
+            ],
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])*)*/v[0-9]+(alpha[0-9]+|beta[0-9]+)?$"
+          },
+          "kind": {
+            "type": "string",
+            "description": "The family of resources this object belongs to.",
+            "examples": [
+              "DockerImage"
+            ],
+            "pattern": "^[a-zA-Z][a-zA-Z0-9]*$"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/miaplatform.eu.v1alpha1.ObjectMetadata"
+          },
+          "resourceVersion": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "description": "An opaque value that represents the internal version of this object. Clients may not set this value and must treat it as opaque. Read-only."
+          },
+          "spec": {
+            "type": "object",
+            "description": "The state of this object."
+          }
+        },
+        "examples": [
+          {
+            "apiVersion": "stable.example.com/v1",
+            "kind": "DockerImage",
+            "metadata": {
+              "annotations": {
+                "mia-platform.eu/version": "14.0.0"
+              },
+              "creationTimestamp": "2025-09-17T10:30:45Z",
+              "description": "The Docker image of the Mia-Platform API Gateway",
+              "labels": {
+                "environment": "demo"
+              },
+              "links": [
+                {
+                  "title": "Documentation",
+                  "url": "https://docs.mia-platform.eu/"
+                }
+              ],
+              "name": "mia-api-gateway-100",
+              "tags": [
+                "api"
+              ],
+              "title": "Mia API Gateway",
+              "uid": "550e8400-e29b-41d4-a716-446655440000"
+            },
+            "spec": {
+              "imageName": "api-gateway",
+              "registry": "nexus.mia-platform.eu",
+              "tag": "1.0.0"
+            },
+            "resourceVersion": 1
+          }
+        ]
+      },
+      "miaplatform.eu.v1alpha1.ObjectMetadata": {
+        "type": "object",
+        "description": "The standard object metadata.",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "annotations": {
+            "type": "object",
+            "description": "An unstructured key value map that may be set by external tools to store and retrieve arbitrary metadata. They are not queryable and should be preserved when modifying this object.",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^([a-zA-Z0-9][a-zA-Z0-9.-]{0,253}[/])?([a-zA-Z0-9][a-zA-Z0-9.-]{0,63}[a-zA-Z0-9]?)$"
+            },
+            "examples": [
+              {
+                "imageregistry": "https://hub.docker.com/",
+                "mia-platform.eu/version": "14.0.0"
+              }
+            ]
+          },
+          "creationTimestamp": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "The server time when this object was created. Clients may not set this value. It is represented in ISO 8601 form and is in UTC. Read-only.",
+            "examples": [
+              "2025-09-17T10:30:45Z"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A brief description of this object."
+          },
+          "labels": {
+            "type": "object",
+            "description": "A map of string keys and values that can be used to organize and categorize (scope and select) objects.",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 63,
+              "pattern": "^([a-zA-Z0-9]([a-zA-Z0-9._-]{0,61}[a-zA-Z0-9])?|)$"
+            },
+            "propertyNames": {
+              "type": "string",
+              "pattern": "^([a-zA-Z0-9][a-zA-Z0-9.-]{0,253}[/])?([a-zA-Z0-9][a-zA-Z0-9.-]{0,63}[a-zA-Z0-9]?)$"
+            },
+            "examples": [
+              {
+                "environment": "dev",
+                "mia-platform.eu/tenant": "my-company",
+                "track": ""
+              }
+            ]
+          },
+          "links": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "object",
+              "required": [
+                "url"
+              ],
+              "properties": {
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ],
+                  "description": "A display name for the link.",
+                  "minLength": 1
+                },
+                "url": {
+                  "type": "string",
+                  "format": "uri",
+                  "description": "The URL in standard URI format."
+                }
+              },
+              "examples": [
+                {
+                  "title": "Mia-Platform",
+                  "url": "https://mia-platform.eu/"
+                },
+                {
+                  "url": "https://example.com"
+                }
+              ]
+            },
+            "description": "A list of external hyperlinks."
+          },
+          "name": {
+            "type": "string",
+            "description": "The name of the entity. It must be unique within a namespace. It is represented in RFC 1035 DNS subdomain format. Read-only.",
+            "examples": [
+              "api-gateway",
+              "dockerimages.stable.example.com"
+            ],
+            "maxLength": 253,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$"
+          },
+          "namespace": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "The identifier of the project the object belongs to, and within which the object name must be unique. An empty namespace is equivalent to the `default` project. It is represented in RFC 1123 DNS label format. Read-only.",
+            "examples": [
+              "ai-playground-project"
+            ],
+            "maxLength": 63,
+            "minLength": 1,
+            "pattern": "^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$"
+          },
+          "tags": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string",
+              "examples": [
+                "ai",
+                "env-production"
+              ],
+              "maxLength": 63,
+              "minLength": 1,
+              "pattern": "^[a-z0-9:+#]+(-[a-z0-9:+#]+)*$"
+            },
+            "description": "A list of single-valued strings."
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "A display name of this object. It is to be presented in user interfaces instead of the `metadata.name` of this object, when available.",
+            "examples": [
+              "Plugin",
+              "Custom Workload",
+              "AI Agent"
+            ],
+            "minLength": 1
+          },
+          "uid": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "The unique in time and space identifier for this object. Clients may not set this value. It is represented in RFC 4122 form. Read-only.",
+            "examples": [
+              "550e8400-e29b-41d4-a716-446655440000"
+            ]
+          }
+        }
+      },
+      "miaplatform.eu.v1alpha1.StatusResponse": {
+        "type": "object",
+        "required": [
+          "status",
+          "error",
+          "message"
+        ],
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "custom-resource-definitions",
+      "description": "Custom Resource Definitions APIs"
+    },
+    {
+      "name": "objects",
+      "description": "Objects APIs"
+    },
+    {
+      "name": "ingestion",
+      "description": "External source ingestion APIs"
+    }
+  ]
+}
