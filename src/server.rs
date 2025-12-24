@@ -32,11 +32,6 @@ pub async fn try_init(configuration: Configuration) -> io::Result<()> {
 
     mcp_server.load_openapi_spec().map_err(io::Error::other)?;
 
-    tracing::info!(
-        toolCount = mcp_server.tool_count(),
-        "Successfully loaded tools from OpenAPI specification"
-    );
-
     tracing::debug!(
         tools = %mcp_server.get_tool_names().join(", "),
         stats = %mcp_server.get_tool_stats(),

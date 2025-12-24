@@ -4,6 +4,19 @@ env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
 args = ["run", "--all-features", "${@}"]
 
+[tasks.dev]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = [
+    "run",
+    "--all-features",
+    "--",
+    "--base-url", "http://localhost:3000/api",
+    "--spec", "./static/catalog-engine.openapi.json",
+    "--port", "8000"
+]
+
 [tasks.help]
 workspace = false
 env = { RUSTFLAGS = "-Awarnings" }

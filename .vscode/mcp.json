@@ -1,7 +1,7 @@
 {
 	"servers": {
 		"catalog-mcp-server-local": {
-			"url": "http://localhost:3001/catalog/mcp",
+			"url": "http://localhost:8000/mcp",
 			"type": "http"
 		}
 	},

@@ -6,7 +6,7 @@ pub static CATALOG_SPEC_PATH: &str = "openapi/json";
 
 #[derive(Debug, Clone)]
 pub enum SpecLocation {
-    File(PathBuf),
+    File(String),
     Url(Url),
 }
 
@@ -19,7 +19,21 @@ impl FromStr for SpecLocation {
                 .map(SpecLocation::Url)
                 .map_err(|e| anyhow::anyhow!("{}", e))
         } else {
-            Ok(SpecLocation::File(PathBuf::from(s)))
+            let path_buf = PathBuf::from(s);
+            let path_str = path_buf
+                .to_str()
+                .ok_or_else(|| anyhow::anyhow!("invalid file path encoding: {}", s))?;
+
+            Ok(SpecLocation::File(path_str.to_string()))
+        }
+    }
+}
+
+impl Display for SpecLocation {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SpecLocation::File(path) => write!(f, "File({})", path),
+            SpecLocation::Url(url) => write!(f, "Url({})", url),
         }
     }
 }
@@ -38,13 +52,19 @@ impl SpecLocation {
 
         SpecLocation::Url(full_url)
     }
-}
 
-impl Display for SpecLocation {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    pub async fn load_spec(&self) -> Result<serde_json::Value, anyhow::Error> {
         match self {
-            SpecLocation::File(path) => write!(f, "File({})", path.display()),
-            SpecLocation::Url(url) => write!(f, "Url({})", url),
+            SpecLocation::File(path) => {
+                let content = tokio::fs::read_to_string(path).await?;
+                let spec: serde_json::Value = serde_json::from_str(&content)?;
+                Ok(spec)
+            }
+            SpecLocation::Url(url) => {
+                let response = reqwest::get(url.clone()).await?;
+                let spec: serde_json::Value = response.json().await?;
+                Ok(spec)
+            }
         }
     }
 }

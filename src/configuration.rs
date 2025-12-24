@@ -1,6 +1,7 @@
 use std::{fmt::Display, net::IpAddr};
 
 use crate::{cli::Cli, spec::SpecLocation};
+use anyhow::Context;
 use rmcp_openapi::Server;
 use url::Url;
 
@@ -40,6 +41,25 @@ impl Display for Configuration {
 
 impl Configuration {
     pub async fn try_into_server(&self) -> anyhow::Result<Server> {
-        todo!()
+        let openapi_spec = self
+            .spec_location
+            .load_spec()
+            .await
+            .with_context(|| "while loading OpenAPI spec")?;
+
+        let mut server = Server::new(
+            openapi_spec,
+            self.base_url.clone(),
+            None,
+            None,
+            false,
+            false,
+        );
+
+        server.name = Some(env!("CARGO_PKG_NAME").to_string());
+        server.version = Some(env!("CARGO_PKG_VERSION").to_string());
+        server.instructions = Some(env!("CARGO_PKG_DESCRIPTION").to_string());
+
+        Ok(server)
     }
 }
