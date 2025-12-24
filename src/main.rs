@@ -12,9 +12,6 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     logger::try_init(env!("CARGO_BIN_NAME"))?;
     tracing::try_init()?;
 
-    // let span = tracing::info_span!("server_initialization");
-    // let _enter = span.enter();
-
     let cli = Cli::parse_args();
     let configuration = Configuration::from(&cli);
 
