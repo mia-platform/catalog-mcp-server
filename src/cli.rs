@@ -1,5 +1,6 @@
 use crate::spec::{CATALOG_SPEC_PATH, SpecLocation};
 use clap::Parser;
+use std::net::IpAddr;
 use url::Url;
 
 #[derive(Parser, Debug)]
@@ -15,7 +16,7 @@ pub struct Cli {
     pub spec: Option<SpecLocation>,
 
     /// Mia-Platform Catalog base URL
-    #[arg(long, short = 'u', value_name = "URL")]
+    #[arg(long, short = 'b', value_name = "URL")]
     pub base_url: Url,
 
     /// Prefix for the MCP server REST API
@@ -28,7 +29,7 @@ pub struct Cli {
 
     /// IP address to bind the MCP server to
     #[arg(long, default_value = "0.0.0.0")]
-    pub ip: String,
+    pub ip: IpAddr,
 }
 
 impl Cli {

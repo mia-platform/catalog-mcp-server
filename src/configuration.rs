@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::{fmt::Display, net::IpAddr};
 
 use crate::{cli::Cli, spec::SpecLocation};
 use rmcp_openapi::Server;
@@ -10,7 +10,7 @@ pub struct Configuration {
     pub base_url: Url,
     pub api_prefix: String,
     pub port: u16,
-    pub ip: String,
+    pub ip: IpAddr,
 }
 
 impl From<&Cli> for Configuration {
@@ -23,7 +23,7 @@ impl From<&Cli> for Configuration {
             base_url: cli.base_url.clone(),
             api_prefix: cli.api_prefix.clone(),
             port: cli.port,
-            ip: cli.ip.clone(),
+            ip: cli.ip,
         }
     }
 }
@@ -39,7 +39,7 @@ impl Display for Configuration {
 }
 
 impl Configuration {
-    pub async fn try_into_server(self) -> anyhow::Result<Server> {
+    pub async fn try_into_server(&self) -> anyhow::Result<Server> {
         todo!()
     }
 }
