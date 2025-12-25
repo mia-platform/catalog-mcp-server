@@ -24,7 +24,7 @@ pub struct Cli {
     pub api_prefix: String,
 
     /// Port to bind the MCP server to
-    #[arg(long, short = 'p', default_value = "3000")]
+    #[arg(long, short = 'p', default_value = "8000")]
     pub port: u16,
 
     /// IP address to bind the MCP server to

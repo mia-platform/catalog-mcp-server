@@ -31,6 +31,18 @@ args = ["build", "--all-features"]
 
 ########################################################################################################################
 
+[tasks.docker_build]
+workspace = false
+command = "docker"
+args = ["build", "--tag=ghcr.io/mia-platform/catalog-mcp-server:latest", "."]
+
+[tasks.docker_run]
+workspace = false
+command = "docker"
+args = ["run", "--rm", "-it", "--publish=8000:8000", "ghcr.io/mia-platform/catalog-mcp-server:latest", "${@}"]
+
+########################################################################################################################
+
 [tasks.fmt]
 workspace = false
 script = "cargo +nightly fmt --all --check"

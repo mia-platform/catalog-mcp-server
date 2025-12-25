@@ -1,3 +1,2 @@
 [env]
 LOG_LEVEL = "debug"
-CONFIGURATION_FOLDER = ".dev"

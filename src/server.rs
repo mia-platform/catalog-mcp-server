@@ -43,7 +43,6 @@ pub async fn try_init(configuration: Configuration) -> io::Result<()> {
     let ct = tokio_util::sync::CancellationToken::new();
     let ct_clone = ct.clone();
 
-    // Spawn shutdown signal handler
     tokio::spawn(async move {
         signal::shutdown_signal().await;
         ct_clone.cancel();
