@@ -39,7 +39,15 @@ args = ["build", "--tag=ghcr.io/mia-platform/catalog-mcp-server:latest", "."]
 [tasks.docker_run]
 workspace = false
 command = "docker"
-args = ["run", "--rm", "-it", "--publish=8000:8000", "ghcr.io/mia-platform/catalog-mcp-server:latest", "${@}"]
+args = [
+    "run",
+    "--rm",
+    "-it",
+    "--name=catalog-mcp-server",
+    "--publish=8000:8000",
+    "ghcr.io/mia-platform/catalog-mcp-server:latest",
+    "${@}"
+]
 
 ########################################################################################################################
 

@@ -1,3 +1,4 @@
+use std::future::Future;
 use tokio::sync::{OnceCell, broadcast};
 
 pub type Shutdown = broadcast::Sender<()>;

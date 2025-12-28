@@ -1,9 +1,19 @@
 {
-	"servers": {
-		"catalog-mcp-server-local": {
-			"url": "http://localhost:8000/mcp",
-			"type": "http"
-		}
-	},
-	"inputs": []
+  "servers": {
+    "catalog": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--name", "catalog-mcp-server",
+        "ghcr.io/mia-platform/catalog-mcp-server:latest",
+        "--stdio",
+        "--base-url=http://host.docker.internal:3000",
+        "--spec=http://host.docker.internal:3000/api/openapi/json"
+      ]
+    }
+  },
+  "inputs": []
 }

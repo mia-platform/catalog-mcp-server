@@ -1,8 +1,14 @@
-use crate::{configuration::Configuration, signal};
-use axum::{Router, ServiceExt, extract::Request};
-use rmcp::transport::{
-    StreamableHttpServerConfig, StreamableHttpService,
-    streamable_http_server::session::local::LocalSessionManager,
+use crate::{
+    configuration::{Configuration, TransportMode},
+    signal,
+};
+use axum::{Router, ServiceExt as AxumServiceExt, extract::Request};
+use rmcp::{
+    ServiceExt,
+    transport::{
+        StreamableHttpServerConfig, StreamableHttpService,
+        streamable_http_server::session::local::LocalSessionManager,
+    },
 };
 use rmcp_openapi::Server as McpServer;
 use std::{io, net::SocketAddr, sync::Arc};
@@ -21,10 +27,6 @@ fn build_router_path(prefix: &str) -> String {
 pub async fn try_init(configuration: Configuration) -> io::Result<()> {
     tracing::info!(%configuration, "starting catalog MCP server");
 
-    let ip = configuration.ip;
-    let port = configuration.port;
-    let prefix = configuration.api_prefix.clone();
-
     let mut mcp_server: McpServer = configuration
         .try_into_server()
         .await
@@ -40,6 +42,57 @@ pub async fn try_init(configuration: Configuration) -> io::Result<()> {
 
     mcp_server.validate_registry().map_err(io::Error::other)?;
 
+    match configuration.transport_mode {
+        TransportMode::Stdio => run_stdio_server(mcp_server).await,
+        TransportMode::Http => {
+            run_http_server(
+                mcp_server,
+                configuration.ip,
+                configuration.port,
+                configuration.api_prefix,
+            )
+            .await
+        }
+    }
+}
+
+async fn run_stdio_server(mcp_server: McpServer) -> io::Result<()> {
+    tracing::info!("starting MCP server in stdio mode");
+
+    let transport = rmcp::transport::io::stdio();
+
+    let running_service = mcp_server
+        .serve(transport)
+        .await
+        .map_err(io::Error::other)?;
+
+    // Wait for the service to complete (when stdio is closed) or shutdown signal
+    tokio::select! {
+        result = running_service.waiting() => {
+            match result {
+                Ok(quit_reason) => {
+                    tracing::info!(?quit_reason, "stdio server stopped");
+                }
+                Err(err) => {
+                    tracing::error!(?err, "stdio server task panicked");
+                    return Err(io::Error::other(err));
+                }
+            }
+        }
+        _ = signal::shutdown_signal() => {
+            tracing::info!("received shutdown signal");
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_http_server(
+    mcp_server: McpServer,
+    ip: std::net::IpAddr,
+    port: u16,
+    prefix: String,
+) -> io::Result<()> {
     let ct = tokio_util::sync::CancellationToken::new();
     let ct_clone = ct.clone();
 
@@ -69,7 +122,7 @@ pub async fn try_init(configuration: Configuration) -> io::Result<()> {
                     tracing::info!(%local_addr, "http server listening with MCP endpoint at {}", router_path)
                 }
             })?,
-        ServiceExt::<Request>::into_make_service(router),
+        AxumServiceExt::<Request>::into_make_service(router),
     )
     .with_graceful_shutdown(ct.cancelled_owned())
     .await

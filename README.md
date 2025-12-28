@@ -20,14 +20,73 @@ The service accepts the following environment variables:
 
 The service can be configured with the following set of CLI arguments:
 
-| Flag                      | Required |          Default          | Description                                                                              |
-| :------------------------ | :------: | :-----------------------: | :--------------------------------------------------------------------------------------- |
-| `-s`, `--spec <LOCATION>` |          | `<base-url>/openapi/json` | Path or URL to the OpenAPI specification file from which the MCP server should be built. |
-| `-b`, `--base-url <URL>`  |    ✓     |                           | Mia-Platform Catalog base URL.                                                           |
-| `--api-prefix <PREFIX>`   |          |            `/`            | Prefix for the MCP server REST API.                                                      |
-| `-p`, `--port <PORT>`     |          |          `8000`           | Port to bind the MCP server to.                                                          |
-| `--ip <IP>`               |          |         `0.0.0.0`         | IP address to bind the MCP server to.                                                    |
+| Flag                      | Required |          Default          | Description                                                                                    |
+| :------------------------ | :------: | :-----------------------: | :--------------------------------------------------------------------------------------------- |
+| `-s`, `--spec <LOCATION>` |          | `<base-url>/openapi/json` | Path or URL to the OpenAPI specification file from which the MCP server should be built.       |
+| `-b`, `--base-url <URL>`  |    ✓     |                           | Mia-Platform Catalog base URL.                                                                 |
+| `--stdio`                 |          |         `false`           | Use stdio transport instead of HTTP streaming. When enabled, the server runs in stdio mode.    |
+| `--api-prefix <PREFIX>`   |          |            `/`            | Prefix for the MCP server REST API (only applicable in HTTP mode).                            |
+| `-p`, `--port <PORT>`     |          |          `8000`           | Port to bind the MCP server to (only applicable in HTTP mode).                                |
+| `--ip <IP>`               |          |         `0.0.0.0`         | IP address to bind the MCP server to (only applicable in HTTP mode).                          |
 
 ### Run with Docker
 
 ### Run from source
+
+```json
+{
+  "servers": {
+    "catalog": {
+      "type": "stdio",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--",
+        "--stdio",
+        "--base-url=http://localhost:3000",
+        "--spec=http://localhost:3000/api/openapi/json"
+      ]
+    }
+  },
+  "inputs": []
+}
+```
+
+```json
+{
+  "servers": {
+    "catalog": {
+      "type": "stdio",
+      "command": "./target/release/catalog-mcp-server",
+      "args": [
+        "--stdio",
+        "--base-url=http://localhost:3000",
+        "--spec=http://localhost:3000/api/openapi/json"
+      ]
+    }
+  },
+  "inputs": []
+}
+```
+
+```json
+{
+  "servers": {
+    "catalog": {
+      "type": "stdio",
+      "command": "docker",
+      "args": [
+        "run",
+        "-i",
+        "--rm",
+        "--name", "catalog-mcp-server",
+        "ghcr.io/mia-platform/catalog-mcp-server:latest",
+        "--stdio",
+        "--base-url=http://host.docker.internal:3000",
+        "--spec=http://host.docker.internal:3000/api/openapi/json"
+      ]
+    }
+  },
+  "inputs": []
+}
+```

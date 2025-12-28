@@ -5,10 +5,17 @@ use anyhow::Context;
 use rmcp_openapi::Server;
 use url::Url;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TransportMode {
+    Stdio,
+    Http,
+}
+
 #[derive(Debug, Clone)]
 pub struct Configuration {
     pub spec_location: SpecLocation,
     pub base_url: Url,
+    pub transport_mode: TransportMode,
     pub api_prefix: String,
     pub port: u16,
     pub ip: IpAddr,
@@ -22,6 +29,11 @@ impl From<&Cli> for Configuration {
                 .clone()
                 .unwrap_or_else(|| SpecLocation::default_from_cli_args(cli)),
             base_url: cli.base_url.clone(),
+            transport_mode: if cli.stdio {
+                TransportMode::Stdio
+            } else {
+                TransportMode::Http
+            },
             api_prefix: cli.api_prefix.clone(),
             port: cli.port,
             ip: cli.ip,
@@ -33,8 +45,13 @@ impl Display for Configuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Configuration {{ spec_location: {}, base_url: {}, api_prefix: {}, port: {}, ip: {} }}",
-            self.spec_location, self.base_url, self.api_prefix, self.port, self.ip
+            "Configuration {{ spec_location: {}, base_url: {}, transport_mode: {:?}, api_prefix: {}, port: {}, ip: {} }}",
+            self.spec_location,
+            self.base_url,
+            self.transport_mode,
+            self.api_prefix,
+            self.port,
+            self.ip
         )
     }
 }

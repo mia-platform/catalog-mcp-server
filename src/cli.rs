@@ -19,6 +19,10 @@ pub struct Cli {
     #[arg(long, short = 'b', value_name = "URL")]
     pub base_url: Url,
 
+    /// Use stdio transport instead of HTTP streaming
+    #[arg(long, default_value = "false")]
+    pub stdio: bool,
+
     /// Prefix for the MCP server REST API
     #[arg(long, value_name = "PREFIX", default_value = "/")]
     pub api_prefix: String,
