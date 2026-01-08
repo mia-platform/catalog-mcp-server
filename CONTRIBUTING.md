@@ -1,67 +1,131 @@
-# Contribution Guidelines
+# Contribution guidelines
 
 First off, thank you for considering contributing to this project.
 
-Please follow these guidelines for helping us to better address your issue, assessing changes, and helping you finalize
-your pull requests. There are many ways to contribute, from writing examples, improving the documentation, submitting
-bug reports and feature requests or writing code which can be incorporated into the module itself.
+Please follow these guidelines for helping us to better address your issue, assessing changes, and helping you finalize your pull requests. There are many ways to contribute, from writing examples, improving the documentation, submitting bug reports and feature requests or writing code which can be incorporated into the module itself.
 
-## Code of Conduct
+## Code of conduct
 
-This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md), please read it and follow it
-before contributing. If you find someone that is not respecting it please report its behaviour.
+This project adheres to the [Contributor Covenant Code of Conduct](./CODE_OF_CONDUCT.md), please read it and follow it before contributing. If you find someone that is not respecting it please report its behavior.
 
-## How Can I Contribute
+## Project overview
 
-There are several ways to contribute. You can [fork the repository] and [propose a Pull Request],
-or you can start a discussion to report a bug, an indesired behavior of the application, or to simply suggest a feature.
+This project implements a [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) (MCP) server for Mia-Platform Catalog, enabling AI clients to interact with Catalog resources through natural language.
 
-Before opening a new thread, please verify whether there's already a discussion about the topic of your interest.
-You can find them:
+## Development setup
 
-* in the [repository issues page];
-* in the official [Mia Platform Community Discussion] page;
+### Prerequisites
 
-### Reporting Bugs
+- [Rust](https://rust-lang.org/tools/install/)
+- [Cargo Make](https://github.com/sagiegurari/cargo-make) (`cargo install --force cargo-make`)
 
-If you find a bug, or you notice something that should be modified or improved, you can do so in the *Issues* section.
+### Getting started
 
-Before doing that, please search if there isn’t already a similar issue already open. If you find a similar issue
-that is already closed, open a new one and include a link to it inside the body of the new one.
+#### 1. Clone the repository
 
-### Propose a New Feature
+```sh
+git clone git@github.com:mia-platform/catalog-mcp-server.git
+cd catalog-mcp-server
+```
 
-Before starting to implement a new feature, open the relative issue for starting an open discussion on where is can be
-relevant and expose alternative solutions or potential pitfall that you can encounter. Fill all the information required
-by the template.
+#### 2. Setup the development environment
 
-#### Run your tests
+The `.dev/` directory contains the configuration needed to spin up a development environment using [Docker Compose](https://docs.docker.com/compose/).
 
-Any update to the code must be tested properly. We can refer to the [Local Development section of the README].
-Please make sure that any update you want to propose includes enough tests, and the old ones pass as well.
+> [!WARNING]
+> To pull the some of the images you need to be logged in the Mia-Platform private registry.
 
-#### How to submit a PR
+The stack is composed of:
 
-* Commits should follow standards: `<type>(<scope>): <subject>` (e.g. `feat(core): Add new feature`)
-* In the `Unreleased` section in CHANGELOG.md, compile the changelog adding the improvement added in the PR.
-  Changelog should follow the [Keep a Changelog] standard.
+- an instance of MongoDB (exposed locally on port `27017`), and
+- an instance of the Catalog Engine (exposed locally on port `3000`).
 
-## Fork
+The playground comes with two organizations, `system` and `org_1`, and the database is already packed with some mock data.
 
-If you want to fork our project, you could make it and keep in sync with our template.
-All contribution which could improve the existent code base are welcome!
+To spin up the system, run:
 
-To keep a fork up to date, you can follow the official [GitHub guide about syncing a fork]. For all the information
-about what a fork is, you can read the official [GitHub guide for working with forks].
+```sh
+cargo make dev_up
+```
 
-[fork the repository]: #fork
-[propose a Pull Request]: ./CONTRIBUTING.md#how-to-submit-a-pr
-[Local Development section of the README]: ./README.md#local-development
+To teardown the playground, run
 
-[repository issues page]: https://github.com/mia-platform/crud-service/issues
-[Mia Platform Community Discussion]: https://github.com/mia-platform/community/discussions
+```sh
+cargo make dev_down
+```
 
-[GitHub guide about syncing a fork]: https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/syncing-a-fork
-[GitHub guide for working with forks]: https://docs.github.com/en/github/collaborating-with-issues-and-pull-requests/working-with-forks
+#### 3. Add the MCP server to your IDE of choice
 
-[Keep a Changelog]: https://keepachangelog.com/en/1.1.0/
+> [!TIP]
+> See the [README](./README.md) for detailed client integration instructions.
+
+```json
+{
+  "servers": {
+    "catalog": {
+      "type": "stdio",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--",
+        "--stdio",
+        "--base-url=http://localhost:3000"
+      ]
+    }
+  },
+  "inputs": []
+}
+```
+
+## Code contribution workflow
+
+1. Create a new branch for you feature or bugfix:
+
+   ```sh
+   git checkout -b feat/your-feature-name
+   ```
+
+2. Make your changes, following the code style of the project.
+
+3. Commit your changes using [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) format.
+
+### Linting
+
+Linting of project code is performed using `rustfmt` with a customized _nightly_ rule for imports and [`clippy`](https://github.com/rust-lang/rust-clippy).
+
+Consequently, it is necessary to install Rust nightly channel:
+
+```shell
+rustup toolchain install nightly
+```
+
+and introduce `clippy` as an additional component to the toolchains:
+
+```shell
+rustup component add clippy
+```
+
+Afterward, it is possible to lint the project with the following commands:
+
+```shell
+cargo +nightly fmt --check
+cargo clippy --all-targets
+```
+
+### Pull Request Guidelines
+
+For pull requests titles always follow the [Conventional Commit](https://www.conventionalcommits.org/en/v1.0.0/) standard of `<type>(<scope>): <subject>` (e.g. `feat(core): Add new feature`).
+
+Pull request titles and labels are automatically used as entries in the release note, so please pay extra attention when setting one up. You can find the complete mapping between pull request labels and release note categories in the `.github/release.yml` file. Unlabeled PRs will be automatically assigned the `Other changes` category in the release note.
+
+## Release Process
+
+_Coming soon..._
+
+## License
+
+By contributing to this project, you agree that your contributions will be licensed under the project's license.
+
+## Questions?
+
+If you have any questions or need help, please open an issue or reach out to the maintainers.

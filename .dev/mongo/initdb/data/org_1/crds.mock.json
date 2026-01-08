@@ -1,0 +1,50 @@
+[
+  {
+    "apiVersion": "mia-platform.eu/v1alpha1",
+    "kind": "CustomResourceDefinition",
+    "metadata": {
+      "name": "dockerimages.org-1.com"
+    },
+    "spec": {
+      "group": "org-1.com",
+      "names": {
+        "kind": "DockerImage",
+        "plural": "dockerimages",
+        "singular": "dockerimage"
+      },
+      "scope": "Organization",
+      "versions": [
+        {
+          "name": "v1alpha1",
+          "schema": {
+            "openAPIV31Schema": {
+              "type": "object",
+              "properties": {
+                "spec": {
+                  "type": "object",
+                  "properties": {
+                    "registry": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "tag": {
+                      "type": "string"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "name"
+                  ]
+                }
+              }
+            }
+          },
+          "served": true,
+          "storage": true
+        }
+      ]
+    }
+  }
+]

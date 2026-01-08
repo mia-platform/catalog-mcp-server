@@ -31,6 +31,21 @@ args = ["build", "--all-features"]
 
 ########################################################################################################################
 
+[env]
+docker_compose_dev_file = ".dev/docker-compose.yml"
+
+[tasks.dev_up]
+workspace = false
+command = "docker"
+args = ["compose", "--file", "${docker_compose_dev_file}", "up", "--wait", "-d"]
+
+[tasks.dev_down]
+workspace = false
+command = "docker"
+args = ["compose", "--file", "${docker_compose_dev_file}", "down", "--remove-orphans", "-v"]
+
+########################################################################################################################
+
 [tasks.docker_build]
 workspace = false
 command = "docker"

@@ -1,0 +1,141 @@
+[
+  {
+    "apiVersion": "mia-platform.eu/v1alpha1",
+    "kind": "CustomResourceDefinition",
+    "metadata": {
+      "name": "services.mia-platform.eu"
+    },
+    "spec": {
+      "group": "mia-platform.eu",
+      "names": {
+        "kind": "Service",
+        "plural": "services",
+        "singular": "service"
+      },
+      "scope": "Organization",
+      "versions": [
+        {
+          "deprecated": false,
+          "name": "v1alpha1",
+          "schema": {
+            "openAPIV31Schema": {
+              "type": "object",
+              "properties": {
+                "spec": {
+                  "type": "object",
+                  "properties": {
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "dockerImage": {
+                      "type": "object",
+                      "properties": {
+                        "registry": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "tag": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "name"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "dockerImage"
+                  ]
+                }
+              }
+            }
+          },
+          "selectableFields": [
+            {
+              "jsonPath": "spec.hostname"
+            }
+          ],
+          "served": true,
+          "storage": true
+        }
+      ]
+    }
+  },
+  {
+    "apiVersion": "mia-platform.eu/v1alpha1",
+    "kind": "CustomResourceDefinition",
+    "metadata": {
+      "name": "templates.mia-platform.eu"
+    },
+    "spec": {
+      "group": "mia-platform.eu",
+      "names": {
+        "kind": "Template",
+        "plural": "templates",
+        "singular": "template"
+      },
+      "scope": "Organization",
+      "versions": [
+        {
+          "deprecated": false,
+          "name": "v2",
+          "schema": {
+            "openAPIV31Schema": {
+              "type": "object",
+              "properties": {
+                "spec": {
+                  "type": "object",
+                  "properties": {
+                    "hostname": {
+                      "type": "string"
+                    },
+                    "dockerImage": {
+                      "type": "object",
+                      "properties": {
+                        "registry": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "tag": {
+                          "type": "string"
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "name"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "dockerImage"
+                  ]
+                },
+                "metadata": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string",
+                      "pattern": "^[a-z]([-a-z]*[a-z])?(\\.[a-z]([-a-z]*[a-z])?)*$"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "selectableFields": [
+            {
+              "jsonPath": "spec.hostname"
+            }
+          ],
+          "served": true,
+          "storage": true
+        }
+      ]
+    }
+  }
+]

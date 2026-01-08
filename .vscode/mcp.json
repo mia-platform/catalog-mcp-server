@@ -2,16 +2,12 @@
   "servers": {
     "catalog": {
       "type": "stdio",
-      "command": "docker",
+      "command": "cargo",
       "args": [
         "run",
-        "-i",
-        "--rm",
-        "--name", "catalog-mcp-server",
-        "ghcr.io/mia-platform/catalog-mcp-server:latest",
+        "--",
         "--stdio",
-        "--base-url=http://host.docker.internal:3000",
-        "--spec=http://host.docker.internal:3000/api/openapi/json"
+        "--base-url=http://localhost:3000"
       ]
     }
   },

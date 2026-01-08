@@ -1,0 +1,56 @@
+name: catalog-engine-mcp-dev
+
+services:
+  mongodb:
+    image: docker.io/mongo:${MONGODB_VERSION-8}
+    container_name: mongo4catalog-engine-mcp-dev
+    ports:
+      - "27017:27017"
+    volumes:
+      - db-data:/data/db
+      - ./mongo/initdb:/docker-entrypoint-initdb.d
+    deploy:
+      resources:
+        limits:
+          memory: 4Gb
+          cpus: "2"
+    networks:
+      - ring
+    extra_hosts:
+      - "${EXTERNAL_HOSTNAME-localhost}:host-gateway"
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  catalog-engine:
+    image: nexus.mia-platform.eu/catalog/catalog-engine:latest
+    # platform: linux/amd64
+    pull_policy: never
+    container_name: catalog-engine4catalog-engine-mcp-dev
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./catalog-engine/service.env
+    volumes:
+      - ./catalog-engine/config.json:/home/catalog-engine/.config/catalog-engine/config.json
+    networks:
+      - ring
+    healthcheck:
+      test: netstat -ltn | grep 3000 > /dev/null; if [ 0 != $? ]; then exit 1; fi;
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  db-data:
+    name: catalog-engine-mcp-dev-db-data
+
+networks:
+  ring:
