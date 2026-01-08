@@ -2,13 +2,67 @@
 workspace = false
 env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
-args = ["run", "--all-features"]
+args = ["run", "--all-features", "${@}"]
+
+[tasks.dev]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = [
+    "run",
+    "--all-features",
+    "--",
+    "--base-url", "http://localhost:3000/api",
+    "--spec", "./static/catalog-engine.openapi.json",
+    "--port", "8000"
+]
+
+[tasks.help]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = ["run", "--all-features", "--", "--help"]
 
 [tasks.build]
 workspace = false
 env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
 args = ["build", "--all-features"]
+
+########################################################################################################################
+
+[env]
+docker_compose_dev_file = ".dev/docker-compose.yml"
+
+[tasks.dev_up]
+workspace = false
+command = "docker"
+args = ["compose", "--file", "${docker_compose_dev_file}", "up", "--wait", "-d"]
+
+[tasks.dev_down]
+workspace = false
+command = "docker"
+args = ["compose", "--file", "${docker_compose_dev_file}", "down", "--remove-orphans", "-v"]
+
+########################################################################################################################
+
+[tasks.docker_build]
+workspace = false
+command = "docker"
+args = ["build", "--tag=ghcr.io/mia-platform/catalog-mcp-server:latest", "."]
+
+[tasks.docker_run]
+workspace = false
+command = "docker"
+args = [
+    "run",
+    "--rm",
+    "-it",
+    "--name=catalog-mcp-server",
+    "--publish=8000:8000",
+    "ghcr.io/mia-platform/catalog-mcp-server:latest",
+    "${@}"
+]
 
 ########################################################################################################################
 

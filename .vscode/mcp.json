@@ -1,0 +1,15 @@
+{
+  "servers": {
+    "catalog": {
+      "type": "stdio",
+      "command": "cargo",
+      "args": [
+        "run",
+        "--",
+        "--stdio",
+        "--base-url=http://localhost:3000"
+      ]
+    }
+  },
+  "inputs": []
+}

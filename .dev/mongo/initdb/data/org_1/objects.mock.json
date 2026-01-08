@@ -1,0 +1,21 @@
+[
+  {
+    "indexedFields": {
+      "f0": "api-gateway-abc"
+    },
+    "data": {
+      "apiVersion": "mia-platform.eu/v1alpha1",
+      "kind": "Service",
+      "metadata": {
+        "name": "api-gateway"
+      },
+      "spec": {
+        "hostname": "api-gateway-abc",
+        "dockerImage": {
+          "name": "envoy",
+          "tag": "latest"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "persistence": {
+    "type": "mongodb",
+    "config": {
+      "url": "mongodb://mongodb:27017"
+    }
+  },
+  "systemOrg": "system",
+  "fallbackOrg": "org_1"
+}
