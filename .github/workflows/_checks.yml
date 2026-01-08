@@ -12,7 +12,28 @@ jobs:
         with:
           show-progress: false
       
-      - name: fmt
+      - name: Format
         run: |
           rustup component add --toolchain nightly rustfmt
           cargo +nightly fmt --all --check
+
+      - name: Checks
+        run: |
+          apk add --no-cache build-base openssl-dev
+          rustup component add --toolchain nightly rustfmt
+          rustup component add clippy
+          sh .ci/install-cargo-make.sh
+          sh .ci/install-cargo-udeps.sh
+          cargo make --cwd=$FOLDER udeps_all
+          cargo make --cwd=$FOLDER check_all
+
+      # - name: Use golang 1.20
+      #   uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
+      #   with:
+      #     go-version: '1.20'
+
+      # - name: Install addlicense
+      #   run: go install github.com/google/addlicense@latest
+
+      # - name: Check license
+      #   run: yarn check:license
