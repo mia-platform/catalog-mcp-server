@@ -91,7 +91,8 @@ jobs:
       uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
       id: buildx
       with:
-        platforms: linux/amd64,linux/arm64
+        platforms: linux/amd64
+        # platforms: linux/amd64,linux/arm64
 
     - name: Build Docker image
       id: docker-build
