@@ -23,8 +23,8 @@ jobs:
           rustup component add clippy
           sh .ci/install-cargo-make.sh
           sh .ci/install-cargo-udeps.sh
-          cargo make --cwd=$FOLDER udeps_all
-          cargo make --cwd=$FOLDER check_all
+          cargo make udeps_all
+          cargo make check_all
 
       # - name: Use golang 1.20
       #   uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
