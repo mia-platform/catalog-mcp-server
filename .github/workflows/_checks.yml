@@ -19,7 +19,6 @@ jobs:
 
       - name: Checks
         run: |
-          apk add --no-cache build-base openssl-dev
           rustup component add --toolchain nightly rustfmt
           rustup component add clippy
           sh .ci/install-cargo-make.sh
