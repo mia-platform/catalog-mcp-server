@@ -62,7 +62,8 @@ jobs:
     - name: Set up QEMU
       uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
       with:
-        platforms: amd64,arm64
+        platforms: amd64
+        # platforms: amd64,arm64
 
     - name: Configure Docker metadata
       id: meta
