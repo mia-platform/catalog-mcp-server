@@ -1,0 +1,38 @@
+{
+  "$schema": "../../../../../assets/schemas/mongo.Item.json",
+  "idx": [
+    {
+      "k": "spec.hostname",
+      "v": "api-gateway-abc",
+      "t": "s"
+    }
+  ],
+  "data": {
+    "apiVersion": "mia-platform.eu/v1alpha1",
+    "kind": "Service",
+    "metadata": {
+      "creationTimestamp": "",
+      "name": "api-gateway",
+      "labels": [
+        {
+          "k": "mia-platform.eu/version",
+          "v": "15.0.0"
+        }
+      ],
+      "annotations": [
+        {
+          "k": "foo",
+          "v": "bar"
+        }
+      ],
+      "uid": ""
+    },
+    "spec": {
+      "hostname": "api-gateway-abc",
+      "dockerImage": {
+        "name": "envoy",
+        "tag": "latest"
+      }
+    }
+  }
+}

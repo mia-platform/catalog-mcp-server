@@ -1,14 +1,8 @@
 {
   "servers": {
     "catalog": {
-      "type": "stdio",
-      "command": "cargo",
-      "args": [
-        "run",
-        "--",
-        "--stdio",
-        "--base-url=http://localhost:3000"
-      ]
+      "type": "http",
+      "url": "https://catalog.mia-demo-re5gu6.gcp.mia-platform.eu/mcp"
     }
   },
   "inputs": []

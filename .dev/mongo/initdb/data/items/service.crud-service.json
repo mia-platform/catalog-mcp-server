@@ -1,0 +1,23 @@
+{
+  "$schema": "../../../../../assets/schemas/mongo.Item.json",
+  "idx": [
+    {
+      "k": "spec.hostname",
+      "t": "u"
+    }
+  ],
+  "data": {
+    "apiVersion": "mia-platform.eu/v1alpha1",
+    "kind": "Service",
+    "metadata": {
+      "creationTimestamp": "",
+      "name": "crud-service",
+      "uid": ""
+    },
+    "spec": {
+      "dockerImage": {
+        "name": "crud-service"
+      }
+    }
+  }
+}

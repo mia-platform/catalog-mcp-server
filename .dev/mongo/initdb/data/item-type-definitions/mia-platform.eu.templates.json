@@ -1,0 +1,77 @@
+{
+  "$schema": "../../../../../assets/schemas/mongo.ItemTypeDefinition.json",
+  "apiVersion": "mia-platform.eu/v1alpha1",
+  "kind": "ItemTypeDefinition",
+  "metadata": {
+    "creationTimestamp": "",
+    "name": "templates.mia-platform.eu",
+    "uid": ""
+  },
+  "spec": {
+    "group": "mia-platform.eu",
+    "names": {
+      "kind": "Template",
+      "plural": "templates",
+      "singular": "template"
+    },
+    "scope": "Organization",
+    "versions": [
+      {
+        "deprecated": false,
+        "name": "v2",
+        "schema": {
+          "openAPIV31Schema": {
+            "type": "object",
+            "properties": {
+              "spec": {
+                "type": "object",
+                "properties": {
+                  "hostname": {
+                    "type": "string"
+                  },
+                  "dockerImage": {
+                    "type": "object",
+                    "properties": {
+                      "registry": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "tag": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "dockerImage"
+                ]
+              },
+              "metadata": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "pattern": "^[a-z]([-a-z]*[a-z])?(\\.[a-z]([-a-z]*[a-z])?)*$"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "selectableFields": [
+          {
+            "jsonPath": "spec.hostname"
+          }
+        ],
+        "served": true,
+        "storage": true
+      }
+    ]
+  }
+}

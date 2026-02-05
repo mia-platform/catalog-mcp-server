@@ -27,8 +27,8 @@ services:
 
   catalog-engine:
     image: nexus.mia-platform.eu/catalog/catalog-engine:latest
-    # platform: linux/amd64
-    pull_policy: never
+    platform: linux/amd64
+    pull_policy: if_not_present
     container_name: catalog-engine4catalog-engine-mcp-dev
     ports:
       - "3000:3000"

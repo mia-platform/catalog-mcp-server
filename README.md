@@ -15,7 +15,24 @@ For a list of clients that support MCP, see [MCP Clients](https://modelcontextpr
 
 ### Option 1: connect to the remote MCP Server
 
-_Coming soon..._
+A **demo** version of the Catalog MCP Server is reachable over HTTP at <https://catalog.mia-demo-re5gu6.gcp.mia-platform.eu/mcp>.
+
+> [!IMPORTANT]
+> The authorization server does not currently support Dynamic Client Registration. To authenticate your MCP client, use the client id `catalog-mcp` with no client secret.
+>
+> You will need a Mia-Platform internal account to use the remote MCP Server.
+
+```json
+{
+  "servers": {
+    "catalog": {
+      "type": "http",
+      "url": "https://catalog.mia-demo-re5gu6.gcp.mia-platform.eu/mcp"
+    }
+  },
+  "inputs": []
+}
+```
 
 ### Option 2: run with Docker
 

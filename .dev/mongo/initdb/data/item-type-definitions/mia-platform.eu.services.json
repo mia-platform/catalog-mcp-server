@@ -1,0 +1,68 @@
+{
+  "$schema": "../../../../../assets/schemas/mongo.ItemTypeDefinition.json",
+  "apiVersion": "mia-platform.eu/v1alpha1",
+  "kind": "ItemTypeDefinition",
+  "metadata": {
+    "creationTimestamp": "",
+    "name": "services.mia-platform.eu",
+    "uid": ""
+  },
+  "spec": {
+    "group": "mia-platform.eu",
+    "names": {
+      "kind": "Service",
+      "plural": "services",
+      "singular": "service"
+    },
+    "scope": "Organization",
+    "versions": [
+      {
+        "deprecated": false,
+        "name": "v1alpha1",
+        "schema": {
+          "openAPIV31Schema": {
+            "type": "object",
+            "properties": {
+              "spec": {
+                "type": "object",
+                "properties": {
+                  "hostname": {
+                    "type": "string"
+                  },
+                  "dockerImage": {
+                    "type": "object",
+                    "properties": {
+                      "registry": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      },
+                      "tag": {
+                        "type": "string"
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "name"
+                    ]
+                  }
+                },
+                "required": [
+                  "dockerImage"
+                ]
+              }
+            }
+          }
+        },
+        "selectableFields": [
+          {
+            "jsonPath": "spec.hostname"
+          }
+        ],
+        "served": true,
+        "storage": true
+      }
+    ]
+  }
+}
