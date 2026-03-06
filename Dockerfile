@@ -1,4 +1,4 @@
-FROM rust:1.92.0-alpine3.23@sha256:f6c22e0a256c05d44fca23bf530120b5d4a6249a393734884281ca80782329bc AS builder
+FROM rust:1.94.0-alpine3.23@sha256:ef7b340d4201444fa2757dfddfd4c03be9d2bde468de7b7a68b0e9fabb794334 AS builder
 
 ARG GIT_CONFIG_PARAMETERS=""
 ARG CARGO_HOME=/usr/src/.cargo/
