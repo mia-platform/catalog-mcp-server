@@ -2,8 +2,8 @@ name: Tag
 
 on:
   push:
-    branches:
-      - v*
+    tags:
+      - 'v*'
 
 jobs:
   docker-build:
