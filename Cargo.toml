@@ -12,7 +12,7 @@ strip = "symbols"
 
 [package]
 name = "catalog-mcp-server"
-version = "0.1.0"
+version = "0.0.0"
 authors = ["Mia-Platform core team"]
 edition.workspace = true
 description = "A Model Context Protocol server to integrate with Mia-Platform Catalog APIs."
@@ -53,3 +53,11 @@ tracing-subscriber = { version = "0.3.20", features = [
 ] }
 url = "2.5.7"
 uuid = "1.19.0"
+
+[package.metadata.release]
+pre-release-commit-message = "'catalog-mcp-server' tagged at version '{{version}}'"
+pre-release-replacements = []
+publish = false
+push = false
+tag-message = "catalog-mcp-server tagged at version {{version}}"
+tag-name = "v{{version}}"
