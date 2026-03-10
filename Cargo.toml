@@ -12,7 +12,7 @@ strip = "symbols"
 
 [package]
 name = "catalog-mcp-server"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Mia-Platform core team"]
 edition.workspace = true
 description = "A Model Context Protocol server to integrate with Mia-Platform Catalog APIs."
