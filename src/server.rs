@@ -121,11 +121,10 @@ async fn run_http_server(
     let service = StreamableHttpService::new(
         move || Ok(mcp_server.clone()),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig {
-            stateful_mode: false,
-            sse_keep_alive: None,
-            cancellation_token: ct.clone(),
-        },
+        StreamableHttpServerConfig::default()
+            .with_stateful_mode(false)
+            .with_sse_keep_alive(None)
+            .with_cancellation_token(ct.clone()),
     );
 
     let router_path = build_router_path(&prefix);

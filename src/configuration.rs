@@ -15,11 +15,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use std::{fmt::Display, net::IpAddr};
-
 use crate::{cli::Cli, spec::SpecLocation};
 use anyhow::Context;
-use rmcp_openapi::Server;
+use rmcp_openapi::{
+    Server,
+    spec::{Filter, Filters},
+};
+use std::{fmt::Display, net::IpAddr};
 use url::Url;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -81,18 +83,18 @@ impl Configuration {
             .await
             .with_context(|| "while loading OpenAPI spec")?;
 
-        let mut server = Server::new(
-            openapi_spec,
-            self.base_url.clone(),
-            None,
-            None,
-            false,
-            false,
-        );
-
-        server.name = Some(env!("CARGO_PKG_NAME").to_string());
-        server.version = Some(env!("CARGO_PKG_VERSION").to_string());
-        server.instructions = Some(env!("CARGO_PKG_DESCRIPTION").to_string());
+        let server = Server::builder()
+            .name(env!("CARGO_PKG_NAME").to_string())
+            .version(env!("CARGO_PKG_VERSION").to_string())
+            .instructions(env!("CARGO_PKG_DESCRIPTION").to_string())
+            .openapi_spec(openapi_spec)
+            .base_url(self.base_url.clone())
+            .filters(
+                Filters::builder()
+                    .tags(Filter::Exclude(vec!["organizations".to_string()]))
+                    .build(),
+            )
+            .build();
 
         Ok(server)
     }

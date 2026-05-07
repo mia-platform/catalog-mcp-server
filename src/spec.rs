@@ -16,6 +16,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::cli::Cli;
+use oas3::Spec as Oas3Spec;
+use serde::de::IntoDeserializer;
 use std::{fmt::Display, path::PathBuf, str::FromStr};
 use url::Url;
 
@@ -71,17 +73,69 @@ impl SpecLocation {
     }
 
     pub async fn load_spec(&self) -> Result<serde_json::Value, anyhow::Error> {
-        match self {
+        let mut spec_value: serde_json::Value = match self {
             SpecLocation::File(path) => {
                 let content = tokio::fs::read_to_string(path).await?;
-                let spec: serde_json::Value = serde_json::from_str(&content)?;
-                Ok(spec)
+                serde_json::from_str(&content).map_err(|e| anyhow::anyhow!("{}", e))
             }
             SpecLocation::Url(url) => {
                 let response = reqwest::get(url.clone()).await?;
-                let spec: serde_json::Value = response.json().await?;
-                Ok(spec)
+                response.json().await.map_err(|e| anyhow::anyhow!("{}", e))
+            }
+        }?;
+
+        let _: Oas3Spec = serde_path_to_error::deserialize(spec_value.clone().into_deserializer())
+            .map_err(|err| {
+                anyhow::anyhow!(
+                    "invalid OpenAPI spec. JSON error at {}: {}",
+                    err.path(),
+                    err
+                )
+            })?;
+
+        const HTTP_METHODS: &[&str] = &[
+            "get", "put", "post", "delete", "options", "head", "patch", "trace",
+        ];
+
+        if let Some(paths) = spec_value.get_mut("paths").and_then(|v| v.as_object_mut()) {
+            for path_item in paths.values_mut() {
+                if let Some(path_obj) = path_item.as_object_mut() {
+                    for method in HTTP_METHODS {
+                        if let Some(operation) =
+                            path_obj.get_mut(*method).and_then(|v| v.as_object_mut())
+                        {
+                            // Remove responses all together
+                            // operation.remove("responses");
+
+                            // keep only 2xx responses; simplify their content.*.schema
+                            if let Some(responses) = operation
+                                .get_mut("responses")
+                                .and_then(|v| v.as_object_mut())
+                            {
+                                responses.retain(|status, _| status.starts_with('2'));
+                                for response in responses.values_mut() {
+                                    if let Some(media_types) =
+                                        response.get_mut("content").and_then(|v| v.as_object_mut())
+                                    {
+                                        for media_type in media_types.values_mut() {
+                                            if let Some(obj) = media_type.as_object_mut()
+                                                && obj.contains_key("schema")
+                                            {
+                                                obj.insert(
+                                                    "schema".to_string(),
+                                                    serde_json::json!({"type": "object"}),
+                                                );
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
+
+        Ok(spec_value)
     }
 }
