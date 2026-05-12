@@ -67,6 +67,7 @@ pub async fn try_init(configuration: Configuration) -> io::Result<()> {
                 configuration.ip,
                 configuration.port,
                 configuration.api_prefix,
+                configuration.allowed_hosts,
             )
             .await
         }
@@ -109,6 +110,7 @@ async fn run_http_server(
     ip: std::net::IpAddr,
     port: u16,
     prefix: String,
+    allowed_hosts: Option<Vec<String>>,
 ) -> io::Result<()> {
     let ct = tokio_util::sync::CancellationToken::new();
     let ct_clone = ct.clone();
@@ -118,13 +120,20 @@ async fn run_http_server(
         ct_clone.cancel();
     });
 
+    let http_config = StreamableHttpServerConfig::default()
+        .with_stateful_mode(false)
+        .with_sse_keep_alive(None)
+        .with_cancellation_token(ct.clone());
+
+    let http_config = match allowed_hosts {
+        Some(hosts) => http_config.with_allowed_hosts(hosts),
+        None => http_config,
+    };
+
     let service = StreamableHttpService::new(
         move || Ok(mcp_server.clone()),
         Arc::new(LocalSessionManager::default()),
-        StreamableHttpServerConfig::default()
-            .with_stateful_mode(false)
-            .with_sse_keep_alive(None)
-            .with_cancellation_token(ct.clone()),
+        http_config,
     );
 
     let router_path = build_router_path(&prefix);

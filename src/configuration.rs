@@ -38,6 +38,7 @@ pub struct Configuration {
     pub api_prefix: String,
     pub port: u16,
     pub ip: IpAddr,
+    pub allowed_hosts: Option<Vec<String>>,
 }
 
 impl From<&Cli> for Configuration {
@@ -56,6 +57,7 @@ impl From<&Cli> for Configuration {
             api_prefix: cli.api_prefix.clone(),
             port: cli.port,
             ip: cli.ip,
+            allowed_hosts: cli.allowed_hosts.clone(),
         }
     }
 }
@@ -64,13 +66,14 @@ impl Display for Configuration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "Configuration {{ spec_location: {}, base_url: {}, transport_mode: {:?}, api_prefix: {}, port: {}, ip: {} }}",
+            "Configuration {{ spec_location: {}, base_url: {}, transport_mode: {:?}, api_prefix: {}, port: {}, ip: {}, allowed_hosts: {:?} }}",
             self.spec_location,
             self.base_url,
             self.transport_mode,
             self.api_prefix,
             self.port,
-            self.ip
+            self.ip,
+            self.allowed_hosts
         )
     }
 }

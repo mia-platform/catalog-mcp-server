@@ -51,6 +51,13 @@ pub struct Cli {
     /// IP address to bind the MCP server to
     #[arg(long, default_value = "0.0.0.0")]
     pub ip: IpAddr,
+
+    /// Allowed hostnames or host:port authorities for inbound Host header validation.
+    /// If not set, the server defaults to loopback hosts only (localhost, 127.0.0.1, ::1).
+    /// Pass with no values (--allowed-hosts) to allow any host.
+    /// Pass one or more values to restrict to those hosts.
+    #[arg(long, num_args(0..), value_name = "HOST")]
+    pub allowed_hosts: Option<Vec<String>>,
 }
 
 impl Cli {
