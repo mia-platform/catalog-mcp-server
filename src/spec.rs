@@ -76,7 +76,23 @@ impl SpecLocation {
         let mut spec_value: serde_json::Value = match self {
             SpecLocation::File(path) => {
                 let content = tokio::fs::read_to_string(path).await?;
-                serde_json::from_str(&content).map_err(|e| anyhow::anyhow!("{}", e))
+                let extension = std::path::Path::new(path)
+                    .extension()
+                    .and_then(|ext| ext.to_str())
+                    .unwrap_or("");
+
+                match extension {
+                    "json" => serde_json::from_str(&content).map_err(|e| anyhow::anyhow!("{}", e)),
+                    "yaml" | "yml" => {
+                        let value: serde_yaml::Value =
+                            serde_yaml::from_str(&content).map_err(|e| anyhow::anyhow!("{}", e))?;
+                        serde_json::to_value(value).map_err(|e| anyhow::anyhow!("{}", e))
+                    }
+                    other => Err(anyhow::anyhow!(
+                        "unsupported file extension '{}': only .json, .yaml, and .yml are supported",
+                        other
+                    )),
+                }
             }
             SpecLocation::Url(url) => {
                 let response = reqwest::get(url.clone()).await?;
