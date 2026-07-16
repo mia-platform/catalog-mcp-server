@@ -20,6 +20,7 @@ use crate::{cli::Cli, configuration::Configuration};
 mod cli;
 mod configuration;
 mod logger;
+mod proxy;
 mod server;
 mod signal;
 mod spec;

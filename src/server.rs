@@ -17,6 +17,7 @@
  */
 use crate::{
     configuration::{Configuration, TransportMode},
+    proxy::HeaderProxyServer,
     signal,
 };
 use axum::{Router, ServiceExt as AxumServiceExt, extract::Request};
@@ -64,6 +65,7 @@ pub async fn try_init(configuration: Configuration) -> io::Result<()> {
         TransportMode::Http => {
             run_http_server(
                 mcp_server,
+                configuration.base_url,
                 configuration.ip,
                 configuration.port,
                 configuration.api_prefix,
@@ -107,6 +109,7 @@ async fn run_stdio_server(mcp_server: McpServer) -> io::Result<()> {
 
 async fn run_http_server(
     mcp_server: McpServer,
+    base_url: url::Url,
     ip: std::net::IpAddr,
     port: u16,
     prefix: String,
@@ -131,7 +134,7 @@ async fn run_http_server(
     };
 
     let service = StreamableHttpService::new(
-        move || Ok(mcp_server.clone()),
+        move || Ok(HeaderProxyServer::new(mcp_server.clone(), base_url.clone())),
         Arc::new(LocalSessionManager::default()),
         http_config,
     );

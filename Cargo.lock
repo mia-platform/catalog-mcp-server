@@ -452,6 +452,7 @@ dependencies = [
  "axum",
  "clap",
  "futures",
+ "http 1.4.0",
  "oas3 0.22.0",
  "once_cell",
  "reqwest 0.12.28",
