@@ -63,6 +63,7 @@ impl HeaderProxyServer {
 
         for name in PROXIED_HEADERS {
             if let Some(value) = parts.headers.get(*name) {
+                tracing::debug!(?name, ?value, "proxied header");
                 headers.insert(HeaderName::from_static(name), value.clone());
             }
         }
