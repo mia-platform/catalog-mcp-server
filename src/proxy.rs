@@ -30,7 +30,7 @@ use url::Url;
 
 /// Inbound MCP request headers that are proxied verbatim to the upstream Catalog
 /// service on every tool call. Lower-case, as required by `HeaderName::from_static`.
-const PROXIED_HEADERS: &[&str] = &["x-mia-acl-context"];
+const PROXIED_HEADERS: &[&str] = &["x-mia-acl-context", "authorization"];
 
 /// A [`ServerHandler`] that wraps the OpenAPI-backed [`McpServer`] and forwards a
 /// fixed allow-list of inbound HTTP headers ([`PROXIED_HEADERS`]) to the upstream
