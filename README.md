@@ -1,6 +1,6 @@
 # Mia-Platform Catalog MCP Server
 
-The Mia-Platform Catalog MCP Server is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/getting-started/intro) server that provides seamless integration with Mia-Platform Catalog APIs, enabling advanced automation and interaction capabilities for developers and tools.
+The Mia-Platform Catalog MCP Server is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/docs/getting-started/intro) server that provides seamless integration with [Mia-Platform Catalog](https://docs.mia-platform.eu/docs/products/catalog/overview) APIs, enabling advanced automation and interaction capabilities for developers and tools.
 
 ## Setup
 
@@ -13,55 +13,7 @@ Most MCP clients require a configuration file to be created or modified to add t
 
 For a list of clients that support MCP, see [MCP Clients](https://modelcontextprotocol.io/clients).
 
-### Option 1: connect to the remote MCP Server
-
-A **demo** version of the Catalog MCP Server is reachable over HTTP at <https://catalog.mia-demo-re5gu6.gcp.mia-platform.eu/mcp>.
-
-> [!IMPORTANT]
-> The authorization server does not currently support Dynamic Client Registration. To authenticate your MCP client, use the client id `catalog-mcp` with no client secret.
->
-> You will need a Mia-Platform internal account to use the remote MCP Server.
-
-```json
-{
-  "servers": {
-    "catalog": {
-      "type": "http",
-      "url": "https://catalog.mia-demo-re5gu6.gcp.mia-platform.eu/mcp"
-    }
-  },
-  "inputs": []
-}
-```
-
-### Option 2: run with Docker
-
-You can run the Catalog MCP Server in a [Docker](https://www.docker.com/) container, which provides isolation and doesn't require a local Rust installation.
-
-```json
-{
-  "servers": {
-    "catalog": {
-      "type": "stdio",
-      "command": "docker",
-      "args": [
-        "run",
-        "-i",
-        "--rm",
-        "--name", "catalog-mcp-server",
-        "ghcr.io/mia-platform/catalog-mcp-server:latest",
-        "--stdio",
-        "--base-url=<catalog-base-url>"
-      ]
-    }
-  },
-  "inputs": []
-}
-```
-
-### Options 3: run from binary
-
-_Coming soon..._
+For a detailed description on how to connect to the remote Mia-Platform Catalog server, refer to the [official documentation](https://docs.mia-platform.eu/docs/products/catalog/usage/catalog-mcp).
 
 ## Configuration
 
