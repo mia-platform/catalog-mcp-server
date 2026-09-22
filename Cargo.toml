@@ -40,7 +40,11 @@ axum = { version = "0.8.6", default-features = false, features = [
 clap = { version = "4.5.53", features = ["derive", "env"] }
 configuration = { path = "configuration" }
 dirs = "6.0.0"
+http = "1.4.0"
+rmcp = { version = "3.4.0", features = ["transport-streamable-http-server"] }
+schemars.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 tokio = { version = "1.48.0", features = [
     "macros",
     "rt-multi-thread",
@@ -48,8 +52,9 @@ tokio = { version = "1.48.0", features = [
     "sync",
     "time",
 ] }
+tokio-util = "0.7.17"
 tower = "0.5.2"
-tower-http = { version = "0.6.6", features = ["normalize-path"] }
+tower-http = { version = "0.6.6", features = ["normalize-path", "request-id"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "0.3.20", features = [
     "env-filter",
@@ -65,7 +70,6 @@ serde_json.workspace = true
 [dev-dependencies]
 http-body-util = "0.1.3"
 rstest = "0.26.1"
-serde_json.workspace = true
 
 [package.metadata.release]
 pre-release-commit-message = "'catalog-mcp-server' tagged at version '{{version}}'"

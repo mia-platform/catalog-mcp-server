@@ -1,0 +1,9 @@
+{
+  "server": {
+    "ip": "127.0.0.1",
+    "port": 8177,
+    "allowedHosts": ["127.0.0.1", "127.0.0.1:8177", "localhost", "localhost:8177"]
+  },
+  "engine": { "baseUrl": "http://api-gateway:8080" },
+  "auth": { "resource": "http://127.0.0.1:8177/mcp" }
+}

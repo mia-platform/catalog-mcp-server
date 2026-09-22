@@ -19,9 +19,13 @@ use crate::{cli::Cli, context::AppState};
 
 mod cli;
 mod context;
+mod handler;
 mod logger;
+mod registry;
+mod schema;
 mod server;
 mod signal;
+mod tools;
 mod tracing;
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {

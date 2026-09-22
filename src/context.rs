@@ -15,6 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+use crate::registry::Registry;
 use configuration::Config;
 use std::sync::{
     Arc,
@@ -23,10 +24,10 @@ use std::sync::{
 
 /// Whether the process is ready to receive traffic, as `/-/ready` reports it (D43).
 ///
-/// It starts **not ready** and is raised once every startup condition holds. Today that is the
-/// validated configuration; the prebuilt `tools/list` payload joins it in Step 1 and the engine
-/// probe in Step 2. Shutdown lowers it *before* the drain begins, so the endpoint stops
-/// receiving traffic while in-flight calls finish (D42, D43).
+/// It starts **not ready** and is raised once every startup condition holds: the validated
+/// configuration and the prebuilt `tools/list` payload today, plus the engine probe once
+/// `health.readinessChecksEngine` has something to probe. Shutdown lowers it *before* the drain
+/// begins, so the endpoint stops receiving traffic while in-flight calls finish (D42, D43).
 #[derive(Debug, Default)]
 pub struct Readiness(AtomicBool);
 
@@ -49,27 +50,38 @@ impl Readiness {
 
 /// Everything shared across requests, held behind one `Arc` and cloned into each handler (D4).
 ///
-/// The tool registry, the prebuilt `tools/list` payload, the engine client factory, the metrics
-/// handle and the rate-limit buckets all land here in later steps. Nothing request-scoped ever
-/// does: the handler's lifetime is one instance per session in legacy mode and one per request
-/// when stateless, so a field here would be a cross-request leak rather than a cache.
+/// The engine client factory, the metrics handle and the rate-limit buckets land here in later
+/// steps. Nothing request-scoped ever does: the handler's lifetime is one instance per session
+/// in legacy mode and one per request when stateless, so a field here would be a cross-request
+/// leak rather than a cache.
 #[derive(Clone, Debug)]
 pub struct AppState {
     /// The validated configuration.
     pub config: Arc<Config>,
+
+    /// The tool set and its prebuilt `tools/list` payload, built once at startup.
+    pub registry: Arc<Registry>,
 
     /// Whether the process is ready to receive traffic.
     pub readiness: Arc<Readiness>,
 }
 
 impl AppState {
-    /// Builds the shared state from an already validated configuration.
+    /// Builds the shared state from an already validated configuration, with the tool set this
+    /// server ships.
     ///
     /// The state starts **not ready**: raising it is [`Readiness::mark_ready`]'s job, once the
     /// caller has finished every startup step.
     pub fn new(config: Config) -> Self {
+        Self::with_registry(config, Registry::with_shipped_tools())
+    }
+
+    /// Builds the shared state over a given registry, which is what lets a test drive the
+    /// handler against a tool set of its own without a second code path in production.
+    pub fn with_registry(config: Config, registry: Registry) -> Self {
         Self {
             config: Arc::new(config),
+            registry: Arc::new(registry),
             readiness: Arc::new(Readiness::default()),
         }
     }

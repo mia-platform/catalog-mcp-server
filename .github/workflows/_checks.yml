@@ -26,6 +26,22 @@ jobs:
           cargo make udeps_all
           cargo make check_all
 
+      # The `tools/list` ceiling and the per-tool byte goldens (core §12.4, D12). Prints the
+      # per-tool table whether it passes or fails, so growth is always attributable.
+      - name: Byte budget
+        run: cargo make budget
+
+      # The official conformance suite against our own binary, on both protocol revisions
+      # (core §12.2). The SDK passes it on its own; this proves our handler does not break it,
+      # and it is the alarm that fires when an SDK upgrade changes behaviour under us.
+      - name: Use Node 22
+        uses: actions/setup-node@2028fbc5c25fe9cf00d9f06a71cc4710d4507903 # v6.0.0
+        with:
+          node-version: '22'
+
+      - name: Protocol conformance
+        run: cargo make conformance
+
       - name: Use golang 1.20
         uses: actions/setup-go@4dc6199c7b1a012772edbd06daecab0f50c9053c # v6.1.0
         with:

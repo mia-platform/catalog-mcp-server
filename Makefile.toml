@@ -116,3 +116,23 @@ script = '''
 
     echo "\n✓ All valid feature combinations checked for unused dependencies!"
 '''
+
+########################################################################################################################
+
+# The protocol conformance gate (§12.2). Green on both revisions is a release gate.
+[tasks.conformance]
+workspace = false
+script = "tests/conformance/run.sh"
+
+# Same, writing the per-check results under tests/conformance/results/ for inspection when a
+# baseline entry has to be added or removed.
+[tasks.conformance_record]
+workspace = false
+script = "tests/conformance/run.sh --record"
+
+# The byte goldens and the `tools/list` ceiling (§12.4, D12). Prints the per-tool table whether
+# it passes or fails, so growth is always attributable.
+[tasks.budget]
+workspace = false
+command = "cargo"
+args = ["test", "--all-features", "registry::tests", "--", "--show-output"]
