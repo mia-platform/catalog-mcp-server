@@ -35,4 +35,6 @@ jobs:
         run: go install github.com/google/addlicense@latest
 
       - name: Check license
-        run: addlicense -c 'Mia srl' -check -s src/**/*.rs
+        run: |
+          addlicense -c 'Mia srl' -check -s \
+            $(find src configuration build.rs -name '*.rs')

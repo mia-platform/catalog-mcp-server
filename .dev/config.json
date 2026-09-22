@@ -1,0 +1,39 @@
+{
+  "server": {
+    "ip": "0.0.0.0",
+    "port": 8000,
+    "mcpPath": "/mcp",
+    "allowedHosts": ["localhost", "localhost:8000", "127.0.0.1", "127.0.0.1:8000", "::1"],
+    "allowedOrigins": [],
+    "maxBodyBytes": 1048576
+  },
+  "engine": {
+    "baseUrl": "http://localhost:3000",
+    "apiPrefix": "/api/catalog",
+    "timeoutMs": 5000,
+    "connectTimeoutMs": 1000,
+    "maxRetries": 1
+  },
+  "auth": {
+    "mode": "gateway",
+    "resource": "http://localhost:8000/mcp",
+    "resourceMetadataUrl": "http://localhost:8000/.well-known/oauth-protected-resource/mcp"
+  },
+  "tools": {
+    "callDeadlineSeconds": 25,
+    "toolsListTtlMs": 3600000,
+    "rateLimit": { "enabled": true, "perTenantCallsPerMinute": 120, "burst": 20 },
+    "defaults": {
+      "searchLimit": 50,
+      "relationshipLimit": 50,
+      "historyLimit": 10,
+      "auditLimit": 25,
+      "complianceWaitSeconds": 20,
+      "maxWriteBytes": 262144
+    }
+  },
+  "response": { "structuredContent": false },
+  "transport": { "legacySessionMode": true, "jsonResponse": true, "sseKeepAliveSeconds": 15 },
+  "health": { "readinessChecksEngine": true, "engineProbeTimeoutMs": 2000 },
+  "observability": { "metricsEnabled": true }
+}

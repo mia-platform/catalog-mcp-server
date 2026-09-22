@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2026 Mia srl
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,52 +15,39 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::spec::{CATALOG_SPEC_PATH, SpecLocation};
 use clap::Parser;
-use std::net::IpAddr;
-use url::Url;
+use std::{path::PathBuf, sync::LazyLock};
 
+/// Environment variable naming the folder that holds `config.json` (D40, engine parity).
+const CONFIGURATION_FOLDER_ENV_VAR: &str = "CONFIGURATION_FOLDER";
+
+/// Where the configuration is looked for when neither the flag nor the environment says.
+static DEFAULT_CONFIG_FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
+    dirs::config_dir()
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join(env!("CARGO_BIN_NAME"))
+});
+
+/// The whole command-line surface (D40).
+///
+/// `--spec` and `--base-url` are gone with the OpenAPI generator they existed to feed: the
+/// server is configured by a JSON file, so a deployment change is not a release.
 #[derive(Parser, Debug)]
 #[command(version, about, long_about = None)]
 #[command(name = "catalog-mcp-server")]
 pub struct Cli {
+    /// Folder holding `config.json`
     #[arg(
         long,
-        short = 's',
-        value_name = "LOCATION",
-        help = format!("Path or URL to the OpenAPI specification file from which the MCP server should be built [default: <base-url>/{}]", CATALOG_SPEC_PATH)
+        value_name = "FOLDER",
+        env = CONFIGURATION_FOLDER_ENV_VAR,
+        default_value_os_t = DEFAULT_CONFIG_FOLDER.clone(),
     )]
-    pub spec: Option<SpecLocation>,
-
-    /// Mia-Platform Catalog base URL
-    #[arg(long, short = 'b', value_name = "URL")]
-    pub base_url: Url,
-
-    /// Use stdio transport instead of HTTP streaming
-    #[arg(long, default_value = "false")]
-    pub stdio: bool,
-
-    /// Prefix for the MCP server REST API
-    #[arg(long, value_name = "PREFIX", default_value = "/")]
-    pub api_prefix: String,
-
-    /// Port to bind the MCP server to
-    #[arg(long, short = 'p', default_value = "8000")]
-    pub port: u16,
-
-    /// IP address to bind the MCP server to
-    #[arg(long, default_value = "0.0.0.0")]
-    pub ip: IpAddr,
-
-    /// Allowed hostnames or host:port authorities for inbound Host header validation.
-    /// If not set, the server defaults to loopback hosts only (localhost, 127.0.0.1, ::1).
-    /// Pass with no values (--allowed-hosts) to allow any host.
-    /// Pass one or more values to restrict to those hosts.
-    #[arg(long, num_args(0..), value_name = "HOST")]
-    pub allowed_hosts: Option<Vec<String>>,
+    pub config_folder: PathBuf,
 }
 
 impl Cli {
+    /// Parses the process arguments, exiting with clap's own message on a bad invocation.
     pub fn parse_args() -> Self {
         Self::parse()
     }

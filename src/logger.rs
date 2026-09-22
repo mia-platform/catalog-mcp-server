@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2026 Mia srl
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,14 +15,18 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
+/// Modules whose default verbosity is noise rather than signal (D41). Quieted regardless of
+/// `LOG_LEVEL`, because a debug session on our own code should not drown in the HTTP stack.
 #[allow(clippy::useless_concat)]
 const DEFAULT_MODULE_FILTERS: &str = concat!(
     "h2=info,",
-    // "hyper::client=info,",
-    // "hyper_util::client=info,",
-    // "tower::buffer::worker=warn",
+    "hyper_util=info,",
+    "reqwest=info,",
+    "rustls=info,",
+    "tower=info",
 );
 
+/// Synthesises `RUST_LOG` from `LOG_LEVEL` unless the caller has already set it.
 pub fn try_init(bin_name: &str) -> Result<(), Box<dyn std::error::Error>> {
     use std::env;
 

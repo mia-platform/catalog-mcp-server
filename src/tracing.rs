@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2026 Mia srl
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -17,6 +17,10 @@
  */
 pub use tracing::*;
 
+/// Installs the JSON subscriber on **stdout** (D41).
+///
+/// The previous server wrote to stderr, which was right while stdio was a supported transport
+/// and is wrong now that the deployment is remote HTTP only.
 pub fn try_init() -> Result<(), Box<dyn std::error::Error>> {
     use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
@@ -25,7 +29,7 @@ pub fn try_init() -> Result<(), Box<dyn std::error::Error>> {
         .with(
             tracing_subscriber::fmt::layer()
                 .json()
-                .with_writer(std::io::stderr),
+                .with_writer(std::io::stdout),
         )
         .try_init()?;
 

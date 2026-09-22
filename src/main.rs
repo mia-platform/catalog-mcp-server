@@ -1,4 +1,4 @@
-/**
+/*
  * Copyright 2026 Mia srl
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,15 +15,13 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::{cli::Cli, configuration::Configuration};
+use crate::{cli::Cli, context::AppState};
 
 mod cli;
-mod configuration;
+mod context;
 mod logger;
-mod proxy;
 mod server;
 mod signal;
-mod spec;
 mod tracing;
 
 fn run() -> Result<(), Box<dyn std::error::Error>> {
@@ -31,9 +29,15 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     tracing::try_init()?;
 
     let cli = Cli::parse_args();
-    let configuration = Configuration::from(&cli);
 
-    let rt = tokio::runtime::Builder::new_current_thread()
+    // Loaded, parsed **and validated** synchronously, before the runtime exists (D40): a
+    // configuration that would fail later must not get as far as binding a listener.
+    let config = configuration::load(&cli.config_folder)?;
+    tracing::debug!(?config, "service configuration loaded");
+
+    // Multi-thread, unlike the engine and the previous server: T3's fan-out and T4's poll loop
+    // are the workload this runtime is sized for (§3.2).
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_io()
         .enable_time()
         .build()
@@ -42,7 +46,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(async {
         signal::register_shutdown_listeners();
 
-        Ok::<_, anyhow::Error>(server::try_init(configuration).await?)
+        Ok::<_, anyhow::Error>(server::try_init(AppState::new(config)).await?)
     })?;
 
     Ok(())
@@ -50,7 +54,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
 fn main() {
     if let Err(err) = run() {
-        tracing::error!(?err, "application error");
+        tracing::error!(%err, "application error");
         std::process::exit(1);
     }
 }

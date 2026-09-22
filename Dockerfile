@@ -10,6 +10,8 @@ RUN apk add --no-cache --upgrade build-base openssl-dev openssl-libs-static pkgc
 WORKDIR /usr/src
 
 COPY ./src ./src
+COPY ./configuration ./configuration
+COPY ./build.rs ./build.rs
 COPY ./Cargo.lock ./Cargo.lock
 COPY ./Cargo.toml ./Cargo.toml
 

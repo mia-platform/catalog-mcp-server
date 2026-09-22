@@ -8,14 +8,7 @@ args = ["run", "--all-features", "${@}"]
 workspace = false
 env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
-args = [
-    "run",
-    "--all-features",
-    "--",
-    "--base-url", "http://localhost:3000/api",
-    "--spec", "./static/catalog-engine.openapi.json",
-    "--port", "8000"
-]
+args = ["run", "--all-features", "--", "--config-folder", ".dev"]
 
 [tasks.help]
 workspace = false
@@ -33,6 +26,7 @@ args = ["build", "--all-features"]
 
 [env]
 docker_compose_dev_file = ".dev/docker-compose.yml"
+catalog_engine_oas_source = "../../../gitlab/platform/catalog/catalog-engine/assets/oas/catalog-engine.openapi.json"
 
 [tasks.dev_up]
 workspace = false
@@ -43,6 +37,23 @@ args = ["compose", "--file", "${docker_compose_dev_file}", "up", "--wait", "-d"]
 workspace = false
 command = "docker"
 args = ["compose", "--file", "${docker_compose_dev_file}", "down", "--remove-orphans", "-v"]
+
+########################################################################################################################
+
+# Refreshes the vendored engine OpenAPI document the contract tests read (§12.3). Pinned on
+# purpose: it is refreshed deliberately, in a reviewable diff, never fetched at build time.
+[tasks.refresh_oas]
+workspace = false
+script = '''
+    set -e
+    if [ ! -f "${catalog_engine_oas_source}" ]; then
+        echo "cannot find the engine OAS at ${catalog_engine_oas_source}"
+        echo "set catalog_engine_oas_source to a checkout of catalog-engine and try again"
+        exit 1
+    fi
+    cp "${catalog_engine_oas_source}" ./assets/oas/catalog-engine.openapi.json
+    echo "vendored assets/oas/catalog-engine.openapi.json from ${catalog_engine_oas_source}"
+'''
 
 ########################################################################################################################
 
@@ -60,9 +71,18 @@ args = [
     "-it",
     "--name=catalog-mcp-server",
     "--publish=8000:8000",
+    "--volume=${PWD}/.dev/config.json:/home/catalog-mcp-server/.config/catalog-mcp-server/config.json",
     "ghcr.io/mia-platform/catalog-mcp-server:latest",
     "${@}"
 ]
+
+########################################################################################################################
+
+[tasks.test_local]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = ["test", "--all-features", "${@}", "--", "--show-output"]
 
 ########################################################################################################################
 
@@ -70,9 +90,21 @@ args = [
 workspace = false
 script = "cargo +nightly fmt --all --check"
 
+[tasks.clippy]
+workspace = false
+command = "cargo"
+args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+
+[tasks.test]
+workspace = false
+command = "cargo"
+args = ["test", "--all-features"]
+
+# The blocking CI gate (§3.3): nightly `fmt --check`, then clippy with `-D warnings`, then the
+# tests. Clippy is blocking here, as in `ai-foundry-bff`, not advisory as in `catalog-engine`.
 [tasks.check_all]
-env = { RUSTFLAGS = "-D warnings" }
-script = "cargo clippy"
+workspace = false
+dependencies = ["fmt", "clippy", "test"]
 
 [tasks.udeps_all]
 workspace = false

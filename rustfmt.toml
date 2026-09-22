@@ -1,0 +1,3 @@
+# Nightly-only options: `cargo +nightly fmt` is the repository's format gate (D37).
+group_imports = "One"
+imports_granularity = "Crate"

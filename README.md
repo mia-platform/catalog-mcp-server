@@ -17,31 +17,40 @@ For a detailed description on how to connect to the remote Mia-Platform Catalog 
 
 ## Configuration
 
-The service acts as a proxy to the Mia-Platform Catalog, automatically generating the available tools from the Catalog OpenAPI specification.
+The service is configured by a JSON file at `$CONFIGURATION_FOLDER/config.json`. Its JSON Schema is generated at build time and committed at [`schemas/config.schema.json`](./schemas/config.schema.json), which is the authoritative description of every field and default.
 
-Therefore, the service needs to known the URL on which the Catalog can be reached (`--base-url` [CLI flag](#cli-options)), and the OpenAPI specification to use (`--spec` [CLI flag](#cli-options)). By default, the spec is fetched from the Catalog itself. Otherwise, you can instruct the service to source it from a path on the filesystem or from a remote URL.
+Two fields have no usable default and are worth calling out:
+
+- **`server.allowedHosts`** — the hostnames or `host:port` authorities accepted in the inbound `Host` header. It **must not be empty**: the MCP transport defaults to loopback-only validation, so a remote deployment would answer every request `403 Forbidden: Host header is not allowed`. The service refuses to start on an empty list.
+- **`engine.baseUrl`** — the API gateway in front of `catalog-engine`, for example `http://api-gateway:8080`. It must **not** address the `catalog-engine` Service directly: every outbound call has to traverse the gateway so the caller's own authorization is evaluated against it. The service refuses to start on a base URL that names the engine Service.
+
+A minimal configuration:
+
+```json
+{
+  "server": { "allowedHosts": ["catalog-mcp.example.com"] },
+  "engine": { "baseUrl": "http://api-gateway:8080" },
+  "auth": { "resource": "https://catalog-mcp.example.com/mcp" }
+}
+```
+
+Configuration is read and validated before the listener binds: a failure exits non-zero with the field path.
 
 ### Environment variables
 
 The service accepts the following environment variables:
 
-| Name      |                       Type                        | Required | Default | Description    |
-| :-------- | :-----------------------------------------------: | :------: | :-----: | :------------- |
-| LOG_LEVEL | `trace` \| `debug` \| `info` \| `warn` \| `error` |          | `info`  | The log level. |
+| Name                 |                       Type                        | Required |                    Default                    | Description                                    |
+| :------------------- | :-----------------------------------------------: | :------: | :-------------------------------------------: | :--------------------------------------------- |
+| LOG_LEVEL            | `trace` \| `debug` \| `info` \| `warn` \| `error` |          |                    `info`                     | The log level.                                 |
+| CONFIGURATION_FOLDER |                     `path`                        |          | the platform config folder, e.g. `~/.config/catalog-mcp-server` | Folder holding `config.json`. |
 
 ### CLI options
 
-The service can be configured with the following set of CLI arguments:
-
-| Flag                        | Required |             Default             | Description                                                                                                                                                                                           |
-| :-------------------------- | :------: | :-----------------------------: | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `-s`, `--spec <LOCATION>`   |          |    `<base-url>/openapi/json`    | Path or URL to the OpenAPI specification file from which the MCP server should be built. When loading from the filesystem, the file extension must be `.json`, `.yaml`, or `.yml`.                   |
-| `-b`, `--base-url <URL>`    |    ✓     |                                 | Mia-Platform Catalog base URL.                                                                                                                                                                        |
-| `--stdio`                   |          |             `false`             | Use stdio transport instead of HTTP streaming. When enabled, the server runs in stdio mode.                                                                                                           |
-| `--api-prefix <PREFIX>`     |          |               `/`               | Prefix for the MCP server REST API (only applicable in HTTP mode).                                                                                                                                    |
-| `-p`, `--port <PORT>`       |          |             `8000`              | Port to bind the MCP server to (only applicable in HTTP mode).                                                                                                                                        |
-| `--ip <IP>`                 |          |            `0.0.0.0`            | IP address to bind the MCP server to (only applicable in HTTP mode).                                                                                                                                  |
-| `--allowed-hosts [HOST]...` |          | `localhost`, `127.0.0.1`, `::1` | Allowed hostnames or `host:port` authorities for inbound `Host` header validation (only applicable in HTTP mode). If omitted, defaults to loopback hosts only. Pass with no values to allow any host. |
+| Flag                       | Required |                             Default                              | Description                     |
+| :------------------------- | :------: | :--------------------------------------------------------------: | :------------------------------ |
+| `--config-folder <FOLDER>` |          | `$CONFIGURATION_FOLDER`, else the platform config folder         | Folder holding `config.json`.   |
+| `--version`                |          |                                                                  | Print the version and exit.     |
 
 ## Contributing
 

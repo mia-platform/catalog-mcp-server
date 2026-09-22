@@ -5,15 +5,8 @@
       "url": "https://catalog.mia-demo-re5gu6.gcp.mia-platform.eu/mcp"
     },
     "catalog-local": {
-      "type": "stdio",
-      "command": "cargo",
-      "args": [
-        "run",
-        "--",
-        "--stdio",
-        "--base-url=http://localhost:3000",
-        "--spec=http://localhost:3000/api/openapi/json"
-      ]
+      "type": "http",
+      "url": "http://localhost:8000/mcp"
     }
   },
   "inputs": []
