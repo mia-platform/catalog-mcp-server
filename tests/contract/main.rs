@@ -133,6 +133,62 @@ fn test_every_query_parameter_we_send_is_declared() {
     }
 }
 
+/// T11 — `/bff/tenants` still declares **no parameters** and still returns a bare array.
+///
+/// It is one of three routes that skip the policy, so it declares no `x-mia-acl-context` either;
+/// that asymmetry is the reason the operation below is excluded from the identity-header sweep,
+/// and the reason T11 proves *our* forwarding rather than the policy's regeneration.
+#[test]
+fn test_the_tenant_listing_declares_no_parameters_and_returns_a_bare_array() {
+    let operation = operation(&catalog_client::ops::LIST_TENANTS);
+
+    assert!(
+        declared_parameters(operation).is_empty(),
+        "`/bff/tenants` has grown parameters: {:?}",
+        declared_parameters(operation)
+    );
+
+    let body = operation
+        .pointer("/responses/200/content/application~1json/schema")
+        .expect("the tenant listing still declares a 200 body");
+
+    assert_eq!(
+        body.get("type").and_then(Value::as_str),
+        Some("array"),
+        "`/bff/tenants` is no longer a bare array: {body}"
+    );
+    assert_eq!(
+        body.pointer("/items/$ref").and_then(Value::as_str),
+        Some("#/components/schemas/Tenant")
+    );
+}
+
+/// The `401`-on-missing-token behaviour T11's whole purpose rests on.
+#[test]
+fn test_the_tenant_listing_still_declares_a_401() {
+    let responses = operation(&catalog_client::ops::LIST_TENANTS)
+        .get("responses")
+        .and_then(Value::as_object)
+        .expect("the tenant listing declares responses");
+
+    assert!(
+        responses.contains_key("401"),
+        "the 401 T11 exists to surface is gone: {:?}",
+        responses.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        responses.contains_key("502"),
+        "the authz-unavailable row is gone"
+    );
+}
+
+/// The fields T11 projects still exist, under the names that make `current` comparable to an
+/// entry in the list: the engine's `name` is the slug and its `title` the display name.
+#[test]
+fn test_the_tenant_fields_we_read_still_exist() {
+    assert_properties("Tenant", &["name", "organization", "title"]);
+}
+
 /// Every operation accepts the identity pair we forward. `x-mia-principal-id` is deliberately
 /// **absent** from the OAS — it is an internal contract between the policy layer and the engine
 /// — so only the ACL context is assertable here, and that asymmetry is the point of the comment
@@ -140,8 +196,12 @@ fn test_every_query_parameter_we_send_is_declared() {
 #[test]
 fn test_every_operation_declares_the_acl_context_header() {
     for spec in OPERATIONS {
-        // `/bff/*` routes skip the policy and declare no parameters at all; none is in this set
-        // today, and this assertion is what will say so when one is added.
+        // The three `/bff/*` routes that skip the policy declare no parameters at all — see the
+        // tenant-listing test above, which asserts that emptiness directly.
+        if spec.path.starts_with("/bff/") {
+            continue;
+        }
+
         let declared = declared_parameters(operation(spec));
 
         assert!(

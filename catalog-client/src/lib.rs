@@ -67,6 +67,7 @@ pub use address::ItemAddress;
 pub use client::{Deadline, EngineClient, EngineClientFactory, EngineResponse};
 pub use error::{Remedy, ToolError};
 pub use identity::{AclContext, CallerIdentity, Sensitive, TenantKey};
+pub use models::Tenant;
 pub use pagination::{EngineCursor, ListPage, ToolCursor};
 pub use projection::{Grouping, Projection};
 pub use query::{FieldPath, Predicate, QueryValue, RegexLiteral};

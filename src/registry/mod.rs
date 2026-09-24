@@ -15,12 +15,25 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::{handler::CatalogHandler, schema::minify_input_schema, tools};
+use crate::{
+    handler::{CatalogHandler, caller_identity},
+    registry::contract::{
+        CallContext, ProgressSink, Tool as CatalogTool, invalid_arguments, success_result,
+    },
+    schema::minify_input_schema,
+    tools,
+};
 use rmcp::{
-    handler::server::{common::schema_for_input, router::tool::ToolRouter},
-    model::{JsonObject, Tool, ToolAnnotations},
+    handler::server::{
+        common::schema_for_input,
+        router::tool::{ToolRoute, ToolRouter},
+    },
+    model::{CallToolResponse, JsonObject, Tool, ToolAnnotations},
 };
 use std::sync::Arc;
+
+/// The tool-authoring contract, frozen at the Step 4 gate (§5.5, §13.5).
+pub mod contract;
 
 /// Byte allowance per registered tool for the whole `tools/list` payload (D12, §9).
 ///
@@ -130,8 +143,15 @@ impl Registry {
     }
 
     /// The complete tool set this server ships.
+    ///
+    /// Ordering is not set here: `list_all()` sorts by name, which is the determinism the
+    /// specification asks for, so nothing sorts twice.
     pub fn with_shipped_tools() -> Self {
-        Self::new(ToolRouter::new().with_route(tools::hello::route()))
+        Self::new(
+            ToolRouter::new()
+                .with_route(route_for(tools::hello::Hello))
+                .with_route(route_for(tools::list_tenants::ListTenants)),
+        )
     }
 
     /// The prebuilt answer to `tools/list`.
@@ -183,6 +203,61 @@ impl Registry {
             })
             .collect()
     }
+}
+
+/// Puts a [`CatalogTool`] behind the SDK's router — the object-safe adapter of §5.5.
+///
+/// It is the **only** place the steps between a JSON-RPC request and a tool happen, which is
+/// what stops each tool re-deriving them:
+///
+/// - `Value → T::Input` with the serde path kept, so a bad argument names its own field (rule 3);
+/// - the [`CallContext`], built from the request's identity on every call and never cached on
+///   the handler (D4);
+/// - rendering, so a tool cannot set `isError` and cannot forget the `warnings` key (rule 2).
+pub fn route_for<T: CatalogTool>(tool: T) -> ToolRoute<CatalogHandler> {
+    let descriptor = T::descriptor();
+    let attributes: Tool = (&descriptor).into();
+    let tool = Arc::new(tool);
+
+    ToolRoute::new_dyn(
+        attributes,
+        move |context: rmcp::handler::server::tool::ToolCallContext<'_, CatalogHandler>| {
+            let tool = tool.clone();
+
+            Box::pin(async move {
+                let state = context.service.state();
+                let request = context.request_context();
+
+                let identity = Arc::new(caller_identity(request));
+                let call = CallContext::new(
+                    state.engine_for(identity.clone()),
+                    state.deadline(),
+                    request.ct.clone(),
+                    request
+                        .meta
+                        .get_progress_token()
+                        .map(|token| ProgressSink::new(request.peer.clone(), token)),
+                    identity.tenant_key(),
+                );
+
+                // Rule 3 — an argument failure is a **tool** error the model can correct, not a
+                // protocol error it cannot see.
+                let arguments = serde_json::Value::Object(context.arguments.unwrap_or_default());
+                let input = match serde_path_to_error::deserialize::<_, T::Input>(arguments) {
+                    Ok(input) => input,
+                    Err(err) => {
+                        return Ok(crate::handler::tool_error_result(&invalid_arguments(&err)));
+                    }
+                };
+
+                // Rule 2 — a tool cannot set `isError`; returning `Err` is how it fails.
+                match tool.call(&call, input).await {
+                    Ok(output) => Ok(CallToolResponse::from(success_result(&output))),
+                    Err(error) => Ok(crate::handler::tool_error_result(&error)),
+                }
+            })
+        },
+    )
 }
 
 #[cfg(test)]

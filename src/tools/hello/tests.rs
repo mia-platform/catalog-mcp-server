@@ -15,14 +15,17 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::tools::hello::{TOOL_NAME, descriptor};
+use crate::{
+    registry::contract::Tool,
+    tools::hello::{Hello, TOOL_NAME},
+};
 use rstest::rstest;
 
 /// D16 — annotations are emitted only where they differ from the specification's defaults.
 /// Omitting them entirely would declare this read-only probe destructive and open-world.
 #[rstest]
 fn test_annotations_declare_only_what_differs_from_the_defaults() {
-    let annotations = descriptor().annotations;
+    let annotations = Hello::descriptor().annotations;
 
     assert_eq!(annotations.read_only_hint, Some(true));
     assert_eq!(annotations.destructive_hint, None);
@@ -34,13 +37,14 @@ fn test_annotations_declare_only_what_differs_from_the_defaults() {
 /// D17 — a parameterless tool minifies to exactly this, and nothing more.
 #[rstest]
 fn test_input_schema_is_the_parameterless_form() {
-    let schema = serde_json::to_string(&descriptor().input_schema).expect("a serialisable schema");
+    let schema =
+        serde_json::to_string(&Hello::descriptor().input_schema).expect("a serialisable schema");
 
     assert_eq!(schema, r#"{"additionalProperties":false,"type":"object"}"#);
 }
 
 #[rstest]
 fn test_descriptor_names_the_tool() {
-    assert_eq!(descriptor().name, TOOL_NAME);
-    assert!(!descriptor().description.is_empty());
+    assert_eq!(Hello::descriptor().name, TOOL_NAME);
+    assert!(!Hello::descriptor().description.is_empty());
 }

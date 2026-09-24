@@ -64,6 +64,7 @@ rmcp = { version = "3.4.0", features = ["transport-streamable-http-server"] }
 schemars.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+serde_path_to_error = "0.1.20"
 tokio = { workspace = true, features = [
     "macros",
     "rt-multi-thread",
@@ -71,6 +72,7 @@ tokio = { workspace = true, features = [
     "sync",
     "time",
 ] }
+
 tokio-util = "0.7.17"
 tower = "0.5.2"
 tower-http = { version = "0.6.6", features = ["normalize-path", "request-id"] }
@@ -88,6 +90,8 @@ serde_json.workspace = true
 
 [dev-dependencies]
 base64.workspace = true
+tracing-subscriber = { version = "0.3.20", features = ["registry"] }
+tokio = { workspace = true, features = ["test-util"] }
 catalog-client = { path = "catalog-client", features = ["testing"] }
 rstest.workspace = true
 wiremock = "0.6.5"

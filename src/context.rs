@@ -124,24 +124,21 @@ impl AppState {
         })
     }
 
+    /// The wall-clock budget for one whole tool call, starting now (§6.4).
+    ///
+    /// `engine.timeoutMs` bounds one hop and this bounds the whole call; whichever is smaller
+    /// wins. Config validation has already refused a deadline shorter than one hop.
+    pub fn deadline(&self) -> catalog_client::Deadline {
+        catalog_client::Deadline::starting_now(Duration::from_secs(
+            self.config.tools.call_deadline_seconds,
+        ))
+    }
+
     /// Binds the shared engine client to one caller and one call's deadline (D25).
-    ///
-    /// The deadline is `tools.callDeadlineSeconds` from now: `engine.timeoutMs` bounds one hop
-    /// and this bounds the whole call.
-    ///
-    // Its production caller is the `CallContext` of §5.5, which Step 4 freezes; until then it is
-    // reached only from the tenant-isolation test, which drives the whole identity path through
-    // it. Hence the allow, matching `catalog-engine`'s convention for such items.
-    #[allow(dead_code)]
     pub fn engine_for(
         &self,
         identity: Arc<catalog_client::CallerIdentity>,
     ) -> catalog_client::EngineClient {
-        self.engine.bind(
-            identity,
-            catalog_client::Deadline::starting_now(Duration::from_secs(
-                self.config.tools.call_deadline_seconds,
-            )),
-        )
+        self.engine.bind(identity, self.deadline())
     }
 }

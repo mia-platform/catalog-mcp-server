@@ -16,5 +16,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 /// The Step 1 probe: proves the handler, the transport and the identity hook without any
-/// catalog logic behind them (§13.2).
+/// catalog logic behind them (§13.2), and the smallest worked example of the §5.5 contract.
 pub mod hello;
+
+/// The worked example of the contract freeze, and the cheapest end-to-end probe of the identity
+/// path in the whole tool set (§13.5, T11).
+pub mod list_tenants;

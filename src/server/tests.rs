@@ -290,7 +290,7 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(names, vec![TOOL_NAME]);
+    assert_eq!(names, vec!["hello", "list_tenants"]);
 
     let called = stateless_request(
         &mock_router,
@@ -325,7 +325,7 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(names, vec![TOOL_NAME]);
+    assert_eq!(names, vec!["hello", "list_tenants"]);
 
     let called = legacy_request(
         &mock_router,
@@ -352,6 +352,9 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
 // so these are ours. Both eras, because the injection points differ.
 // ---------------------------------------------------------------------------------------------
 
+/// The header used is `x-mia-acl-context`, and the assertion is on the tenant it decodes to —
+/// because §5.5 rule 1 means **no tool ever sees a header**. What has to survive is the
+/// identity, and the tenant is the observable half of it.
 #[rstest]
 #[tokio::test]
 async fn test_forwarded_header_reaches_the_tool_on_the_stateless_era(mock_router: Router) {
@@ -360,15 +363,24 @@ async fn test_forwarded_header_reaches_the_tool_on_the_stateless_era(mock_router
         "tools/call",
         Some(TOOL_NAME),
         json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[("x-request-id", "test-request-0001")],
+        &[("x-mia-acl-context", &acl_for("tenant-one"))],
     )
     .await;
 
     assert_eq!(
-        tool_payload(&called)["requestId"],
-        json!("test-request-0001"),
+        tool_payload(&called)["tenant"],
+        json!("my-org/tenant-one"),
         "the inbound header did not survive into the tool call"
     );
+}
+
+/// An ACL context for `tenant`, encoded as the policy layer encodes one.
+fn acl_for(tenant: &str) -> String {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    URL_SAFE_NO_PAD.encode(format!(
+        r#"{{"organization":"my-org","tenant":"{tenant}"}}"#
+    ))
 }
 
 #[rstest]
@@ -381,13 +393,13 @@ async fn test_forwarded_header_reaches_the_tool_on_the_legacy_era(mock_router: R
         &session_id,
         "tools/call",
         json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[("x-request-id", "test-request-0002")],
+        &[("x-mia-acl-context", &acl_for("tenant-two"))],
     )
     .await;
 
     assert_eq!(
-        tool_payload(&called)["requestId"],
-        json!("test-request-0002"),
+        tool_payload(&called)["tenant"],
+        json!("my-org/tenant-two"),
         "the inbound header did not survive into the tool call"
     );
 }
@@ -405,7 +417,7 @@ async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_ro
         &session_id,
         "tools/call",
         json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[("x-request-id", "test-request-first")],
+        &[("x-mia-acl-context", &acl_for("tenant-one"))],
     )
     .await;
 
@@ -414,26 +426,23 @@ async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_ro
         &session_id,
         "tools/call",
         json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[("x-request-id", "test-request-second")],
+        &[("x-mia-acl-context", &acl_for("tenant-two"))],
     )
     .await;
 
+    assert_eq!(tool_payload(&first)["tenant"], json!("my-org/tenant-one"));
     assert_eq!(
-        tool_payload(&first)["requestId"],
-        json!("test-request-first")
-    );
-    assert_eq!(
-        tool_payload(&second)["requestId"],
-        json!("test-request-second"),
-        "a legacy session leaked the first request's header into the second call"
+        tool_payload(&second)["tenant"],
+        json!("my-org/tenant-two"),
+        "a legacy session leaked the first request's identity into the second call"
     );
 }
 
-/// The request-id layer is outermost (§6.1), so a call that arrives without one still reaches
-/// the tool with a minted id rather than nothing.
+/// A call with no identity at all still reaches the tool, and the tenant it sees is `unknown` —
+/// recorded and carried, never rejected (D47).
 #[rstest]
 #[tokio::test]
-async fn test_request_id_is_minted_when_absent(mock_router: Router) {
+async fn test_a_call_without_an_identity_still_reaches_the_tool(mock_router: Router) {
     let called = stateless_request(
         &mock_router,
         "tools/call",
@@ -443,10 +452,8 @@ async fn test_request_id_is_minted_when_absent(mock_router: Router) {
     )
     .await;
 
-    assert!(
-        tool_payload(&called)["requestId"].is_string(),
-        "no request id reached the tool"
-    );
+    assert_eq!(called["result"]["isError"], json!(false));
+    assert_eq!(tool_payload(&called)["tenant"], json!("unknown/unknown"));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -761,6 +768,13 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
     .await;
 
     assert_eq!(listed["result"]["tools"][0]["name"], json!(TOOL_NAME));
+    assert_eq!(
+        listed["result"]["tools"]
+            .as_array()
+            .expect("an array")
+            .len(),
+        2
+    );
     assert!(listed["result"].get("nextCursor").is_none());
 }
 
@@ -1313,4 +1327,185 @@ async fn test_metrics_is_absent_when_disabled(mock_config: Config) {
         .expect("the router is infallible");
 
     assert_eq!(response.status(), StatusCode::NOT_FOUND);
+}
+
+// ---------------------------------------------------------------------------------------------
+// §13.4's gate — the `mcp.request` span carries its fields **from inside the handler**.
+//
+// Captured as `tracing` sees it during a real request, rather than read off a log line: the
+// point of §10 is *where* the span is opened. A tower layer could not record `mcp.tool` or
+// `mcp.era` without reading the JSON-RPC body first — that is, without re-implementing dispatch.
+// ---------------------------------------------------------------------------------------------
+
+use std::sync::Mutex;
+use tracing_subscriber::layer::{Context as LayerContext, Layer, SubscriberExt};
+
+/// One captured span: its name, the fields it **declares**, and the values recorded on creation.
+///
+/// The two differ on purpose. A field declared `tracing::field::Empty` — `outcome`, `bytes_out`,
+/// everything filled in after the work is done — is in the span's metadata from the start but
+/// carries no value until `record` is called. Asserting on declarations is what checks the span
+/// *shape*; asserting on values is what checks the ones known up front.
+#[derive(Clone, Debug, Default)]
+struct CapturedSpan {
+    name: String,
+    declared: Vec<String>,
+    fields: std::collections::BTreeMap<String, String>,
+}
+
+/// A `tracing` layer that records every span created while it is installed.
+#[derive(Clone, Default)]
+struct SpanCapture(std::sync::Arc<Mutex<Vec<CapturedSpan>>>);
+
+impl<S: tracing::Subscriber> Layer<S> for SpanCapture {
+    fn on_new_span(
+        &self,
+        attrs: &tracing::span::Attributes<'_>,
+        _id: &tracing::span::Id,
+        _ctx: LayerContext<'_, S>,
+    ) {
+        let mut captured = CapturedSpan {
+            name: attrs.metadata().name().to_string(),
+            declared: attrs
+                .metadata()
+                .fields()
+                .iter()
+                .map(|field| field.name().to_string())
+                .collect(),
+            ..CapturedSpan::default()
+        };
+
+        attrs.record(
+            &mut |field: &tracing::field::Field, value: &dyn std::fmt::Debug| {
+                captured
+                    .fields
+                    .insert(field.name().to_string(), format!("{value:?}"));
+            },
+        );
+
+        if let Ok(mut spans) = self.0.lock() {
+            spans.push(captured);
+        }
+    }
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Router) {
+    let capture = SpanCapture::default();
+    let guard =
+        tracing::subscriber::set_default(tracing_subscriber::registry().with(capture.clone()));
+
+    stateless_request(
+        &mock_router,
+        "tools/call",
+        Some(TOOL_NAME),
+        json!({ "name": TOOL_NAME, "arguments": {} }),
+        &[("x-mia-acl-context", &acl_for("tenant-one"))],
+    )
+    .await;
+
+    drop(guard);
+
+    let spans = capture
+        .0
+        .lock()
+        .expect("the capture is not poisoned")
+        .clone();
+    let span = spans
+        .iter()
+        .find(|span| span.name == "mcp.request")
+        .unwrap_or_else(|| {
+            panic!(
+                "no mcp.request span was opened; captured: {:?}",
+                spans.iter().map(|s| &s.name).collect::<Vec<_>>()
+            )
+        });
+
+    for field in [
+        "mcp.method",
+        "mcp.tool",
+        "mcp.era",
+        "mcp.protocol_version",
+        "client.name",
+        "client.version",
+        "tenant",
+        "principal_id",
+        "traceparent",
+        "outcome",
+        "error.code",
+        "error.remedy",
+        "bytes_out",
+        "duration_ms",
+    ] {
+        assert!(
+            span.declared.iter().any(|declared| declared == field),
+            "the mcp.request span is missing `{field}`: {:?}",
+            span.declared
+        );
+    }
+
+    // The fields a tower layer could not have known without re-implementing dispatch.
+    assert_eq!(
+        span.fields.get("mcp.method").map(String::as_str),
+        Some("\"tools/call\"")
+    );
+    assert_eq!(
+        span.fields.get("mcp.tool").map(String::as_str),
+        Some("\"hello\"")
+    );
+    assert_eq!(
+        span.fields.get("mcp.era").map(String::as_str),
+        Some("\"2026-07-28\"")
+    );
+    // ...and the identity the layer *did* decode, carried into it.
+    assert_eq!(
+        span.fields.get("tenant").map(String::as_str),
+        Some("my-org/tenant-one")
+    );
+}
+
+/// The transport-only `http.request` span is opened in the layer, with the fields derivable from
+/// headers alone — and **not** with the MCP-shaped ones, which is the asymmetry §4 rule 5 fixes.
+#[rstest]
+#[tokio::test]
+async fn test_the_http_request_span_carries_transport_fields_only(mock_router: Router) {
+    let capture = SpanCapture::default();
+    let guard =
+        tracing::subscriber::set_default(tracing_subscriber::registry().with(capture.clone()));
+
+    let _ = get(&mock_router, "/-/healthz").await;
+
+    drop(guard);
+
+    let spans = capture
+        .0
+        .lock()
+        .expect("the capture is not poisoned")
+        .clone();
+    let span = spans
+        .iter()
+        .find(|span| span.name == "http.request")
+        .expect("the layer opens an http.request span");
+
+    for field in [
+        "request_id",
+        "organization",
+        "tenant",
+        "http.status_code",
+        "duration_ms",
+    ] {
+        assert!(
+            span.declared.iter().any(|declared| declared == field),
+            "the http.request span is missing `{field}`: {:?}",
+            span.declared
+        );
+    }
+
+    for mcp_field in ["mcp.method", "mcp.tool", "mcp.era"] {
+        assert!(
+            !span.declared.iter().any(|declared| declared == mcp_field),
+            "`{mcp_field}` belongs to the handler's span, not the layer's"
+        );
+    }
 }

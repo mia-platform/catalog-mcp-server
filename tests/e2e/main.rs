@@ -339,3 +339,59 @@ async fn test_the_acl_context_is_accepted_verbatim_by_the_engine() {
 
     assert_eq!(response.value.items.len(), 1);
 }
+
+// ---------------------------------------------------------------------------------------------
+// T11 `list_tenants` — the worked example, against the live engine (§13.5).
+//
+// **What this environment can and cannot prove, stated plainly.** There is no gateway here and
+// no authz service, deliberately: the compose file exists to prove *our* forwarding, not the
+// policy's regeneration. So the `502` row below is verified live and the `401` row is not —
+// producing a live `401` needs authz configured *with* token exchange and no `Authorization`
+// header, which is a cluster, not a compose file. The `401` path is asserted against the mock in
+// `src/tools/list_tenants/tests.rs`, and the remaining half of §13.5's gate is a dev-cluster
+// check this repository cannot run.
+// ---------------------------------------------------------------------------------------------
+
+/// **T11-D4, live.** With authz unconfigured the engine answers `502`, and the tool must say
+/// *authz* rather than *the catalog* — every other tool may be working perfectly, and a model
+/// told "the catalog is unavailable" would stop doing things it could still do.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_tenant_listing_reports_authz_rather_than_the_catalog() {
+    let error = client()
+        .list_tenants()
+        .await
+        .expect_err("authz is not configured in this environment");
+
+    assert_eq!(error.code, codes::UPSTREAM_UNAVAILABLE);
+    assert_eq!(error.remedy, catalog_client::Remedy::Retry);
+    assert!(
+        error.message.contains("authorization service"),
+        "the message must name authz: {}",
+        error.message
+    );
+    assert!(
+        !error.message.to_lowercase().contains("the catalog is"),
+        "the message must not blame the catalog: {}",
+        error.message
+    );
+}
+
+/// The endpoint really does take no parameters and really is reached at `/bff/tenants` — the
+/// contract test asserts the document, and this asserts the engine.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_tenant_listing_is_reachable_where_the_client_expects_it() {
+    // A `502` is the authz service's absence, not a routing failure: a wrong path would be a
+    // `404`, which would map to `not_found` instead.
+    let error = client()
+        .list_tenants()
+        .await
+        .expect_err("authz is not configured in this environment");
+
+    assert_ne!(
+        error.code,
+        codes::NOT_FOUND,
+        "`/bff/tenants` is not where this client looks for it"
+    );
+}

@@ -82,11 +82,8 @@ impl CatalogHandler {
         Self { state }
     }
 
-    /// The shared state behind this handler.
-    ///
-    // Its production caller is the `CallContext` of §5.5, which Step 4 freezes; until then it is
-    // reached only from the tenant-isolation test's probe tool. Hence the allow.
-    #[allow(dead_code)]
+    /// The shared state behind this handler, which is what a tool route builds its
+    /// [`CallContext`](crate::registry::contract::CallContext) from.
     pub fn state(&self) -> &AppState {
         &self.state
     }
@@ -120,7 +117,7 @@ pub fn inbound_parts(context: &RequestContext<RoleServer>) -> Option<&http::requ
 ///
 /// W3C trace context comes from `_meta`, where the specification reserves the keys for exactly
 /// this, rather than from a header.
-fn mcp_request_span(
+pub(crate) fn mcp_request_span(
     method: &'static str,
     tool: Option<&str>,
     context: &RequestContext<RoleServer>,
@@ -166,7 +163,7 @@ fn mcp_request_span(
 ///
 /// `isError: true`, HTTP `200`: anything the model could act on must be something it can see and
 /// self-correct from.
-fn tool_error_result(error: &ToolError) -> CallToolResponse {
+pub fn tool_error_result(error: &ToolError) -> CallToolResponse {
     let text = serde_json::to_string(&error.to_payload()).unwrap_or_else(|_| {
         r#"{"error":{"code":"server_defect","remedy":"escalate"}}"#.to_string()
     });

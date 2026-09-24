@@ -69,6 +69,14 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     query: &[],
 };
 
+/// The tenants the caller can see. **Not a catalog read** — the engine proxies it to authz.
+pub const LIST_TENANTS: OperationSpec = OperationSpec {
+    id: "list_tenants",
+    method: "get",
+    path: "/bff/tenants",
+    query: &[],
+};
+
 /// The Item Type Definition listing.
 pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
     id: "list_item_type_definitions",
@@ -247,6 +255,9 @@ impl EngineClient {
         })
     }
 }
+
+/// The tenant listing, which is not a catalog read at all.
+pub mod tenants;
 
 #[cfg(test)]
 mod tests;
