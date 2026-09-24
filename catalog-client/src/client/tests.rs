@@ -67,7 +67,18 @@ fn test_a_4xx_is_never_retried(#[case] status: u16) {
 
 #[rstest]
 fn test_a_transport_failure_is_retryable() {
-    assert!(FailureKind::Transport.is_retryable());
+    assert!(FailureKind::Timeout.is_retryable());
+    assert!(FailureKind::Connect.is_retryable());
+}
+
+/// **D20's dividing line.** A connect failure is the one case where a write is known not to have
+/// happened; everything else leaves the outcome unknowable from here.
+#[rstest]
+fn test_only_a_connect_failure_leaves_a_write_certainly_unapplied() {
+    assert!(!FailureKind::Connect.may_have_been_applied());
+    assert!(FailureKind::Timeout.may_have_been_applied());
+    assert!(FailureKind::Status(500).may_have_been_applied());
+    assert!(FailureKind::Status(503).may_have_been_applied());
 }
 
 /// Condition one: idempotent by construction. A dispatched write is never retried (D20).
@@ -75,7 +86,7 @@ fn test_a_transport_failure_is_retryable() {
 fn test_a_non_idempotent_request_is_not_retried() {
     let deadline = Deadline::starting_now(Duration::from_secs(25));
 
-    assert!(!mock_policy(1).allows(false, FailureKind::Transport, 0, &deadline));
+    assert!(!mock_policy(1).allows(false, FailureKind::Timeout, 0, &deadline));
 }
 
 /// Condition four: below `maxRetries`.
@@ -84,15 +95,15 @@ fn test_the_attempt_count_is_respected() {
     let deadline = Deadline::starting_now(Duration::from_secs(25));
     let policy = mock_policy(1);
 
-    assert!(policy.allows(true, FailureKind::Transport, 0, &deadline));
-    assert!(!policy.allows(true, FailureKind::Transport, 1, &deadline));
+    assert!(policy.allows(true, FailureKind::Timeout, 0, &deadline));
+    assert!(!policy.allows(true, FailureKind::Timeout, 1, &deadline));
 }
 
 #[rstest]
 fn test_zero_retries_means_zero() {
     let deadline = Deadline::starting_now(Duration::from_secs(25));
 
-    assert!(!mock_policy(0).allows(true, FailureKind::Transport, 0, &deadline));
+    assert!(!mock_policy(0).allows(true, FailureKind::Timeout, 0, &deadline));
 }
 
 /// Condition three: the deadline must have room for a **full** further attempt — connect plus
@@ -104,12 +115,12 @@ async fn test_a_retry_that_would_exceed_the_deadline_is_not_attempted() {
     let deadline = Deadline::starting_now(Duration::from_secs(25));
     let policy = mock_policy(1);
 
-    assert!(policy.allows(true, FailureKind::Transport, 0, &deadline));
+    assert!(policy.allows(true, FailureKind::Timeout, 0, &deadline));
 
     // Six seconds left is exactly connect + read, and the condition is strictly greater.
     tokio::time::advance(Duration::from_secs(19)).await;
 
-    assert!(!policy.allows(true, FailureKind::Transport, 0, &deadline));
+    assert!(!policy.allows(true, FailureKind::Timeout, 0, &deadline));
 }
 
 // ---------------------------------------------------------------------------------------------

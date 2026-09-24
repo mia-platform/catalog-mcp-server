@@ -35,7 +35,7 @@ server:
   - tools-call-audio:tools-call-audio
   - tools-call-embedded-resource:tools-call-embedded-resource
   - tools-call-mixed-content:tools-call-mixed-content
-  - tools-call-error:tools-call-error
   - tools-call-with-progress:tools-call-with-progress
+  - tools-call-error:tools-call-error
   - tools-call-with-logging:tools-call-with-logging
   - json-schema-2020-12:json-schema-2020-12-tool-found

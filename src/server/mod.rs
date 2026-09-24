@@ -33,6 +33,8 @@ use tower_http::{
 mod health;
 /// The identity extractor layer: `MiaIdentity` into the request's extensions (§6.2, D47).
 pub mod identity;
+mod metrics;
+mod span;
 
 /// Path prefix the operational endpoints are nested under, matching `catalog-engine`.
 const OPERATIONAL_PATH_PREFIX: &str = "/-";
@@ -94,10 +96,10 @@ fn mcp_service(
 ///
 /// **Layer order is a correctness property, not a style choice.** Request id is outermost, so
 /// every log line — including one from a request the transport rejects — carries it. The
-/// operational endpoints are merged *outside* everything request-scoped: a probe must never need
-/// a token, and `/-/healthz` behind a `401` is an outage that reads as a crash-loop. The
-/// identity layer, when it arrives, wraps **only** the MCP service for that reason, and the
-/// `http.request` span layer sits between the request-id layer and the routes.
+/// `http.request` span sits inside it, so the id is on the span. The operational endpoints are
+/// merged *inside* those two but *outside* everything request-scoped: a probe and a scrape must
+/// never need a token, and `/-/healthz` behind a `401` is an outage that reads as a crash-loop.
+/// The identity layer therefore wraps **only** the MCP service.
 pub fn build_router(state: AppState, shutdown: &CancellationToken) -> Router {
     let auth = state.config.auth.clone();
 
@@ -110,9 +112,13 @@ pub fn build_router(state: AppState, shutdown: &CancellationToken) -> Router {
         .service(mcp_service(state.clone(), shutdown));
 
     Router::new()
-        .nest(OPERATIONAL_PATH_PREFIX, health::routes())
+        .nest(
+            OPERATIONAL_PATH_PREFIX,
+            health::routes().merge(metrics::routes()),
+        )
         .with_state(state.clone())
         .nest_service(&state.config.server.mcp_path, mcp)
+        .layer(axum::middleware::from_fn(span::http_request_span))
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
 }
 

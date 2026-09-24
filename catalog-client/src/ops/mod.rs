@@ -61,6 +61,14 @@ pub const GET_ITEM: OperationSpec = OperationSpec {
     query: &[],
 };
 
+/// One item, written whole.
+pub const PUT_ITEM: OperationSpec = OperationSpec {
+    id: "put_item",
+    method: "put",
+    path: "/{group}/{version}/items/{family}/{name}",
+    query: &[],
+};
+
 /// The Item Type Definition listing.
 pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
     id: "list_item_type_definitions",
@@ -161,8 +169,9 @@ impl EngineClient {
         let mut url = self.url(["items"])?;
         query.apply(&mut url, LIST_ITEMS.query);
 
-        let response: EngineResponse<ListEnvelope<Item>> =
-            self.get_json(url, Projection::Full.accept()).await?;
+        let response: EngineResponse<ListEnvelope<Item>> = self
+            .get_json(LIST_ITEMS.id, url, Projection::Full.accept())
+            .await?;
 
         Ok(EngineResponse {
             value: ListPage::from_envelope(response.value),
@@ -179,7 +188,11 @@ impl EngineClient {
         query.apply(&mut url, LIST_ITEMS.query);
 
         let response: EngineResponse<ListEnvelope<PartialObjectMetadata>> = self
-            .get_json(url, Projection::PartialObjectMetadata.accept())
+            .get_json(
+                LIST_ITEMS.id,
+                url,
+                Projection::PartialObjectMetadata.accept(),
+            )
             .await?;
 
         Ok(EngineResponse {
@@ -192,7 +205,24 @@ impl EngineClient {
     pub async fn get_item(&self, address: &ItemAddress) -> Result<EngineResponse<Item>, ToolError> {
         let url = self.url(address.segments())?;
 
-        self.get_json(url, Projection::Full.accept()).await
+        self.get_json(GET_ITEM.id, url, Projection::Full.accept())
+            .await
+    }
+
+    /// `PUT /{group}/{version}/items/{family}/{name}` — write one item whole.
+    ///
+    /// `retryable` comes from the write cycle's [`ConflictPolicy`](crate::write::ConflictPolicy),
+    /// never from the call site: whether a write may be repeated is a property of the intent,
+    /// stated once (D23).
+    pub async fn put_item(
+        &self,
+        address: &ItemAddress,
+        manifest: &serde_json::Value,
+        retryable: bool,
+    ) -> Result<EngineResponse<Item>, ToolError> {
+        let url = self.url(address.segments())?;
+
+        self.put_json(PUT_ITEM.id, url, manifest, retryable).await
     }
 
     /// `GET /mia-platform.eu/v1/item-type-definitions` — the type listing.
@@ -203,8 +233,13 @@ impl EngineClient {
         let mut url = self.url(ITEM_TYPE_DEFINITION_SEGMENTS)?;
         query.apply(&mut url, LIST_ITEM_TYPE_DEFINITIONS.query);
 
-        let response: EngineResponse<ListEnvelope<ItemTypeDefinition>> =
-            self.get_json(url, Projection::Full.accept()).await?;
+        let response: EngineResponse<ListEnvelope<ItemTypeDefinition>> = self
+            .get_json(
+                LIST_ITEM_TYPE_DEFINITIONS.id,
+                url,
+                Projection::Full.accept(),
+            )
+            .await?;
 
         Ok(EngineResponse {
             value: ListPage::from_envelope(response.value),

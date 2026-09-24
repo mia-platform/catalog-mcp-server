@@ -9,6 +9,7 @@ edition = "2024"
 anyhow = "1.0.100"
 base64 = "0.22.1"
 http = "1.4.0"
+metrics = "0.24.2"
 regex = "1.12.3"
 reqwest = { version = "0.12.28", default-features = false, features = [
     "json",
@@ -56,6 +57,9 @@ clap = { version = "4.5.53", features = ["derive", "env"] }
 configuration = { path = "configuration" }
 dirs = "6.0.0"
 http.workspace = true
+http-body-util = "0.1.3"
+metrics.workspace = true
+metrics-exporter-prometheus = { version = "0.17.2", default-features = false }
 rmcp = { version = "3.4.0", features = ["transport-streamable-http-server"] }
 schemars.workspace = true
 serde.workspace = true
@@ -85,7 +89,6 @@ serde_json.workspace = true
 [dev-dependencies]
 base64.workspace = true
 catalog-client = { path = "catalog-client", features = ["testing"] }
-http-body-util = "0.1.3"
 rstest.workspace = true
 wiremock = "0.6.5"
 

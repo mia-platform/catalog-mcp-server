@@ -24,7 +24,9 @@ use crate::{
 };
 use http::HeaderMap;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use std::{sync::Arc, time::Duration};
+use tracing::Instrument;
 use url::Url;
 
 /// The wall-clock budget bounding one whole tool call (§5.5, §6.4).
@@ -38,6 +40,12 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 /// The header the engine reuses or mints, and the only actionable thing a human gets from a
 /// `5xx` whose body always reads *"Something went wrong"*.
 const ENGINE_REQUEST_ID_HEADER: &str = "x-request-id";
+
+/// How many engine requests one tool call bought (§10).
+pub const MCP_ENGINE_REQUESTS_TOTAL: &str = "mcp_engine_requests_total";
+
+/// How long an engine request took (§10).
+pub const MCP_ENGINE_DURATION_SECONDS: &str = "mcp_engine_duration_seconds";
 
 /// The engine's error body: `{"status", "error", "message"}` — not RFC 7807.
 #[derive(serde::Deserialize)]
@@ -98,11 +106,17 @@ impl RetryPolicy {
     }
 }
 
-/// Why a request failed, at the granularity the retry policy cares about.
+/// Why a request failed, at the granularity the retry policy and D20 care about.
+///
+/// The split between [`Self::Connect`] and [`Self::Timeout`] is not cosmetic: it is the whole of
+/// what separates *"the write never left"* from *"the write may have taken effect"*.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FailureKind {
-    /// Could not connect, or the read timed out.
-    Transport,
+    /// The connection was never established, so nothing was sent.
+    Connect,
+
+    /// The request went out and no answer came back in time.
+    Timeout,
 
     /// The engine answered with this status.
     Status(u16),
@@ -115,8 +129,50 @@ impl FailureKind {
     /// application fault may have committed.
     pub fn is_retryable(&self) -> bool {
         match self {
-            Self::Transport => true,
+            Self::Connect | Self::Timeout => true,
             Self::Status(status) => matches!(status, 502..=504),
+        }
+    }
+
+    /// Whether a **write** that met this failure may already have been applied (D20).
+    ///
+    /// A connect failure is the one case where the answer is no: the request never left. Every
+    /// other failure leaves the outcome unknowable from here, and reporting it as a clean
+    /// failure would be a lie the model would act on.
+    pub fn may_have_been_applied(&self) -> bool {
+        !matches!(self, Self::Connect)
+    }
+}
+
+/// Whether a request changes anything, which decides how its failures are reported.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Intent {
+    /// A read. Idempotent by construction, and a failure is never `unknown_outcome`.
+    Read,
+
+    /// A write or a delete. Retryable only when the conflict policy has classified it so
+    /// (D23), and a failure after dispatch is `unknown_outcome` (D20).
+    Write {
+        /// Whether the write cycle classified this call as safe to repeat.
+        retryable: bool,
+    },
+}
+
+impl Intent {
+    /// Whether the retry policy's first condition — idempotent by construction — holds.
+    fn is_idempotent(&self) -> bool {
+        match self {
+            Self::Read => true,
+            Self::Write { retryable } => *retryable,
+        }
+    }
+
+    /// How a given failure should be reported for this intent.
+    fn dispatched(&self, failure: FailureKind) -> Dispatched {
+        match self {
+            Self::Read => Dispatched::No,
+            Self::Write { .. } if failure.may_have_been_applied() => Dispatched::Yes,
+            Self::Write { .. } => Dispatched::No,
         }
     }
 }
@@ -253,11 +309,45 @@ impl EngineClient {
     /// Reads are idempotent by construction, which is the first of the four retry conditions.
     pub async fn get_json<T: DeserializeOwned>(
         &self,
+        operation: &'static str,
         url: Url,
         accept: &str,
     ) -> Result<EngineResponse<T>, ToolError> {
-        let raw = self.send(url, accept, true, Dispatched::No).await?;
+        let raw = self
+            .send(operation, Request::get(url, accept), Intent::Read)
+            .await?;
 
+        self.decode(raw)
+    }
+
+    /// Issues one `PUT` and deserialises the object the engine stored.
+    ///
+    /// **Retried only when the conflict policy says the intent is independent of the state it
+    /// lands on** (D23), and a failure after the request left is `unknown_outcome` rather than a
+    /// clean failure (D20).
+    pub async fn put_json<T: DeserializeOwned>(
+        &self,
+        operation: &'static str,
+        url: Url,
+        body: &Value,
+        retryable: bool,
+    ) -> Result<EngineResponse<T>, ToolError> {
+        let raw = self
+            .send(
+                operation,
+                Request::put(url, body.clone()),
+                Intent::Write { retryable },
+            )
+            .await?;
+
+        self.decode(raw)
+    }
+
+    /// Deserialises a successful response, reporting a shape mismatch as ours.
+    fn decode<T: DeserializeOwned>(
+        &self,
+        raw: RawResponse,
+    ) -> Result<EngineResponse<T>, ToolError> {
         let value = serde_json::from_slice(&raw.body).map_err(|err| {
             // A body we cannot read is our problem, not the model's: it means the engine's shape
             // and ours have diverged, which is what the contract tests exist to catch earlier.
@@ -279,80 +369,135 @@ impl EngineClient {
     }
 
     /// Issues one request, retrying once when — and only when — §8.1 permits it.
+    ///
+    /// One `engine.request` span per attempt (§10), carrying the **path template** rather than
+    /// the interpolated one — an item name in a span label is unbounded cardinality, and the
+    /// template is what an operator actually groups by.
     async fn send(
         &self,
-        url: Url,
-        accept: &str,
-        idempotent: bool,
-        dispatched: Dispatched,
+        operation: &'static str,
+        request: Request,
+        intent: Intent,
     ) -> Result<RawResponse, ToolError> {
         let mut attempt: u8 = 0;
 
         loop {
             // `engine.timeoutMs` bounds one hop and the deadline bounds the whole call; whichever
-            // is smaller wins, and a deadline with no time left fails without dialling.
+            // is smaller wins, and a deadline with no time left fails without dialling. Nothing
+            // has been sent at this point, so a write is not yet in doubt.
             if self.deadline.expired() {
-                return Err(deadline_exceeded(dispatched, None));
+                return Err(deadline_exceeded(Dispatched::No, None));
             }
 
-            let outcome = self.attempt(url.clone(), accept, dispatched).await;
+            let started = std::time::Instant::now();
+            let span = tracing::info_span!(
+                "engine.request",
+                operation,
+                http.method = request.method(),
+                http.status_code = tracing::field::Empty,
+                duration_ms = tracing::field::Empty,
+                warnings = tracing::field::Empty,
+                retried = attempt > 0,
+            );
+
+            let outcome = self.attempt(&request).instrument(span.clone()).await;
+
+            let status = match &outcome {
+                Ok(_) => "2xx".to_string(),
+                Err(Attempt {
+                    kind: FailureKind::Status(status),
+                    ..
+                }) => status.to_string(),
+                Err(Attempt {
+                    kind: FailureKind::Connect,
+                    ..
+                }) => "connect_error".to_string(),
+                Err(Attempt {
+                    kind: FailureKind::Timeout,
+                    ..
+                }) => "timeout".to_string(),
+            };
+
+            span.record("http.status_code", status.as_str());
+            span.record("duration_ms", started.elapsed().as_millis() as u64);
+            if let Ok(response) = &outcome {
+                span.record("warnings", response.warnings.len());
+            }
+
+            metrics::counter!(
+                MCP_ENGINE_REQUESTS_TOTAL,
+                "operation" => operation,
+                "status" => status,
+            )
+            .increment(1);
+            metrics::histogram!(MCP_ENGINE_DURATION_SECONDS, "operation" => operation)
+                .record(started.elapsed().as_secs_f64());
 
             let (failure, request_id, message) = match outcome {
                 Ok(response) => return Ok(response),
-                Err(Attempt::Failed {
+                Err(Attempt {
                     kind,
                     request_id,
                     message,
                 }) => (kind, request_id, message),
-                Err(Attempt::Fatal(error)) => return Err(error),
             };
 
             if !self
                 .retry
-                .allows(idempotent, failure, attempt, &self.deadline)
+                .allows(intent.is_idempotent(), failure, attempt, &self.deadline)
             {
                 return Err(self.to_tool_error(
                     failure,
-                    dispatched,
+                    intent.dispatched(failure),
                     request_id.as_deref(),
                     message.as_deref(),
                 ));
             }
 
             attempt += 1;
-            tracing::warn!(%url, ?failure, attempt, "retrying an engine request");
+            tracing::warn!(operation, ?failure, attempt, "retrying an engine request");
             tokio::time::sleep(jittered_backoff(attempt)).await;
         }
     }
 
     /// One attempt: dial, read, classify.
-    async fn attempt(
-        &self,
-        url: Url,
-        accept: &str,
-        dispatched: Dispatched,
-    ) -> Result<RawResponse, Attempt> {
-        let request = self
-            .http
-            .get(url)
+    async fn attempt(&self, request: &Request) -> Result<RawResponse, Attempt> {
+        let builder = request
+            .build(&self.http)
             // The D26 allowlist, applied here and nowhere else.
-            .headers(self.identity.forwarded().clone())
-            .header(http::header::ACCEPT, accept);
+            .headers(self.identity.forwarded().clone());
 
-        let bounded = self.deadline.bounded(request.send());
+        let bounded = self.deadline.bounded(builder.send());
 
         let response = match bounded.await {
-            Err(_) => return Err(Attempt::Fatal(deadline_exceeded(dispatched, None))),
-            Ok(Err(err)) if err.is_timeout() || err.is_connect() || err.is_request() => {
-                return Err(Attempt::Failed {
-                    kind: FailureKind::Transport,
+            Err(_) => {
+                return Err(Attempt {
+                    kind: FailureKind::Timeout,
+                    request_id: None,
+                    message: None,
+                });
+            }
+            Ok(Err(err)) if err.is_connect() => {
+                return Err(Attempt {
+                    kind: FailureKind::Connect,
+                    request_id: None,
+                    message: None,
+                });
+            }
+            Ok(Err(err)) if err.is_timeout() || err.is_request() => {
+                return Err(Attempt {
+                    kind: FailureKind::Timeout,
                     request_id: None,
                     message: None,
                 });
             }
             Ok(Err(err)) => {
                 tracing::error!(?err, "the engine request could not be made");
-                return Err(Attempt::Fatal(transport_failure(dispatched, None)));
+                return Err(Attempt {
+                    kind: FailureKind::Timeout,
+                    request_id: None,
+                    message: None,
+                });
             }
             Ok(Ok(response)) => response,
         };
@@ -362,10 +507,9 @@ impl EngineClient {
         let request_id = engine_request_id(&headers);
 
         let body = match self.deadline.bounded(response.bytes()).await {
-            Err(_) => return Err(Attempt::Fatal(deadline_exceeded(dispatched, None))),
-            Ok(Err(_)) => {
-                return Err(Attempt::Failed {
-                    kind: FailureKind::Transport,
+            Err(_) | Ok(Err(_)) => {
+                return Err(Attempt {
+                    kind: FailureKind::Timeout,
                     request_id,
                     message: None,
                 });
@@ -374,7 +518,7 @@ impl EngineClient {
         };
 
         if !(200..300).contains(&status) {
-            return Err(Attempt::Failed {
+            return Err(Attempt {
                 kind: FailureKind::Status(status),
                 request_id,
                 // The engine's error body is `{status, error, message}` — not RFC 7807 — and its
@@ -402,7 +546,8 @@ impl EngineClient {
         engine_message: Option<&str>,
     ) -> ToolError {
         match failure {
-            FailureKind::Transport => transport_failure(dispatched, request_id),
+            FailureKind::Connect => transport_failure(dispatched, request_id),
+            FailureKind::Timeout => transport_failure(dispatched, request_id),
             FailureKind::Status(status) => map_status(
                 status,
                 BadRequestOrigin::CallerInput,
@@ -410,6 +555,55 @@ impl EngineClient {
                 engine_message,
                 request_id,
             ),
+        }
+    }
+}
+
+/// One outbound request, rebuildable for a retry.
+///
+/// `reqwest::RequestBuilder` is not `Clone` when it carries a body, so the request is described
+/// rather than held — which also keeps the retry loop from accidentally retrying a half-consumed
+/// body.
+enum Request {
+    Get { url: Url, accept: String },
+    Put { url: Url, body: Value },
+}
+
+impl Request {
+    /// The HTTP method, for the span field.
+    fn method(&self) -> &'static str {
+        match self {
+            Self::Get { .. } => "GET",
+            Self::Put { .. } => "PUT",
+        }
+    }
+
+    /// A `GET` asking for `accept`.
+    fn get(url: Url, accept: &str) -> Self {
+        Self::Get {
+            url,
+            accept: accept.to_string(),
+        }
+    }
+
+    /// A `PUT` carrying `body`.
+    fn put(url: Url, body: Value) -> Self {
+        Self::Put { url, body }
+    }
+
+    /// Builds the attempt.
+    fn build(&self, http: &reqwest::Client) -> reqwest::RequestBuilder {
+        match self {
+            Self::Get { url, accept } => http
+                .get(url.clone())
+                .header(http::header::ACCEPT, accept.as_str()),
+            Self::Put { url, body } => http
+                .put(url.clone())
+                .header(
+                    http::header::ACCEPT,
+                    crate::projection::Projection::Full.accept(),
+                )
+                .json(body),
         }
     }
 }
@@ -422,17 +616,14 @@ struct RawResponse {
 }
 
 /// One attempt's failure: classified for the retry policy, and carrying what the mapper needs.
-enum Attempt {
-    /// The attempt reached a conclusion the policy may or may not retry.
-    Failed {
-        kind: FailureKind,
-        request_id: Option<String>,
-        message: Option<String>,
-    },
-
-    /// The attempt is over and retrying cannot help — the deadline, or a request we could not
-    /// even build.
-    Fatal(ToolError),
+///
+/// There is deliberately no "fatal" variant. Every failure is classified, and whether it may be
+/// retried is [`RetryPolicy`]'s decision alone — a second place that could decide would be a
+/// second policy.
+struct Attempt {
+    kind: FailureKind,
+    request_id: Option<String>,
+    message: Option<String>,
 }
 
 /// The engine's `x-request-id`, when it sent one.

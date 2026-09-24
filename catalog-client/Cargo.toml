@@ -17,6 +17,7 @@ testing = ["dep:wiremock"]
 anyhow.workspace = true
 base64.workspace = true
 http.workspace = true
+metrics.workspace = true
 regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true

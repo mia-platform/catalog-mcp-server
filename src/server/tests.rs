@@ -69,7 +69,12 @@ fn mock_config() -> Config {
 #[fixture]
 fn mock_router(mock_config: Config) -> Router {
     build_router(
-        AppState::new(mock_config).expect("a valid state"),
+        AppState::build(
+            mock_config,
+            crate::registry::Registry::with_shipped_tools(),
+            None,
+        )
+        .expect("a valid state"),
         &CancellationToken::new(),
     )
 }
@@ -453,7 +458,12 @@ async fn test_request_id_is_minted_when_absent(mock_router: Router) {
 #[tokio::test]
 async fn test_disallowed_host_is_rejected(mock_config: Config) {
     let router = build_router(
-        AppState::new(mock_config).expect("a valid state"),
+        AppState::build(
+            mock_config,
+            crate::registry::Registry::with_shipped_tools(),
+            None,
+        )
+        .expect("a valid state"),
         &CancellationToken::new(),
     );
 
@@ -511,7 +521,12 @@ async fn test_configured_origin_allowlist_rejects_a_foreign_origin(mock_config: 
     config.server.allowed_origins = vec!["https://console.example.com".to_string()];
 
     let router = build_router(
-        AppState::new(config).expect("a valid state"),
+        AppState::build(
+            config,
+            crate::registry::Registry::with_shipped_tools(),
+            None,
+        )
+        .expect("a valid state"),
         &CancellationToken::new(),
     );
 
@@ -581,7 +596,12 @@ async fn test_healthz_answers_ok(mock_router: Router) {
 #[rstest]
 #[tokio::test]
 async fn test_healthz_stays_ok_while_draining(mock_config: Config) {
-    let state = AppState::new(mock_config).expect("a valid state");
+    let state = AppState::build(
+        mock_config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
     state.readiness.mark_ready();
     state.readiness.mark_draining();
 
@@ -605,7 +625,12 @@ async fn test_ready_reports_not_ready_before_startup_completes(mock_router: Rout
 #[rstest]
 #[tokio::test]
 async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
-    let state = AppState::new(mock_config).expect("a valid state");
+    let state = AppState::build(
+        mock_config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
     state.readiness.mark_ready();
 
     let router = build_router(state, &CancellationToken::new());
@@ -620,7 +645,12 @@ async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
 #[rstest]
 #[tokio::test]
 async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
-    let state = AppState::new(mock_config).expect("a valid state");
+    let state = AppState::build(
+        mock_config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
     state.readiness.mark_ready();
     state.readiness.mark_draining();
 
@@ -635,7 +665,12 @@ async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
 #[rstest]
 #[tokio::test]
 async fn test_operational_routes_are_not_behind_the_transport_checks(mock_config: Config) {
-    let state = AppState::new(mock_config).expect("a valid state");
+    let state = AppState::build(
+        mock_config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
     state.readiness.mark_ready();
 
     let router = build_router(state, &CancellationToken::new());
@@ -739,7 +774,7 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
 
 /// A probe tool that makes one engine call, so the test can assert on what the engine saw.
 ///
-/// It is registered into a registry of the test's own through [`AppState::with_registry`] —
+/// It is registered into a registry of the test's own through [`AppState::build`] —
 /// production has no such tool and needs no code path for one.
 fn mock_engine_probe_route() -> rmcp::handler::server::router::tool::ToolRoute<CatalogHandler> {
     use crate::registry::ToolDescriptor;
@@ -784,6 +819,15 @@ fn mock_engine_probe_route() -> rmcp::handler::server::router::tool::ToolRoute<C
 
 /// Builds a server whose only tool reads the catalog, pointed at `engine_url`.
 fn mock_state_against(engine_url: &str, mock_config: Config) -> AppState {
+    mock_state_against_with_metrics(engine_url, mock_config, None)
+}
+
+/// As [`mock_state_against`], rendering from a given recorder.
+fn mock_state_against_with_metrics(
+    engine_url: &str,
+    mock_config: Config,
+    metrics: Option<metrics_exporter_prometheus::PrometheusHandle>,
+) -> AppState {
     use crate::registry::Registry;
     use rmcp::handler::server::router::tool::ToolRouter;
 
@@ -794,9 +838,10 @@ fn mock_state_against(engine_url: &str, mock_config: Config) -> AppState {
         .validate()
         .expect("the fixture is a valid configuration");
 
-    AppState::with_registry(
+    AppState::build(
         config,
         Registry::new(ToolRouter::new().with_route(mock_engine_probe_route())),
+        metrics,
     )
     .expect("a valid state")
 }
@@ -1021,4 +1066,251 @@ async fn test_the_full_allowlist_reaches_the_engine(mock_config: Config) {
         Some(catalog_client::testing::MOCK_BEARER)
     );
     assert_eq!(value("x-request-id").as_deref(), Some("test-request-0007"));
+}
+
+// ---------------------------------------------------------------------------------------------
+// §13.4's gate — observability. `/-/metrics` reports the seven, the `mcp.request` span carries
+// its fields from inside the handler, and a transport-rejected request is still counted.
+// ---------------------------------------------------------------------------------------------
+
+use crate::observability::{self, ALL_METRICS};
+use std::sync::OnceLock;
+
+/// The process-wide Prometheus recorder, installed once for the whole test binary.
+///
+/// `metrics` allows exactly one recorder per process, so every test that needs a rendering
+/// shares this one — which also means these tests assert on *presence*, not on exact values a
+/// neighbouring test could have moved.
+fn shared_metrics() -> metrics_exporter_prometheus::PrometheusHandle {
+    static HANDLE: OnceLock<metrics_exporter_prometheus::PrometheusHandle> = OnceLock::new();
+
+    HANDLE
+        .get_or_init(|| observability::install().expect("the recorder installs once"))
+        .clone()
+}
+
+/// A router whose state renders from the shared recorder.
+fn mock_router_with_metrics(config: Config) -> Router {
+    let state = AppState::build(
+        config,
+        crate::registry::Registry::with_shipped_tools(),
+        Some(shared_metrics()),
+    )
+    .expect("a valid state");
+    state.readiness.mark_ready();
+
+    build_router(state, &CancellationToken::new())
+}
+
+/// All seven families render, once each has been exercised.
+///
+/// **They are not pre-seeded**, and that is deliberate: a counter that has never fired honestly
+/// has no series, and inventing zero-valued ones would mean inventing label values — a `tool`,
+/// an `outcome`, a `remedy` that nothing produced. So this test drives one of each instead: a
+/// tool call, the engine call inside it, and a transport rejection. A cold scrape shows only
+/// `mcp_tools_list_bytes`, which is set at startup.
+#[rstest]
+#[tokio::test]
+async fn test_metrics_reports_the_seven_metrics(mock_config: Config) {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok(
+            "/items",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
+
+    let state = mock_state_against_with_metrics(
+        &engine.server().uri(),
+        mock_config,
+        Some(shared_metrics()),
+    );
+    state.readiness.mark_ready();
+    let router = build_router(state, &CancellationToken::new());
+
+    // A tool call, which makes an engine call inside it.
+    stateless_request(
+        &router,
+        "tools/call",
+        Some("engine_probe"),
+        json!({ "name": "engine_probe", "arguments": {} }),
+        &[],
+    )
+    .await;
+
+    // A request the transport rejects before any handler runs.
+    let _ = post_mcp(
+        &router,
+        &[
+            ("mcp-protocol-version", STATELESS_ERA),
+            ("mcp-method", "tools/list"),
+        ],
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }),
+    )
+    .await;
+
+    let body = scrape(&router).await;
+
+    assert_eq!(ALL_METRICS.len(), 7);
+    for metric in ALL_METRICS {
+        assert!(
+            body.contains(metric),
+            "`{metric}` is missing from the scrape:\n{body}"
+        );
+    }
+}
+
+/// The headline metric of the whole rewrite is reported by the running server rather than
+/// measured by hand.
+#[rstest]
+#[tokio::test]
+async fn test_the_tools_list_size_is_reported_as_a_metric(mock_config: Config) {
+    let router = mock_router_with_metrics(mock_config);
+
+    let body = scrape(&router).await;
+
+    assert!(
+        body.lines()
+            .any(|line| line.starts_with("mcp_tools_list_bytes") && !line.contains('#')),
+        "mcp_tools_list_bytes carries no value:\n{body}"
+    );
+}
+
+/// A tool call records its own call, duration and size.
+#[rstest]
+#[tokio::test]
+async fn test_a_tool_call_is_counted(mock_config: Config) {
+    let router = mock_router_with_metrics(mock_config);
+
+    stateless_request(
+        &router,
+        "tools/call",
+        Some(TOOL_NAME),
+        json!({ "name": TOOL_NAME, "arguments": {} }),
+        &[],
+    )
+    .await;
+
+    let body = scrape(&router).await;
+
+    assert!(
+        body.contains(r#"mcp_tool_calls_total{outcome="ok",remedy="none",tool="hello"}"#)
+            || body.contains(r#"tool="hello""#),
+        "the call was not counted:\n{body}"
+    );
+}
+
+/// **§10's stated asymmetry, asserted.** The transport rejects a malformed request before any
+/// handler runs, so no `mcp.request` span exists for it — the tower layer counts it from the
+/// response instead. This is the test that fails if somebody "fixes" it by parsing requests in
+/// a layer.
+#[rstest]
+#[tokio::test]
+async fn test_a_transport_rejected_request_is_still_counted(mock_config: Config) {
+    let router = mock_router_with_metrics(mock_config);
+
+    // No `_meta`, which the stateless revision requires: the transport answers `400` with
+    // `-32602` and the handler never sees it.
+    let (status, _, _) = post_mcp(
+        &router,
+        &[
+            ("mcp-protocol-version", STATELESS_ERA),
+            ("mcp-method", "tools/list"),
+        ],
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list", "params": {} }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+
+    let body = scrape(&router).await;
+
+    assert!(
+        body.contains("mcp_protocol_errors_total{"),
+        "a transport rejection was not counted:\n{body}"
+    );
+    assert!(
+        body.contains(r#"era="2026-07-28""#),
+        "the era label did not come from the request header:\n{body}"
+    );
+}
+
+/// A `403` from the SDK's Host check carries no JSON-RPC body, and is still counted — from the
+/// HTTP status, which is all the layer has to go on.
+#[rstest]
+#[tokio::test]
+async fn test_a_host_rejection_is_counted_from_its_status(mock_config: Config) {
+    let router = mock_router_with_metrics(mock_config);
+
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(MCP_PATH)
+                .header(header::HOST, "attacker.example.net")
+                .header(header::CONTENT_TYPE, "application/json")
+                .header(header::ACCEPT, "application/json, text/event-stream")
+                .body(Body::from("{}"))
+                .expect("a well-formed test request"),
+        )
+        .await
+        .expect("the router is infallible");
+
+    assert_eq!(response.status(), StatusCode::FORBIDDEN);
+    assert!(scrape(&router).await.contains("mcp_protocol_errors_total{"));
+}
+
+/// Reads `/-/metrics`.
+async fn scrape(router: &Router) -> String {
+    let response = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/-/metrics")
+                .header(header::HOST, TEST_HOST)
+                .body(Body::empty())
+                .expect("a well-formed test request"),
+        )
+        .await
+        .expect("the router is infallible");
+
+    String::from_utf8_lossy(
+        &response
+            .into_body()
+            .collect()
+            .await
+            .expect("a fully buffered test body")
+            .to_bytes(),
+    )
+    .into_owned()
+}
+
+/// `observability.metricsEnabled` off means no endpoint, said plainly — an empty `200` would
+/// look like a server reporting nothing.
+#[rstest]
+#[tokio::test]
+async fn test_metrics_is_absent_when_disabled(mock_config: Config) {
+    let mut config = mock_config;
+    config.observability.metrics_enabled = false;
+
+    let state = AppState::build(
+        config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
+
+    let response = build_router(state, &CancellationToken::new())
+        .oneshot(
+            Request::builder()
+                .uri("/-/metrics")
+                .header(header::HOST, TEST_HOST)
+                .body(Body::empty())
+                .expect("a well-formed test request"),
+        )
+        .await
+        .expect("the router is infallible");
+
+    assert_eq!(response.status(), StatusCode::NOT_FOUND);
 }

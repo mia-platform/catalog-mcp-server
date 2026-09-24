@@ -31,7 +31,14 @@ fn mock_handler() -> CatalogHandler {
     config.engine.base_url = "http://api-gateway:8080".to_string();
     config.auth.resource = "https://catalog-mcp.example.com/mcp".to_string();
 
-    CatalogHandler::new(AppState::new(config).expect("a valid state"))
+    CatalogHandler::new(
+        AppState::build(
+            config,
+            crate::registry::Registry::with_shipped_tools(),
+            None,
+        )
+        .expect("a valid state"),
+    )
 }
 
 /// D5 — capabilities are `tools` only. No `resources`, `prompts`, `completions` or `logging`,

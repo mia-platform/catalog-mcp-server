@@ -44,8 +44,17 @@ pub mod pagination;
 /// `Accept` projections, and the grouping that makes an invalid pair unconstructible (§8.2).
 pub mod projection;
 
+/// The `query → rawq` translator: AST, four operators, limits, splitting (§8.8, D33).
+pub mod query;
+
+/// `kind → {group, version, family}`, and the served-version rule (§8.6, P9, D30).
+pub mod resolve;
+
 /// One `Warning: 299 - "…"` parser, for every response (§8.3, P6, D28).
 pub mod warning;
+
+/// The one read-merge-write helper: RFC 7396, the conflict rule, the diff (§8.5, D23, D29).
+pub mod write;
 
 /// One module-level function per engine operation the tools use (§8.1).
 pub mod ops;
@@ -60,4 +69,7 @@ pub use error::{Remedy, ToolError};
 pub use identity::{AclContext, CallerIdentity, Sensitive, TenantKey};
 pub use pagination::{EngineCursor, ListPage, ToolCursor};
 pub use projection::{Grouping, Projection};
+pub use query::{FieldPath, Predicate, QueryValue, RegexLiteral};
+pub use resolve::{TypeCoordinates, resolve_kind};
 pub use warning::EngineWarning;
+pub use write::{ConflictPolicy, ResourceVersionIn, WriteCycle, WriteOutcome, merge_patch};

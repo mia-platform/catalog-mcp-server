@@ -21,6 +21,8 @@ mod cli;
 mod context;
 mod handler;
 mod logger;
+mod observability;
+mod ratelimit;
 mod registry;
 mod schema;
 mod server;
@@ -47,10 +49,19 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         .build()
         .inspect_err(|err| tracing::error!(?err, "cannot build async runtime"))?;
 
+    // The Prometheus recorder is a process-wide singleton, so it is installed here — once,
+    // before anything can record — and handed to the state rather than reached for globally.
+    let metrics = match config.observability.metrics_enabled {
+        true => Some(observability::install()?),
+        false => None,
+    };
+
+    let state = AppState::build(config, registry::Registry::with_shipped_tools(), metrics)?;
+
     rt.block_on(async {
         signal::register_shutdown_listeners();
 
-        Ok::<_, anyhow::Error>(server::try_init(AppState::new(config)?).await?)
+        Ok::<_, anyhow::Error>(server::try_init(state).await?)
     })?;
 
     Ok(())

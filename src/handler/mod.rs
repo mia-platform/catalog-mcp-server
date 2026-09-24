@@ -15,21 +15,27 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::{context::AppState, server::identity::MiaIdentity};
-use catalog_client::CallerIdentity;
+use crate::{
+    context::AppState,
+    observability::{self, Outcome, REMEDY_NONE},
+    ratelimit::RateLimitDecision,
+    server::identity::MiaIdentity,
+};
+use catalog_client::{CallerIdentity, Remedy, ToolError, error::codes};
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::ToolCallContext,
     model::{
-        CacheScope, CallToolRequestParams, CallToolResponse, CompleteRequestMethod,
-        CompleteRequestParams, CompleteResult, DiscoverResult, ListPromptsRequestMethod,
-        ListPromptsResult, ListResourceTemplatesRequestMethod, ListResourceTemplatesResult,
-        ListResourcesRequestMethod, ListResourcesResult, ListToolsResult, PaginatedRequestParams,
-        ProtocolVersion, ServerCapabilities, ServerConfig, Tool,
+        CacheScope, CallToolRequestParams, CallToolResponse, CallToolResult, CompleteRequestMethod,
+        CompleteRequestParams, CompleteResult, ContentBlock, DiscoverResult,
+        ListPromptsRequestMethod, ListPromptsResult, ListResourceTemplatesRequestMethod,
+        ListResourceTemplatesResult, ListResourcesRequestMethod, ListResourcesResult,
+        ListToolsResult, PaginatedRequestParams, ProtocolVersion, ServerCapabilities, ServerConfig,
+        Tool,
     },
     service::{RequestContext, RoleServer},
 };
-use std::borrow::Cow;
+use std::{borrow::Cow, time::Instant};
 
 /// What the server tells the model that no tool description can (D14).
 ///
@@ -105,6 +111,85 @@ pub fn inbound_parts(context: &RequestContext<RoleServer>) -> Option<&http::requ
     context.extensions.get::<http::request::Parts>()
 }
 
+/// Opens the `mcp.request` span for one method (§10).
+///
+/// **It is opened here, not in a tower layer, and that is the load-bearing part.** The method
+/// name, the negotiated era and `clientInfo` all live inside the JSON-RPC body or its `_meta`,
+/// which is the SDK's to parse; a layer that produced these fields would have to read the body
+/// first — that is, re-implement dispatch. By the time this runs, all of it is typed.
+///
+/// W3C trace context comes from `_meta`, where the specification reserves the keys for exactly
+/// this, rather than from a header.
+fn mcp_request_span(
+    method: &'static str,
+    tool: Option<&str>,
+    context: &RequestContext<RoleServer>,
+    identity: &CallerIdentity,
+) -> tracing::Span {
+    let version = context.protocol_version();
+    let client = context.client_info();
+
+    let span = tracing::info_span!(
+        "mcp.request",
+        mcp.method = method,
+        mcp.tool = tool.unwrap_or(""),
+        mcp.era = version
+            .as_ref()
+            .map(|version| version.as_str())
+            .unwrap_or("unknown"),
+        mcp.protocol_version = version
+            .as_ref()
+            .map(|version| version.as_str())
+            .unwrap_or("unknown"),
+        client.name = client
+            .as_ref()
+            .map(|client| client.name.as_str())
+            .unwrap_or(""),
+        client.version = client
+            .as_ref()
+            .map(|client| client.version.as_str())
+            .unwrap_or(""),
+        tenant = %identity.tenant_key(),
+        principal_id = identity.principal_id().unwrap_or(""),
+        traceparent = context.meta.get_traceparent().unwrap_or(""),
+        outcome = tracing::field::Empty,
+        error.code = tracing::field::Empty,
+        error.remedy = tracing::field::Empty,
+        bytes_out = tracing::field::Empty,
+        duration_ms = tracing::field::Empty,
+    );
+
+    span
+}
+
+/// Renders a [`ToolError`] as the in-band result the model reads (D18, D19, §8.4).
+///
+/// `isError: true`, HTTP `200`: anything the model could act on must be something it can see and
+/// self-correct from.
+fn tool_error_result(error: &ToolError) -> CallToolResponse {
+    let text = serde_json::to_string(&error.to_payload()).unwrap_or_else(|_| {
+        r#"{"error":{"code":"server_defect","remedy":"escalate"}}"#.to_string()
+    });
+
+    CallToolResult::error(vec![ContentBlock::text(text)]).into()
+}
+
+/// How many bytes a result serialises to, for `mcp_response_bytes` (§10, D34).
+///
+/// **Measured, never acted on.** There is no runtime cap on any tool's response.
+///
+/// `CallToolResponse` is a `#[non_exhaustive]` enum with no `Serialize`, so the measurement is
+/// taken from the `Complete` variant's result — which is the only one this server ever
+/// constructs (§5.5 rule 2).
+fn response_bytes(response: &CallToolResponse) -> usize {
+    match response {
+        CallToolResponse::Complete(result) => serde_json::to_vec(result)
+            .map(|bytes| bytes.len())
+            .unwrap_or(0),
+        _ => 0,
+    }
+}
+
 /// The caller's identity for this request (§6.2).
 ///
 /// Two digs, because the value the tower layer inserted sits one level deeper than the `Parts`
@@ -178,7 +263,12 @@ impl ServerHandler for CatalogHandler {
         _request: Option<PaginatedRequestParams>,
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<ListToolsResult, McpError>> + Send + '_ {
+        let span = mcp_request_span("tools/list", None, &context, &caller_identity(&context));
+        let _entered = span.enter();
+
         let mut result = ListToolsResult::with_all_items(self.state.registry.tools().to_vec());
+        span.record("outcome", Outcome::Ok.as_str());
+        span.record("bytes_out", self.state.registry.serialised_bytes());
 
         // `"private"` is kept even though the set is identical for every caller (D22), because
         // `"public"` licenses an intermediary to share the response between callers even when it
@@ -262,17 +352,80 @@ impl ServerHandler for CatalogHandler {
         // an actor id rather than a secret, and it is the field that makes an audit trail
         // followable. The raw ACL context and the bearer are never logged.
         let identity = caller_identity(&context);
-        tracing::debug!(
-            tenant = %identity.tenant_key(),
-            principal_id = identity.principal_id().unwrap_or("none"),
-            tool = %request.name,
-            "tool call"
-        );
+        let tool = request.name.to_string();
+        let span = mcp_request_span("tools/call", Some(&tool), &context, &identity);
+
+        // §6.4 — the limiter runs **after** identity and **before** the tool, and is keyed by
+        // tenant. `list_tools` and `get_tool` are not limited, being prebuilt and free.
+        let limited = match self.state.rate_limiter.check(&identity.tenant_key()) {
+            RateLimitDecision::Allowed => None,
+            RateLimitDecision::Limited { retry_after_ms } => Some(rate_limited(retry_after_ms)),
+        };
 
         let context = ToolCallContext::new(self, request, context);
 
-        async move { self.state.registry.router().call(context).await }
+        async move {
+            let started = Instant::now();
+
+            // A tool error, not a `429`: the model has to be able to read it and wait, which is
+            // the whole point of `RetryLater`.
+            let (response, outcome, remedy, code) = match limited {
+                Some(error) => {
+                    let response = tool_error_result(&error);
+                    (response, Outcome::ToolError, error.remedy, Some(error.code))
+                }
+                None => {
+                    let cancellation = context.request_context().ct.clone();
+
+                    match self.state.registry.router().call(context).await {
+                        // §5.5 rule 5 — the client going away is recorded, never surfaced to a
+                        // peer that is gone. A tool that loops or polls also `select!`s on its
+                        // own clone of this token; this is the runtime's half of the rule.
+                        Ok(response) if cancellation.is_cancelled() => {
+                            (response, Outcome::Cancelled, Remedy::Retry, None)
+                        }
+                        Ok(response) => (response, Outcome::Ok, Remedy::Retry, None),
+                        Err(error) => return Err(error),
+                    }
+                }
+            };
+
+            let bytes = response_bytes(&response);
+
+            span.record("outcome", outcome.as_str());
+            span.record("bytes_out", bytes);
+            span.record("duration_ms", started.elapsed().as_millis() as u64);
+
+            let remedy_label = match code {
+                Some(code) => {
+                    span.record("error.code", code);
+                    span.record("error.remedy", remedy.as_str());
+                    remedy.as_str()
+                }
+                None => REMEDY_NONE,
+            };
+
+            observability::record_tool_call(
+                &tool,
+                outcome,
+                remedy_label,
+                started.elapsed().as_secs_f64(),
+                bytes,
+            );
+
+            Ok(response)
+        }
     }
+}
+
+/// The `rate_limited` tool error of §8.4, carrying the wait the model should honour.
+fn rate_limited(retry_after_ms: u64) -> ToolError {
+    ToolError::new(
+        codes::RATE_LIMITED,
+        Remedy::RetryLater,
+        "This tenant has made too many tool calls. Wait before trying again.",
+    )
+    .with_details(serde_json::json!({ "retryAfterMs": retry_after_ms }))
 }
 
 #[cfg(test)]
