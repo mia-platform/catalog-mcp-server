@@ -213,7 +213,8 @@ impl Registry {
 /// - `Value → T::Input` with the serde path kept, so a bad argument names its own field (rule 3);
 /// - the [`CallContext`], built from the request's identity on every call and never cached on
 ///   the handler (D4);
-/// - rendering, so a tool cannot set `isError` and cannot forget the `warnings` key (rule 2).
+/// - rendering, so a tool cannot set `isError`, and the engine's warnings reach the model
+///   whether or not the tool looked at them (rule 2, D28).
 pub fn route_for<T: CatalogTool>(tool: T) -> ToolRoute<CatalogHandler> {
     let descriptor = T::descriptor();
     let attributes: Tool = (&descriptor).into();
@@ -250,9 +251,18 @@ pub fn route_for<T: CatalogTool>(tool: T) -> ToolRoute<CatalogHandler> {
                     }
                 };
 
-                // Rule 2 — a tool cannot set `isError`; returning `Err` is how it fails.
+                // Rule 2 — a tool cannot set `isError`; returning `Err` is how it fails. The
+                // engine warnings are read off the call's client **here**, after the tool, so
+                // what reaches the model does not depend on the tool remembering them (D28).
                 match tool.call(&call, input).await {
-                    Ok(output) => Ok(CallToolResponse::from(success_result(&output))),
+                    Ok(output) => {
+                        let engine_warnings = call.engine().call_warnings().collected();
+
+                        Ok(CallToolResponse::from(success_result(
+                            &output,
+                            engine_warnings.as_deref(),
+                        )))
+                    }
                     Err(error) => Ok(crate::handler::tool_error_result(&error)),
                 }
             })

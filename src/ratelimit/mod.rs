@@ -37,6 +37,9 @@ struct Bucket {
 /// **The buckets are per replica**, so the effective cluster limit is `replicas × rate`. That is
 /// the kind of arithmetic that surprises an operator during an incident, so it is written here
 /// as well as in the plan. With one replica today they are the same number.
+///
+/// **It ships disabled in v1** (`tools.rateLimit.enabled`, default `false`), in which case
+/// [`Self::check`] always answers [`RateLimitDecision::Allowed`] and holds no buckets at all.
 #[derive(Debug)]
 pub struct RateLimiter {
     enabled: bool,

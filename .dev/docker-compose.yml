@@ -1,56 +1,86 @@
-name: catalog-engine-mcp-dev
+# The local development environment: a real `catalog-engine` on postgres, for trying the server
+# by hand. The server itself runs on the host (`cargo run -- --config-folder .dev`), so the
+# edit-and-rerun loop stays fast. See CONTRIBUTING.md.
+#
+# Deliberately separate from `tests/docker-compose.yml`: e2e wants throwaway state and may change
+# for test reasons, while this one keeps its data across restarts and holds stable ports. What the
+# two share is the engine version, which is also the one `catalog-helm-chart` deploys.
+#
+# There is no gateway, so whatever calls the server must send `x-mia-acl-context` itself. The
+# engine registers a tenant the first time it sees one in that header, so there is nothing to
+# seed: its own type definitions and AI items are provisioned on first start.
+
+name: catalog-mcp-server-dev
 
 services:
-  mongodb:
-    image: docker.io/mongo:${MONGODB_VERSION-8}
-    container_name: mongo4catalog-engine-mcp-dev
-    ports:
-      - "27017:27017"
+  postgres:
+    image: docker.io/postgres:18-alpine
+    container_name: postgres4catalog-mcp-server-dev
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=""
+      - POSTGRES_DB=postgres
+      - POSTGRES_HOST_AUTH_METHOD=trust
     volumes:
-      - db-data:/data/db
-      - ./mongo/initdb:/docker-entrypoint-initdb.d
-    deploy:
-      resources:
-        limits:
-          memory: 4Gb
-          cpus: "2"
+      # Postgres 18 keeps its data under a versioned subdirectory of this path, which is why the
+      # volume is mounted here rather than at the pre-18 `/var/lib/postgresql/data`.
+      - pg-data:/var/lib/postgresql
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
       - ring
-    extra_hosts:
-      - "${EXTERNAL_HOSTNAME-localhost}:host-gateway"
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 2s
       timeout: 5s
-      retries: 3
-      start_period: 5s
+      retries: 15
+
+  # Stands in for the Mia-Platform authz service, which `catalog-engine` proxies for its tenant
+  # listing. Without it `list_tenants` answers `502` — the engine's documented behaviour when
+  # `authzBaseUrl` is unset — and one of the two tools that exist today cannot be tried locally.
+  # It serves one fixed, fictional tenant and nothing else.
+  authz-stub:
+    image: docker.io/nginx:1.29-alpine
+    container_name: authz-stub4catalog-mcp-server-dev
+    volumes:
+      - ./authz-stub/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./authz-stub/tenants.json:/usr/share/nginx/stub/tenants.json:ro
+    networks:
+      - ring
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/api/authz/tenants > /dev/null"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
 
   catalog-engine:
-    image: nexus.mia-platform.eu/catalog/catalog-engine:latest
+    image: nexus.mia-platform.eu/catalog/catalog-engine:0.9.2
     platform: linux/amd64
     pull_policy: if_not_present
-    container_name: catalog-engine4catalog-engine-mcp-dev
+    container_name: catalog-engine4catalog-mcp-server-dev
     ports:
       - "3000:3000"
-    env_file:
-      - ./catalog-engine/service.env
+    environment:
+      - LOG_LEVEL=info
+      - CONFIGURATION_FOLDER=/config
     volumes:
-      - ./catalog-engine/config.json:/home/catalog-engine/.config/catalog-engine/config.json
+      - ./catalog-engine/config.json:/config/config.json:ro
     networks:
       - ring
     healthcheck:
-      test: netstat -ltn | grep 3000 > /dev/null; if [ 0 != $? ]; then exit 1; fi;
-      interval: 10s
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:3000/-/ready | grep -q OK"]
+      interval: 3s
       timeout: 5s
-      retries: 3
-      start_period: 5s
+      retries: 30
+      start_period: 10s
     depends_on:
-      mongodb:
+      postgres:
+        condition: service_healthy
+      authz-stub:
         condition: service_healthy
 
 volumes:
-  db-data:
-    name: catalog-engine-mcp-dev-db-data
+  pg-data:
+    name: catalog-mcp-server-dev-pg-data
 
 networks:
   ring:

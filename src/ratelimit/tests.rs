@@ -29,10 +29,25 @@ fn mock_tenant(name: &str) -> TenantKey {
     }
 }
 
-/// The shipped defaults: 120 calls a minute, burst 20.
+/// The shipped rate and burst — 120 calls a minute, burst 20 — with the limiter switched **on**,
+/// since it ships off (v1) and every test below is about what it does when it runs.
 #[fixture]
 fn mock_limiter() -> RateLimiter {
-    RateLimiter::new(&RateLimitConfig::default())
+    RateLimiter::new(&RateLimitConfig {
+        enabled: true,
+        ..RateLimitConfig::default()
+    })
+}
+
+/// v1 ships with the limiter off: the default configuration never limits, however hard it is hit.
+#[rstest]
+fn test_the_default_configuration_limits_nothing() {
+    let limiter = RateLimiter::new(&RateLimitConfig::default());
+    let tenant = mock_tenant("tenant-one");
+
+    for _ in 0..RateLimitConfig::default().burst * 10 {
+        assert_eq!(limiter.check(&tenant), RateLimitDecision::Allowed);
+    }
 }
 
 #[rstest]

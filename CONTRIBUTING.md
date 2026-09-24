@@ -33,14 +33,15 @@ cd catalog-mcp-server
 The `.dev/` directory contains the configuration needed to spin up a development environment using [Docker Compose](https://docs.docker.com/compose/).
 
 > [!WARNING]
-> To pull the some of the images you need to be logged in the Mia-Platform private registry.
+> To pull the `catalog-engine` image you need to be logged in the Mia-Platform private registry.
 
 The stack is composed of:
 
-- an instance of MongoDB (exposed locally on port `27017`), and
-- an instance of the Catalog Engine (exposed locally on port `3000`).
+- an instance of PostgreSQL, which keeps its data across restarts;
+- an instance of the Catalog Engine, pinned to the version `catalog-helm-chart` deploys and exposed locally on port `3000`;
+- a small stub of the authz service, serving one fictional tenant, so that the tenant listing works without the real one.
 
-The playground comes with two organizations, `system` and `org_1`, and the database is already packed with some mock data.
+There is nothing to seed: the engine provisions its own item type definitions and AI items on first start, and registers a tenant the first time a request names it.
 
 To spin up the system, run:
 
@@ -48,7 +49,13 @@ To spin up the system, run:
 cargo make dev_up
 ```
 
-To teardown the playground, run
+Then run the server on the host, configured by [`.dev/config.json`](./.dev/config.json):
+
+```sh
+cargo run -- --config-folder .dev
+```
+
+It listens on `http://localhost:8000/mcp`. To teardown the playground, deleting its data, run
 
 ```sh
 cargo make dev_down
@@ -59,18 +66,17 @@ cargo make dev_down
 > [!TIP]
 > See the [README](./README.md) for detailed client integration instructions.
 
+There is no gateway locally, so the client has to send the caller's identity itself. The value below is the URL-safe base64 of `{"organization":"my-org","tenant":"my-tenant"}`, the tenant the authz stub serves:
+
 ```json
 {
   "servers": {
-    "catalog": {
-      "type": "stdio",
-      "command": "cargo",
-      "args": [
-        "run",
-        "--",
-        "--stdio",
-        "--base-url=http://localhost:3000"
-      ]
+    "catalog-local": {
+      "type": "http",
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "x-mia-acl-context": "eyJvcmdhbml6YXRpb24iOiJteS1vcmciLCJ0ZW5hbnQiOiJteS10ZW5hbnQifQ"
+      }
     }
   },
   "inputs": []

@@ -39,51 +39,66 @@ fn test_a_payload_is_rendered_at_the_top_level() {
     let output = ToolOutput::new(json!({ "tenants": [], "current": "my-tenant" }));
 
     assert_eq!(
-        output.render(),
+        output.render(None),
         json!({ "tenants": [], "current": "my-tenant" })
     );
 }
 
-/// D28 — a tool that **can** produce warnings always emits the key, so its absence is never
+/// D28 — a call that reached the engine always emits the key, so its absence is never
 /// ambiguous.
 #[rstest]
-fn test_a_warning_capable_tool_emits_the_key_even_when_empty() {
-    let output = ToolOutput::with_warnings(json!({ "deleted": true }), vec![]);
+fn test_a_call_that_reached_the_engine_emits_the_key_even_when_empty() {
+    let output = ToolOutput::new(json!({ "deleted": true }));
 
-    assert_eq!(output.render(), json!({ "deleted": true, "warnings": [] }));
+    assert_eq!(
+        output.render(Some(&[])),
+        json!({ "deleted": true, "warnings": [] })
+    );
 }
 
 #[rstest]
-fn test_warnings_are_rendered_as_their_text() {
-    let output = ToolOutput::with_warnings(
-        json!({ "applied": true }),
-        vec![mock_warning("first"), mock_warning("second")],
-    );
+fn test_engine_warnings_are_rendered_as_their_text() {
+    let output = ToolOutput::new(json!({ "applied": true }));
 
     assert_eq!(
-        output.render(),
+        output.render(Some(&[mock_warning("first"), mock_warning("second")])),
         json!({ "applied": true, "warnings": ["first", "second"] })
     );
 }
 
-/// D28 — a tool that **cannot** produce warnings omits the key entirely rather than sending an
+/// D28 — a call that never reached the engine omits the key entirely rather than sending an
 /// empty array the model has to interpret.
 #[rstest]
-fn test_a_warning_incapable_tool_omits_the_key() {
+fn test_a_call_that_never_reached_the_engine_omits_the_key() {
     let output = ToolOutput::new(json!({ "tenants": [] }));
 
-    assert!(output.render().get(WARNINGS_KEY).is_none());
-    assert_eq!(output.warnings(), None);
+    assert!(output.render(None).get(WARNINGS_KEY).is_none());
+}
+
+/// T3-D5 — a tool's own warning is rendered after the engine's, and brings the key with it even
+/// on a call that never reached the engine.
+#[rstest]
+fn test_a_tools_own_warning_follows_the_engines() {
+    let output = ToolOutput::new(json!({ "item": {} })).with_warning("relationships unavailable");
+
+    assert_eq!(
+        output.render(Some(&[mock_warning("type is deprecated")])),
+        json!({ "item": {}, "warnings": ["type is deprecated", "relationships unavailable"] })
+    );
+    assert_eq!(
+        output.render(None)[WARNINGS_KEY],
+        json!(["relationships unavailable"])
+    );
 }
 
 /// A tool that returns a bare value still gets an object: `warnings` has to have somewhere to
 /// go, and the model has one shape to learn.
 #[rstest]
 fn test_a_bare_value_is_wrapped() {
-    let output = ToolOutput::with_warnings(json!(["a", "b"]), vec![]);
+    let output = ToolOutput::new(json!(["a", "b"]));
 
     assert_eq!(
-        output.render(),
+        output.render(Some(&[])),
         json!({ "result": ["a", "b"], "warnings": [] })
     );
 }
@@ -92,7 +107,7 @@ fn test_a_bare_value_is_wrapped() {
 /// way to fail (rule 2).
 #[rstest]
 fn test_a_successful_result_is_one_text_block_and_no_structured_content() {
-    let result = success_result(&ToolOutput::new(json!({ "ok": true })));
+    let result = success_result(&ToolOutput::new(json!({ "ok": true })), None);
 
     assert_eq!(result.content.len(), 1);
     assert_eq!(result.is_error, Some(false));

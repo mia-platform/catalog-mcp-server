@@ -25,7 +25,10 @@ use crate::{
 use http::HeaderMap;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 use tracing::Instrument;
 use url::Url;
 
@@ -65,6 +68,77 @@ pub struct EngineResponse<T> {
 
     /// Every `Warning: 299 - "…"` the response carried, in order.
     pub warnings: Vec<EngineWarning>,
+}
+
+/// What one call heard from the engine besides its bodies: whether it reached for the engine at
+/// all, and every `Warning` the engine attached (D28).
+///
+/// **The runtime, not the tool, puts these on the result** (§5.5). One record is created per
+/// call by [`EngineClientFactory::bind`] and shared by every clone of that call's
+/// [`EngineClient`], so a tool that fans out still reports what each response carried, and no
+/// tool author can forget to. The engine attaches warnings in a middleware around its whole
+/// router, so any route can warn — which is why this is collected everywhere rather than on the
+/// operations someone expected to warn.
+#[derive(Clone, Debug, Default)]
+pub struct CallWarnings {
+    inner: Arc<Mutex<CallWarningsState>>,
+}
+
+/// The mutable half of [`CallWarnings`].
+#[derive(Debug, Default)]
+struct CallWarningsState {
+    engine_called: bool,
+    warnings: Vec<EngineWarning>,
+}
+
+impl CallWarnings {
+    /// Runs `f` on the state. The lock is held only for a push or a copy, which cannot panic, so
+    /// a poisoned lock is recovered rather than propagated: losing a warning is better than
+    /// failing a call that otherwise succeeded.
+    fn with_state<R>(&self, f: impl FnOnce(&mut CallWarningsState) -> R) -> R {
+        let mut state = match self.inner.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        f(&mut state)
+    }
+
+    /// Records that the call reached for the engine, whatever came of it.
+    fn note_request(&self) {
+        self.with_state(|state| state.engine_called = true);
+    }
+
+    /// Records the warnings one successful response carried.
+    fn extend(&self, warnings: &[EngineWarning]) {
+        if warnings.is_empty() {
+            return;
+        }
+
+        self.with_state(|state| state.warnings.extend_from_slice(warnings));
+    }
+
+    /// What the result should carry: `None` when the call never reached for the engine, so the
+    /// key is omitted, and otherwise every **distinct** warning in arrival order — possibly none.
+    ///
+    /// Distinct, because a tool that lists a deprecated type page by page is told the same thing
+    /// on every page, and repeating it would cost bytes and teach the model nothing.
+    pub fn collected(&self) -> Option<Vec<EngineWarning>> {
+        self.with_state(|state| {
+            if !state.engine_called {
+                return None;
+            }
+
+            let mut distinct: Vec<EngineWarning> = Vec::with_capacity(state.warnings.len());
+            for warning in &state.warnings {
+                if !distinct.contains(warning) {
+                    distinct.push(warning.clone());
+                }
+            }
+
+            Some(distinct)
+        })
+    }
 }
 
 /// The §8.1 retry policy. **A policy, not a number.**
@@ -227,6 +301,7 @@ impl EngineClientFactory {
             retry: self.retry,
             identity,
             deadline,
+            warnings: CallWarnings::default(),
         }
     }
 
@@ -266,9 +341,15 @@ pub struct EngineClient {
     retry: RetryPolicy,
     identity: Arc<CallerIdentity>,
     deadline: Deadline,
+    warnings: CallWarnings,
 }
 
 impl EngineClient {
+    /// Everything this call's engine responses warned about, for the runtime to render (D28).
+    pub fn call_warnings(&self) -> &CallWarnings {
+        &self.warnings
+    }
+
     /// The caller this client is bound to.
     pub fn identity(&self) -> &CallerIdentity {
         &self.identity
@@ -350,7 +431,8 @@ impl EngineClient {
     ) -> Result<EngineResponse<T>, ToolError> {
         let value = serde_json::from_slice(&raw.body).map_err(|err| {
             // A body we cannot read is our problem, not the model's: it means the engine's shape
-            // and ours have diverged, which is what the contract tests exist to catch earlier.
+            // and ours have diverged, which is what the e2e run against the pinned engine exists
+            // to catch before a deployment does.
             tracing::error!(?err, "the engine returned a body this client cannot read");
 
             map_status(
@@ -379,6 +461,8 @@ impl EngineClient {
         request: Request,
         intent: Intent,
     ) -> Result<RawResponse, ToolError> {
+        self.warnings.note_request();
+
         let mut attempt: u8 = 0;
 
         loop {
@@ -434,7 +518,11 @@ impl EngineClient {
                 .record(started.elapsed().as_secs_f64());
 
             let (failure, request_id, message) = match outcome {
-                Ok(response) => return Ok(response),
+                Ok(response) => {
+                    self.warnings.extend(&response.warnings);
+
+                    return Ok(response);
+                }
                 Err(Attempt {
                     kind,
                     request_id,

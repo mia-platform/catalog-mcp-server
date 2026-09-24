@@ -1,8 +1,10 @@
 # The e2e environment (§14): a real `catalog-engine` on a real database.
 #
-# It exists because two things the client depends on cannot be contract-tested against the OAS —
-# the `Warning: 299` header, which is declared nowhere, and the relationships endpoint's three
-# response shapes, whose `200` body is typed as a free-form object (§8.3, §12.3, §17.4).
+# It is where the client is checked against the engine: there is no vendored OAS to test against,
+# by decision, so what the engine actually does is the contract. That includes two things no
+# document could express anyway — the `Warning: 299` header, which the OAS declares nowhere, and
+# the relationships endpoint's three response shapes, whose `200` body is typed as a free-form
+# object (§8.3, §12.3, §17.4).
 #
 # The gateway is deliberately **absent**. In production every outbound call traverses it so
 # `ext_authz` re-authorizes the operation (D27, D48); here there is no policy to run, so the

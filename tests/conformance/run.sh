@@ -8,10 +8,10 @@
 # Usage: tests/conformance/run.sh [--record]
 #   --record  write the per-revision results under tests/conformance/results/ for inspection
 
-# The conformance suite sends hundreds of calls with no identity, so the whole run lands in one
-# `unknown/unknown` rate-limit bucket. The limiter is left **on** — it is part of what is under
-# test — but its budget is raised, because rate limiting the suite means measuring the suite
-# rather than the handler. The shared-bucket behaviour itself is asserted in the unit tests.
+# The suite runs against the shipped defaults, so the rate limiter is **off**, as in v1. The
+# suite sends hundreds of calls with no identity, all in one `unknown/unknown` bucket; with the
+# limiter on it would measure the suite rather than the handler. The limiter's own behaviour,
+# including the shared bucket, is asserted in its unit tests.
 
 set -e
 

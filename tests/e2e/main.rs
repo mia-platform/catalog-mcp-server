@@ -377,8 +377,8 @@ async fn test_the_tenant_listing_reports_authz_rather_than_the_catalog() {
     );
 }
 
-/// The endpoint really does take no parameters and really is reached at `/bff/tenants` — the
-/// contract test asserts the document, and this asserts the engine.
+/// The endpoint really is reached at `/bff/tenants` and takes no parameters, asserted against
+/// the engine itself rather than a document describing it.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_the_tenant_listing_is_reachable_where_the_client_expects_it() {

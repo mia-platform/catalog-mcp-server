@@ -872,6 +872,56 @@ async fn probe_as(router: &Router, acl_context: &str) -> Value {
     .await
 }
 
+/// **§5.5 / D28, through the real adapter.** A tool that never looks at warnings still delivers
+/// the engine's to the model, because `route_for` reads them off the call's client after the
+/// tool returns — the property that makes a forgotten warning impossible rather than unlikely.
+#[rstest]
+#[tokio::test]
+async fn test_an_engine_warning_reaches_the_model_through_the_adapter(mock_config: Config) {
+    use crate::{
+        registry::{Registry, route_for},
+        tools::list_tenants::ListTenants,
+    };
+    use rmcp::handler::server::router::tool::ToolRouter;
+
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok_with_warnings(
+            "/bff/tenants",
+            json!([]),
+            &["mia-platform.eu/v1 Service is deprecated"],
+        )
+        .await;
+
+    let mut config = mock_config;
+    config.engine.base_url = engine.server().uri();
+    config.engine.api_prefix = "/".to_string();
+    config
+        .validate()
+        .expect("the fixture is a valid configuration");
+    let state = AppState::build(
+        config,
+        Registry::new(ToolRouter::new().with_route(route_for(ListTenants))),
+        None,
+    )
+    .expect("a valid state");
+    let router = build_router(state, &CancellationToken::new());
+
+    let response = stateless_request(
+        &router,
+        "tools/call",
+        Some("list_tenants"),
+        json!({ "name": "list_tenants", "arguments": {} }),
+        &[],
+    )
+    .await;
+
+    assert_eq!(
+        tool_payload(&response)["warnings"],
+        json!(["mia-platform.eu/v1 Service is deprecated"])
+    );
+}
+
 /// Two callers, two tenants, two outbound contexts — and neither one is the other's.
 #[rstest]
 #[tokio::test]

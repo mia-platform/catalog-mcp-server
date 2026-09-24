@@ -410,6 +410,20 @@ impl ServerHandler for CatalogHandler {
                 bytes,
             );
 
+            // One event **inside** the span, so its fields are observable at all. With the
+            // logging stack of D41 — `tracing-subscriber`'s JSON layer to stdout — a span with
+            // no event in it never prints: spans surface only as context on events. Without
+            // this line every §10 field on `mcp.request` would exist and be invisible.
+            span.in_scope(|| {
+                tracing::info!(
+                    outcome = outcome.as_str(),
+                    remedy = remedy_label,
+                    bytes_out = bytes,
+                    duration_ms = started.elapsed().as_millis() as u64,
+                    "tool call completed"
+                )
+            });
+
             Ok(response)
         }
     }

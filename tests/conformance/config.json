@@ -5,8 +5,5 @@
     "allowedHosts": ["127.0.0.1", "127.0.0.1:8177", "localhost", "localhost:8177"]
   },
   "engine": { "baseUrl": "http://api-gateway:8080" },
-  "auth": { "resource": "http://127.0.0.1:8177/mcp" },
-  "tools": {
-    "rateLimit": { "enabled": true, "perTenantCallsPerMinute": 1000000, "burst": 1000000 }
-  }
+  "auth": { "resource": "http://127.0.0.1:8177/mcp" }
 }

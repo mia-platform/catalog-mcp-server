@@ -1,0 +1,8 @@
+[
+  {
+    "name": "my-tenant",
+    "organization": "my-org",
+    "title": "My Tenant",
+    "description": "A fictional tenant for local development."
+  }
+]

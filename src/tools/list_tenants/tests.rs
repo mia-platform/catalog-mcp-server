@@ -138,7 +138,7 @@ async fn test_a_tenant_is_projected_to_three_fields() {
     .expect("the listing succeeds");
 
     assert_eq!(
-        output.render()["tenants"],
+        output.payload()["tenants"],
         json!([{ "id": "my-tenant", "name": "My Tenant", "organization": "my-org" }])
     );
 }
@@ -154,7 +154,7 @@ async fn test_current_comes_from_the_forwarded_context() {
     .await
     .expect("the listing succeeds");
 
-    assert_eq!(output.render()["current"], json!("my-tenant"));
+    assert_eq!(output.payload()["current"], json!("my-tenant"));
 }
 
 /// A context without a `tenantName` still yields `current`: the slug is what it is derived from.
@@ -169,7 +169,7 @@ async fn test_current_does_not_need_a_tenant_name() {
         .await
         .expect("the listing succeeds");
 
-    assert_eq!(output.render()["current"], json!("tenant-two"));
+    assert_eq!(output.payload()["current"], json!("tenant-two"));
 }
 
 /// **Omitted, never null.** Under D47 the identity layer extracts rather than rejects, so an
@@ -181,7 +181,7 @@ async fn test_current_is_omitted_when_the_context_did_not_decode() {
         .await
         .expect("the listing succeeds");
 
-    let rendered = output.render();
+    let rendered = output.payload();
 
     assert!(rendered.get("current").is_none(), "{rendered}");
     assert!(rendered["tenants"].as_array().is_some());
@@ -197,7 +197,7 @@ async fn test_a_malformed_context_also_omits_current() {
     .await
     .expect("the listing succeeds");
 
-    assert!(output.render().get("current").is_none());
+    assert!(output.payload().get("current").is_none());
 }
 
 /// T11-D5 — an empty list is a real, successful answer, and materially different from a `401`.
@@ -208,8 +208,8 @@ async fn test_an_empty_list_is_not_an_error() {
         .await
         .expect("an empty list is a successful answer");
 
-    assert_eq!(output.render()["tenants"], json!([]));
-    assert_eq!(output.render()["current"], json!("my-tenant"));
+    assert_eq!(output.payload()["tenants"], json!([]));
+    assert_eq!(output.payload()["current"], json!("my-tenant"));
 }
 
 /// The response is a **bare array**, not a `List` envelope — so nothing here paginates.
@@ -227,7 +227,7 @@ async fn test_the_bare_array_response_is_read_directly() {
     .expect("the listing succeeds");
 
     assert_eq!(
-        output.render()["tenants"]
+        output.payload()["tenants"]
             .as_array()
             .expect("an array")
             .len(),
@@ -235,16 +235,45 @@ async fn test_the_bare_array_response_is_read_directly() {
     );
 }
 
-/// This tool cannot produce engine warnings, so the key is omitted rather than empty (D28).
+/// D28 — the tool reaches the engine, so the runtime renders the key **present and empty** when
+/// the engine said nothing: the model never has to tell "no warnings" from "never warns".
 #[rstest]
 #[tokio::test]
-async fn test_no_warnings_key_is_emitted() {
-    let output = call_with(json!([]), Some(&mock_acl_context()))
+async fn test_an_engine_call_without_warnings_renders_an_empty_key() {
+    let engine = MockEngine::start().await;
+    engine.get_ok("/bff/tenants", json!([])).await;
+    let context = mock_context(&engine, Some(&mock_acl_context()));
+
+    let output = ListTenants
+        .call(&context, ListTenantsInput {})
         .await
         .expect("the listing succeeds");
+    let collected = context.engine().call_warnings().collected();
 
-    assert!(output.render().get("warnings").is_none());
-    assert_eq!(output.warnings(), None);
+    assert_eq!(output.render(collected.as_deref())["warnings"], json!([]));
+}
+
+/// §5.5 — a warning the engine attaches reaches the model **without the tool doing anything**:
+/// this tool never looks at warnings, and it is rendered anyway.
+#[rstest]
+#[tokio::test]
+async fn test_an_engine_warning_reaches_the_result_without_the_tool() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok_with_warnings("/bff/tenants", json!([]), &["tenants are cached"])
+        .await;
+    let context = mock_context(&engine, Some(&mock_acl_context()));
+
+    let output = ListTenants
+        .call(&context, ListTenantsInput {})
+        .await
+        .expect("the listing succeeds");
+    let collected = context.engine().call_warnings().collected();
+
+    assert_eq!(
+        output.render(collected.as_deref())["warnings"],
+        json!(["tenants are cached"])
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

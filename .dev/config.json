@@ -22,7 +22,6 @@
   "tools": {
     "callDeadlineSeconds": 25,
     "toolsListTtlMs": 3600000,
-    "rateLimit": { "enabled": true, "perTenantCallsPerMinute": 120, "burst": 20 },
     "defaults": {
       "searchLimit": 50,
       "relationshipLimit": 50,

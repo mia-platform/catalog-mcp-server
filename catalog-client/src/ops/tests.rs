@@ -44,9 +44,9 @@ fn mock_address() -> ItemAddress {
 /// Calls every operation once against a mock that accepts anything, and returns the requests it
 /// recorded.
 ///
-/// This is what makes the NFR-11 assertion **structural**: it is driven by [`OPERATIONS`], the
-/// same list the contract tests walk, so an operation added without the identity pair fails here
-/// rather than being noticed in production.
+/// This is what makes the NFR-11 assertion **structural**: it is driven by [`OPERATIONS`], so an
+/// operation added without the identity pair fails here rather than being noticed in
+/// production.
 async fn record_every_operation(client: &EngineClient) -> Vec<wiremock::Request> {
     let query = ListQuery::default();
 
@@ -95,7 +95,7 @@ async fn mount_catch_all(engine: &MockEngine) {
 // ---------------------------------------------------------------------------------------------
 
 /// (a) **Every** method in `ops` sends `x-mia-acl-context` *and* `x-mia-principal-id` when both
-/// arrived — driven by the same operation list the contract tests walk.
+/// arrived — driven by the [`OPERATIONS`] list, so none can be skipped.
 #[rstest]
 #[tokio::test]
 async fn test_every_operation_forwards_the_identity_pair() {
@@ -415,8 +415,8 @@ async fn test_the_list_query_is_applied_to_the_url() {
     );
 }
 
-/// A query parameter an endpoint does not declare is not sent to it, which is what keeps the
-/// contract test's `query` list honest.
+/// A query parameter an endpoint does not declare is not sent to it: the engine answers an
+/// undeclared parameter with a `400` the model could only misread.
 #[rstest]
 #[tokio::test]
 async fn test_a_parameter_the_endpoint_does_not_declare_is_not_sent() {

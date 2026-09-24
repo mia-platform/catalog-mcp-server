@@ -177,7 +177,7 @@
       }
     },
     "RateLimitConfig": {
-      "description": "The per-tenant token bucket of §6.4. Buckets are per replica, so the effective cluster\nlimit is `replicas × rate`.",
+      "description": "The per-tenant token bucket of §6.4. Buckets are per replica, so the effective cluster\nlimit is `replicas × rate`.\n\n**Off by default in v1**: it limits nothing unless `enabled` is set to `true`.",
       "type": "object",
       "properties": {
         "burst": {
@@ -190,7 +190,7 @@
         "enabled": {
           "description": "Whether the limiter runs at all.",
           "type": "boolean",
-          "default": true
+          "default": false
         },
         "perTenantCallsPerMinute": {
           "description": "Refill rate, in calls per minute, per tenant.",

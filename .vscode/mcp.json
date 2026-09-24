@@ -6,7 +6,10 @@
     },
     "catalog-local": {
       "type": "http",
-      "url": "http://localhost:8000/mcp"
+      "url": "http://localhost:8000/mcp",
+      "headers": {
+        "x-mia-acl-context": "eyJvcmdhbml6YXRpb24iOiJteS1vcmciLCJ0ZW5hbnQiOiJteS10ZW5hbnQifQ"
+      }
     }
   },
   "inputs": []

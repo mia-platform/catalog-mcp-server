@@ -235,6 +235,92 @@ async fn test_warnings_are_collected_from_a_successful_response() {
     assert_eq!(texts, vec!["first warning", "second warning"]);
 }
 
+/// Texts of what the call collected, or `None` when it never reached for the engine.
+fn collected_texts(client: &crate::EngineClient) -> Option<Vec<String>> {
+    client
+        .call_warnings()
+        .collected()
+        .map(|warnings| warnings.into_iter().map(|warning| warning.text).collect())
+}
+
+/// D28 — a call that never reached for the engine has nothing to report, so the key is omitted.
+#[rstest]
+#[tokio::test]
+async fn test_a_call_that_never_reached_the_engine_collects_nothing() {
+    let engine = MockEngine::start().await;
+    let client = engine.client(mock_identity());
+
+    assert_eq!(collected_texts(&client), None);
+}
+
+/// D28 — a call that reached the engine and was told nothing collects an **empty** list, which
+/// is what makes the key present-and-empty rather than absent.
+#[rstest]
+#[tokio::test]
+async fn test_a_call_without_warnings_collects_an_empty_list() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok("/items", mock_list_envelope(vec![], None))
+        .await;
+    let client = engine.client(mock_identity());
+
+    client
+        .list_items(&ListQuery::default())
+        .await
+        .expect("the listing succeeds");
+
+    assert_eq!(collected_texts(&client), Some(vec![]));
+}
+
+/// §5.5 — the runtime collects every warning of every response, across clones of the call's
+/// client, and repeats none: a tool that fans out reports each distinct warning once.
+#[rstest]
+#[tokio::test]
+async fn test_warnings_are_collected_across_calls_and_clones_without_repeats() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok_with_warnings(
+            "/items",
+            mock_list_envelope(vec![], None),
+            &["type is deprecated", "history is frozen"],
+        )
+        .await;
+    let client = engine.client(mock_identity());
+    let fan_out = client.clone();
+
+    for caller in [&client, &fan_out] {
+        caller
+            .list_items(&ListQuery::default())
+            .await
+            .expect("the listing succeeds");
+    }
+
+    assert_eq!(
+        collected_texts(&client),
+        Some(vec![
+            "type is deprecated".to_string(),
+            "history is frozen".to_string()
+        ])
+    );
+}
+
+/// A failed request still counts as reaching for the engine: the tool that made it could have
+/// been warned, so a success built around it keeps the key.
+#[rstest]
+#[tokio::test]
+async fn test_a_failed_request_still_marks_the_engine_as_called() {
+    let engine = MockEngine::start().await;
+    engine.get_error("/items", 404, "not here").await;
+    let client = engine.client_without_retries(mock_identity());
+
+    client
+        .list_items(&ListQuery::default())
+        .await
+        .expect_err("the listing fails");
+
+    assert_eq!(collected_texts(&client), Some(vec![]));
+}
+
 #[rstest]
 #[tokio::test]
 async fn test_an_engine_error_is_mapped_to_the_contract() {

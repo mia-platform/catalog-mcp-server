@@ -20,9 +20,9 @@
 // lands — so its surface is complete from the day it lands rather than growing tool by tool.
 //
 // That means parts of it are not yet called: `ProgressSink` has one future user (T4, wave 2),
-// `Deadline` is consumed by tools that fan out, and `with_warnings` by the three tools that can
-// produce them (T9, T12, T13). Hence the allow, on the module rather than scattered over the
-// items, so that removing it later is one line.
+// `Deadline` is consumed by tools that fan out, and `with_warning` by tools that degrade an
+// answer rather than fail it (T3-D5). Hence the allow, on the module rather than scattered over
+// the items, so that removing it later is one line.
 #![allow(dead_code)]
 
 use crate::registry::ToolDescriptor;
@@ -48,9 +48,11 @@ pub const WARNINGS_KEY: &str = "warnings";
 ///
 /// 1. A tool **never** sees a header, a token, a URL, a status code or a JSON-RPC type. What it
 ///    is handed is a [`CallContext`], and every capability on it is opaque.
-/// 2. A tool returns [`ToolOutput`] — a payload plus its warnings — and the **runtime** turns it
-///    into the result. A tool cannot set `isError`; returning `Err(ToolError)` is how it fails,
-///    which is the SDK's own recommendation for almost every "the tool didn't work" path.
+/// 2. A tool returns [`ToolOutput`] and the **runtime** turns it into the result. A tool cannot
+///    set `isError`; returning `Err(ToolError)` is how it fails, which is the SDK's own
+///    recommendation for almost every "the tool didn't work" path. **Nor does a tool pass engine
+///    warnings on**: the runtime collects every one the call's engine responses carried and adds
+///    them itself (D28), so no tool can drop one.
 /// 3. Argument deserialisation failures are produced by the runtime as `invalid_arguments` with
 ///    the serde path in `details.field` — a tool error, not a protocol error (D18).
 /// 4. Exceeding the deadline is `deadline_exceeded`, except on a write already dispatched, where
@@ -183,30 +185,30 @@ impl ProgressSink {
 /// It is rendered as **one** JSON object — `{…payload…, "warnings": [...]}` — merged at the top
 /// level rather than nested, because a wrapper key costs bytes on every response and the model
 /// has to learn it.
+///
+/// **Engine warnings are not carried here.** The runtime reads them off the call's engine client
+/// ([`catalog_client::CallWarnings`]) and adds them at render time (§5.5, D28). What a tool may
+/// add is a warning of its *own* — a degraded answer it wants the model to know about, such as a
+/// secondary fetch that failed (T3-D5).
 #[derive(Debug)]
 pub struct ToolOutput {
     payload: Value,
-    warnings: Option<Vec<EngineWarning>>,
+    notes: Vec<String>,
 }
 
 impl ToolOutput {
-    /// A payload from a tool that **cannot** produce engine warnings. The key is omitted.
+    /// A payload, with no warning of the tool's own.
     pub fn new(payload: Value) -> Self {
         Self {
             payload,
-            warnings: None,
+            notes: Vec::new(),
         }
     }
 
-    /// A payload from a tool that **can** produce engine warnings (D28).
-    ///
-    /// The key is then **present and empty** rather than omitted, so its absence is never
-    /// ambiguous: a model cannot tell "no warnings" from "this tool never warns" otherwise.
-    pub fn with_warnings(payload: Value, warnings: Vec<EngineWarning>) -> Self {
-        Self {
-            payload,
-            warnings: Some(warnings),
-        }
+    /// Adds a warning the **tool** authored. Engine warnings are never passed here.
+    pub fn with_warning(mut self, text: impl Into<String>) -> Self {
+        self.notes.push(text.into());
+        self
     }
 
     /// The tool's own payload.
@@ -214,13 +216,14 @@ impl ToolOutput {
         &self.payload
     }
 
-    /// The warnings, or `None` for a tool that cannot produce any.
-    pub fn warnings(&self) -> Option<&[EngineWarning]> {
-        self.warnings.as_deref()
-    }
-
     /// The single JSON object the runtime serialises into the result's text block.
-    pub fn render(&self) -> Value {
+    ///
+    /// `engine` is what the call's engine client collected: `None` when the call never reached
+    /// for the engine, `Some` — possibly empty — when it did. **The key is present whenever
+    /// `engine` is `Some` or the tool added a warning**, so a model never has to tell "no
+    /// warnings" apart from "this tool never warns"; it is omitted only for a call that could not
+    /// have produced one. Engine warnings come first, in arrival order, then the tool's own.
+    pub fn render(&self, engine: Option<&[EngineWarning]>) -> Value {
         let mut object = match &self.payload {
             Value::Object(object) => object.clone(),
             // A tool that returns a bare value still gets an object, because `warnings` has to
@@ -232,28 +235,29 @@ impl ToolOutput {
             }
         };
 
-        if let Some(warnings) = &self.warnings {
-            object.insert(
-                WARNINGS_KEY.to_string(),
-                Value::Array(
-                    warnings
-                        .iter()
-                        .map(|warning| Value::String(warning.text.clone()))
-                        .collect(),
-                ),
-            );
+        if engine.is_some() || !self.notes.is_empty() {
+            let texts = engine
+                .unwrap_or_default()
+                .iter()
+                .map(|warning| warning.text.clone())
+                .chain(self.notes.iter().cloned())
+                .map(Value::String)
+                .collect();
+
+            object.insert(WARNINGS_KEY.to_string(), Value::Array(texts));
         }
 
         Value::Object(object)
     }
 }
 
-/// Renders a successful [`ToolOutput`] as the result the model reads.
+/// Renders a successful [`ToolOutput`] as the result the model reads, with the engine warnings
+/// the call collected.
 ///
 /// One `TextContent` block of compact JSON, and **no `structuredContent`** (D15): returning
 /// every result twice doubles the metric this project exists to reduce.
-pub fn success_result(output: &ToolOutput) -> CallToolResult {
-    let text = serde_json::to_string(&output.render())
+pub fn success_result(output: &ToolOutput, engine: Option<&[EngineWarning]>) -> CallToolResult {
+    let text = serde_json::to_string(&output.render(engine))
         .unwrap_or_else(|_| r#"{"error":"unserialisable result"}"#.to_string());
 
     CallToolResult::success(vec![ContentBlock::text(text)])

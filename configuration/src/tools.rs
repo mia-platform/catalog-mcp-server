@@ -24,7 +24,16 @@ pub static DEFAULT_CALL_DEADLINE_SECONDS: u64 = 25;
 /// Default `ttlMs` advertised with `tools/list` (D13). The set changes only on deploy.
 pub static DEFAULT_TOOLS_LIST_TTL_MS: u64 = 3_600_000;
 
-/// Default per-tenant call allowance per minute — the specification's rate-limit MUST (§6.4).
+/// Whether the per-tenant limiter runs when the configuration does not say.
+///
+/// **Off in v1, by the owner's decision of 24 Sep 2026**, and a deliberate departure from the
+/// specification's *"Servers MUST … Rate limit tool invocations"* (§6.4). The previous server had
+/// no limiting anywhere and neither does the gateway, so this is parity with what production has
+/// always run. The limiter and its `rate_limited` error stay, so an environment can turn it on
+/// without a release.
+pub static DEFAULT_RATE_LIMIT_ENABLED: bool = false;
+
+/// Default per-tenant call allowance per minute, applied only when the limiter is enabled (§6.4).
 pub static DEFAULT_PER_TENANT_CALLS_PER_MINUTE: u32 = 120;
 
 /// Default burst capacity of the per-tenant token bucket.
@@ -58,9 +67,9 @@ pub fn default_tools_list_ttl_ms() -> u64 {
     DEFAULT_TOOLS_LIST_TTL_MS
 }
 
-/// Returns `true`.
+/// Returns [`DEFAULT_RATE_LIMIT_ENABLED`].
 pub fn default_rate_limit_enabled() -> bool {
-    true
+    DEFAULT_RATE_LIMIT_ENABLED
 }
 
 /// Returns [`DEFAULT_PER_TENANT_CALLS_PER_MINUTE`].
@@ -105,6 +114,8 @@ pub fn default_max_write_bytes() -> usize {
 
 /// The per-tenant token bucket of §6.4. Buckets are per replica, so the effective cluster
 /// limit is `replicas × rate`.
+///
+/// **Off by default in v1**: it limits nothing unless `enabled` is set to `true`.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]

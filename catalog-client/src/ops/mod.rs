@@ -27,9 +27,10 @@ use url::Url;
 
 /// One engine operation this client wraps.
 ///
-/// The list exists so that **one** enumeration drives both the NFR-11 propagation test and the
-/// OAS contract tests (§12.1, §12.3): an operation added without forwarding the identity pair,
-/// or without a path the engine declares, fails CI rather than being noticed later.
+/// The list exists so that **one** enumeration drives the NFR-11 propagation test: an operation
+/// added without forwarding the identity pair fails CI rather than being noticed later. It is
+/// also the inventory of every engine endpoint this client depends on — what to read first when
+/// the engine version the chart deploys changes, since there is no vendored OAS to diff against.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct OperationSpec {
     /// How the operation is named in logs, metrics and test failures.

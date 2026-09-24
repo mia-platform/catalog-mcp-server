@@ -64,7 +64,7 @@ pub mod ops;
 pub mod testing;
 
 pub use address::ItemAddress;
-pub use client::{Deadline, EngineClient, EngineClientFactory, EngineResponse};
+pub use client::{CallWarnings, Deadline, EngineClient, EngineClientFactory, EngineResponse};
 pub use error::{Remedy, ToolError};
 pub use identity::{AclContext, CallerIdentity, Sensitive, TenantKey};
 pub use models::Tenant;

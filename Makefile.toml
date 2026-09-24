@@ -27,7 +27,6 @@ args = ["build", "--all-features"]
 [env]
 docker_compose_dev_file = ".dev/docker-compose.yml"
 docker_compose_test_file = "tests/docker-compose.yml"
-catalog_engine_oas_source = "../../../gitlab/platform/catalog/catalog-engine/assets/oas/catalog-engine.openapi.json"
 
 [tasks.dev_up]
 workspace = false
@@ -38,23 +37,6 @@ args = ["compose", "--file", "${docker_compose_dev_file}", "up", "--wait", "-d"]
 workspace = false
 command = "docker"
 args = ["compose", "--file", "${docker_compose_dev_file}", "down", "--remove-orphans", "-v"]
-
-########################################################################################################################
-
-# Refreshes the vendored engine OpenAPI document the contract tests read (§12.3). Pinned on
-# purpose: it is refreshed deliberately, in a reviewable diff, never fetched at build time.
-[tasks.refresh_oas]
-workspace = false
-script = '''
-    set -e
-    if [ ! -f "${catalog_engine_oas_source}" ]; then
-        echo "cannot find the engine OAS at ${catalog_engine_oas_source}"
-        echo "set catalog_engine_oas_source to a checkout of catalog-engine and try again"
-        exit 1
-    fi
-    cp "${catalog_engine_oas_source}" ./assets/oas/catalog-engine.openapi.json
-    echo "vendored assets/oas/catalog-engine.openapi.json from ${catalog_engine_oas_source}"
-'''
 
 ########################################################################################################################
 
