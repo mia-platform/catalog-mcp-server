@@ -53,4 +53,4 @@ jobs:
       - name: Check license
         run: |
           addlicense -c 'Mia srl' -check -s \
-            $(find src configuration build.rs -name '*.rs')
+            $(find src configuration catalog-client tests build.rs -name '*.rs')

@@ -16,10 +16,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::registry::Registry;
+use catalog_client::EngineClientFactory;
 use configuration::Config;
-use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering},
+use std::{
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
 };
 
 /// Whether the process is ready to receive traffic, as `/-/ready` reports it (D43).
@@ -50,10 +54,10 @@ impl Readiness {
 
 /// Everything shared across requests, held behind one `Arc` and cloned into each handler (D4).
 ///
-/// The engine client factory, the metrics handle and the rate-limit buckets land here in later
-/// steps. Nothing request-scoped ever does: the handler's lifetime is one instance per session
-/// in legacy mode and one per request when stateless, so a field here would be a cross-request
-/// leak rather than a cache.
+/// The metrics handle and the rate-limit buckets land here in a later step. Nothing
+/// request-scoped ever does: the handler's lifetime is one instance per session in legacy mode
+/// and one per request when stateless, so a field here would be a cross-request leak rather than
+/// a cache.
 #[derive(Clone, Debug)]
 pub struct AppState {
     /// The validated configuration.
@@ -61,6 +65,10 @@ pub struct AppState {
 
     /// The tool set and its prebuilt `tools/list` payload, built once at startup.
     pub registry: Arc<Registry>,
+
+    /// One `reqwest` connection pool for the process, bound per request to a caller's identity
+    /// (D25). There is no ambient identity here: a request cannot be made from this alone.
+    pub engine: Arc<EngineClientFactory>,
 
     /// Whether the process is ready to receive traffic.
     pub readiness: Arc<Readiness>,
@@ -72,17 +80,55 @@ impl AppState {
     ///
     /// The state starts **not ready**: raising it is [`Readiness::mark_ready`]'s job, once the
     /// caller has finished every startup step.
-    pub fn new(config: Config) -> Self {
+    /// # Errors
+    ///
+    /// Fails when the configured engine base URL or timeouts cannot produce an HTTP client,
+    /// which is a startup condition and not a runtime one.
+    pub fn new(config: Config) -> anyhow::Result<Self> {
         Self::with_registry(config, Registry::with_shipped_tools())
     }
 
     /// Builds the shared state over a given registry, which is what lets a test drive the
     /// handler against a tool set of its own without a second code path in production.
-    pub fn with_registry(config: Config, registry: Registry) -> Self {
-        Self {
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`].
+    pub fn with_registry(config: Config, registry: Registry) -> anyhow::Result<Self> {
+        let engine = EngineClientFactory::new(
+            &config.engine.base_url,
+            &config.engine.api_prefix,
+            Duration::from_millis(config.engine.timeout_ms),
+            Duration::from_millis(config.engine.connect_timeout_ms),
+            config.engine.max_retries,
+        )?;
+
+        Ok(Self {
             config: Arc::new(config),
             registry: Arc::new(registry),
+            engine: Arc::new(engine),
             readiness: Arc::new(Readiness::default()),
-        }
+        })
+    }
+
+    /// Binds the shared engine client to one caller and one call's deadline (D25).
+    ///
+    /// The deadline is `tools.callDeadlineSeconds` from now: `engine.timeoutMs` bounds one hop
+    /// and this bounds the whole call.
+    ///
+    // Its production caller is the `CallContext` of §5.5, which Step 4 freezes; until then it is
+    // reached only from the tenant-isolation test, which drives the whole identity path through
+    // it. Hence the allow, matching `catalog-engine`'s convention for such items.
+    #[allow(dead_code)]
+    pub fn engine_for(
+        &self,
+        identity: Arc<catalog_client::CallerIdentity>,
+    ) -> catalog_client::EngineClient {
+        self.engine.bind(
+            identity,
+            catalog_client::Deadline::starting_now(Duration::from_secs(
+                self.config.tools.call_deadline_seconds,
+            )),
+        )
     }
 }

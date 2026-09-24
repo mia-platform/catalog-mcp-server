@@ -26,6 +26,7 @@ args = ["build", "--all-features"]
 
 [env]
 docker_compose_dev_file = ".dev/docker-compose.yml"
+docker_compose_test_file = "tests/docker-compose.yml"
 catalog_engine_oas_source = "../../../gitlab/platform/catalog/catalog-engine/assets/oas/catalog-engine.openapi.json"
 
 [tasks.dev_up]
@@ -78,11 +79,36 @@ args = [
 
 ########################################################################################################################
 
+[tasks.setup_e2e]
+workspace = false
+command = "docker"
+args = ["compose", "--file", "${docker_compose_test_file}", "up", "--wait", "-d"]
+
+[tasks.teardown_e2e]
+workspace = false
+command = "docker"
+args = ["compose", "--file", "${docker_compose_test_file}", "down", "--remove-orphans", "-v"]
+
+[tasks.e2e_tests]
+workspace = false
+env = { RUSTFLAGS = "-Awarnings" }
+command = "cargo"
+args = ["test", "--test", "e2e", "--", "--ignored", "--show-output"]
+
+# The end-to-end gate (§12.3): a real `catalog-engine` on a real database, for the two things
+# the OAS cannot express. Brings the environment up, runs the tests and tears it down.
+[tasks.e2e]
+workspace = false
+dependencies = ["setup_e2e"]
+run_task = { name = ["e2e_tests"], fork = true, cleanup_task = "teardown_e2e" }
+
+########################################################################################################################
+
 [tasks.test_local]
 workspace = false
 env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
-args = ["test", "--all-features", "${@}", "--", "--show-output"]
+args = ["test", "--workspace", "--all-features", "${@}", "--", "--show-output"]
 
 ########################################################################################################################
 
@@ -90,15 +116,25 @@ args = ["test", "--all-features", "${@}", "--", "--show-output"]
 workspace = false
 script = "cargo +nightly fmt --all --check"
 
+# `--workspace` is load-bearing: the root `Cargo.toml` is both the workspace and a package, so
+# without it `cargo` checks and tests only the binary and the member crates go unchecked.
 [tasks.clippy]
 workspace = false
 command = "cargo"
-args = ["clippy", "--all-targets", "--all-features", "--", "-D", "warnings"]
+args = [
+    "clippy",
+    "--workspace",
+    "--all-targets",
+    "--all-features",
+    "--",
+    "-D",
+    "warnings",
+]
 
 [tasks.test]
 workspace = false
 command = "cargo"
-args = ["test", "--all-features"]
+args = ["test", "--workspace", "--all-features"]
 
 # The blocking CI gate (§3.3): nightly `fmt --check`, then clippy with `-D warnings`, then the
 # tests. Clippy is blocking here, as in `ai-foundry-bff`, not advisory as in `catalog-engine`.

@@ -15,7 +15,9 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::{context::AppState, server::build_router, tools::hello::TOOL_NAME};
+use crate::{
+    context::AppState, handler::CatalogHandler, server::build_router, tools::hello::TOOL_NAME,
+};
 use axum::{
     Router,
     body::Body,
@@ -66,7 +68,10 @@ fn mock_config() -> Config {
 /// The assembled router, over the shipped tool set.
 #[fixture]
 fn mock_router(mock_config: Config) -> Router {
-    build_router(AppState::new(mock_config), &CancellationToken::new())
+    build_router(
+        AppState::new(mock_config).expect("a valid state"),
+        &CancellationToken::new(),
+    )
 }
 
 /// One POST to the MCP endpoint, returning the status, the response headers and the body.
@@ -447,7 +452,10 @@ async fn test_request_id_is_minted_when_absent(mock_router: Router) {
 #[rstest]
 #[tokio::test]
 async fn test_disallowed_host_is_rejected(mock_config: Config) {
-    let router = build_router(AppState::new(mock_config), &CancellationToken::new());
+    let router = build_router(
+        AppState::new(mock_config).expect("a valid state"),
+        &CancellationToken::new(),
+    );
 
     let request = Request::builder()
         .method("POST")
@@ -502,7 +510,10 @@ async fn test_configured_origin_allowlist_rejects_a_foreign_origin(mock_config: 
     let mut config = mock_config;
     config.server.allowed_origins = vec!["https://console.example.com".to_string()];
 
-    let router = build_router(AppState::new(config), &CancellationToken::new());
+    let router = build_router(
+        AppState::new(config).expect("a valid state"),
+        &CancellationToken::new(),
+    );
 
     let (status, _, _) = post_mcp(
         &router,
@@ -570,7 +581,7 @@ async fn test_healthz_answers_ok(mock_router: Router) {
 #[rstest]
 #[tokio::test]
 async fn test_healthz_stays_ok_while_draining(mock_config: Config) {
-    let state = AppState::new(mock_config);
+    let state = AppState::new(mock_config).expect("a valid state");
     state.readiness.mark_ready();
     state.readiness.mark_draining();
 
@@ -594,7 +605,7 @@ async fn test_ready_reports_not_ready_before_startup_completes(mock_router: Rout
 #[rstest]
 #[tokio::test]
 async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
-    let state = AppState::new(mock_config);
+    let state = AppState::new(mock_config).expect("a valid state");
     state.readiness.mark_ready();
 
     let router = build_router(state, &CancellationToken::new());
@@ -609,7 +620,7 @@ async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
 #[rstest]
 #[tokio::test]
 async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
-    let state = AppState::new(mock_config);
+    let state = AppState::new(mock_config).expect("a valid state");
     state.readiness.mark_ready();
     state.readiness.mark_draining();
 
@@ -624,7 +635,7 @@ async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
 #[rstest]
 #[tokio::test]
 async fn test_operational_routes_are_not_behind_the_transport_checks(mock_config: Config) {
-    let state = AppState::new(mock_config);
+    let state = AppState::new(mock_config).expect("a valid state");
     state.readiness.mark_ready();
 
     let router = build_router(state, &CancellationToken::new());
@@ -716,4 +727,298 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
 
     assert_eq!(listed["result"]["tools"][0]["name"], json!(TOOL_NAME));
     assert!(listed["result"].get("nextCursor").is_none());
+}
+
+// ---------------------------------------------------------------------------------------------
+// §13.3's gate — tenant isolation, through the whole identity path.
+//
+// Layer → `Parts` → `MiaIdentity` → `CallerIdentity` → `EngineClient` → forwarded headers. The
+// assertion is made at the far end, on what the engine actually received, because every stage in
+// between is somewhere the tenant could be lost or crossed.
+// ---------------------------------------------------------------------------------------------
+
+/// A probe tool that makes one engine call, so the test can assert on what the engine saw.
+///
+/// It is registered into a registry of the test's own through [`AppState::with_registry`] —
+/// production has no such tool and needs no code path for one.
+fn mock_engine_probe_route() -> rmcp::handler::server::router::tool::ToolRoute<CatalogHandler> {
+    use crate::registry::ToolDescriptor;
+    use rmcp::model::{CallToolResponse, CallToolResult, ContentBlock, Tool, ToolAnnotations};
+
+    #[derive(serde::Deserialize, schemars::JsonSchema)]
+    struct ProbeInput {}
+
+    let descriptor = ToolDescriptor::new::<ProbeInput>(
+        "engine_probe",
+        "Read the catalog, for tests only.",
+        ToolAnnotations::new().read_only(true),
+    );
+    let tool: Tool = (&descriptor).into();
+
+    rmcp::handler::server::router::tool::ToolRoute::new_dyn(
+        tool,
+        |context: rmcp::handler::server::tool::ToolCallContext<'_, CatalogHandler>| {
+            Box::pin(async move {
+                let identity =
+                    std::sync::Arc::new(crate::handler::caller_identity(context.request_context()));
+                let tenant = identity.tenant_key().to_string();
+
+                let engine = context.service.state().engine_for(identity);
+                let outcome = engine
+                    .list_items(&catalog_client::ops::ListQuery::default())
+                    .await;
+
+                let text = serde_json::json!({
+                    "tenant": tenant,
+                    "ok": outcome.is_ok(),
+                })
+                .to_string();
+
+                Ok(CallToolResponse::from(CallToolResult::success(vec![
+                    ContentBlock::text(text),
+                ])))
+            })
+        },
+    )
+}
+
+/// Builds a server whose only tool reads the catalog, pointed at `engine_url`.
+fn mock_state_against(engine_url: &str, mock_config: Config) -> AppState {
+    use crate::registry::Registry;
+    use rmcp::handler::server::router::tool::ToolRouter;
+
+    let mut config = mock_config;
+    config.engine.base_url = engine_url.to_string();
+    config.engine.api_prefix = "/".to_string();
+    config
+        .validate()
+        .expect("the fixture is a valid configuration");
+
+    AppState::with_registry(
+        config,
+        Registry::new(ToolRouter::new().with_route(mock_engine_probe_route())),
+    )
+    .expect("a valid state")
+}
+
+/// Calls the probe tool on the stateless era with the given ACL context header.
+async fn probe_as(router: &Router, acl_context: &str) -> Value {
+    stateless_request(
+        router,
+        "tools/call",
+        Some("engine_probe"),
+        json!({ "name": "engine_probe", "arguments": {} }),
+        &[("x-mia-acl-context", acl_context)],
+    )
+    .await
+}
+
+/// Two callers, two tenants, two outbound contexts — and neither one is the other's.
+#[rstest]
+#[tokio::test]
+async fn test_each_caller_reaches_the_engine_with_its_own_tenant(mock_config: Config) {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok(
+            "/items",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
+
+    let router = build_router(
+        mock_state_against(&engine.server().uri(), mock_config),
+        &CancellationToken::new(),
+    );
+
+    let first = URL_SAFE_NO_PAD.encode(r#"{"organization":"my-org","tenant":"tenant-one"}"#);
+    let second = URL_SAFE_NO_PAD.encode(r#"{"organization":"my-org","tenant":"tenant-two"}"#);
+
+    assert_eq!(
+        tool_payload(&probe_as(&router, &first).await)["tenant"],
+        json!("my-org/tenant-one")
+    );
+    assert_eq!(
+        tool_payload(&probe_as(&router, &second).await)["tenant"],
+        json!("my-org/tenant-two")
+    );
+
+    let seen: Vec<String> = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests")
+        .iter()
+        .map(|request| {
+            request
+                .headers
+                .get("x-mia-acl-context")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+
+    assert_eq!(seen, vec![first, second], "a tenant crossed over");
+}
+
+/// The same, within **one legacy session**, where a single handler instance serves both calls.
+/// This is the case D4 exists for: a cached identity would be a cross-tenant leak, not a cache.
+#[rstest]
+#[tokio::test]
+async fn test_one_legacy_session_does_not_leak_a_tenant_between_calls(mock_config: Config) {
+    use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
+
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok(
+            "/items",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
+
+    let router = build_router(
+        mock_state_against(&engine.server().uri(), mock_config),
+        &CancellationToken::new(),
+    );
+    let session_id = legacy_handshake(&router).await;
+
+    let first = URL_SAFE_NO_PAD.encode(r#"{"organization":"my-org","tenant":"tenant-one"}"#);
+    let second = URL_SAFE_NO_PAD.encode(r#"{"organization":"my-org","tenant":"tenant-two"}"#);
+
+    for acl in [&first, &second] {
+        legacy_request(
+            &router,
+            &session_id,
+            "tools/call",
+            json!({ "name": "engine_probe", "arguments": {} }),
+            &[("x-mia-acl-context", acl)],
+        )
+        .await;
+    }
+
+    let seen: Vec<String> = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests")
+        .iter()
+        .map(|request| {
+            request
+                .headers
+                .get("x-mia-acl-context")
+                .and_then(|value| value.to_str().ok())
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+
+    assert_eq!(
+        seen,
+        vec![first, second],
+        "one legacy session leaked the first caller's tenant into the second call"
+    );
+}
+
+/// **D47, asserted through the whole server.** A request with no identity at all still reaches
+/// the tool and still produces an engine call: no `401`, no error of ours. This is the test that
+/// fails if somebody re-adds a gate.
+#[rstest]
+#[tokio::test]
+async fn test_a_request_with_no_identity_still_reaches_the_engine(mock_config: Config) {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok(
+            "/items",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
+
+    let router = build_router(
+        mock_state_against(&engine.server().uri(), mock_config),
+        &CancellationToken::new(),
+    );
+
+    let response = stateless_request(
+        &router,
+        "tools/call",
+        Some("engine_probe"),
+        json!({ "name": "engine_probe", "arguments": {} }),
+        &[],
+    )
+    .await;
+
+    assert_eq!(response["result"]["isError"], json!(false));
+    assert_eq!(tool_payload(&response)["tenant"], json!("unknown/unknown"));
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+
+    assert_eq!(requests.len(), 1, "no engine call was made");
+    assert!(requests[0].headers.get("x-mia-acl-context").is_none());
+}
+
+/// The whole D26 allowlist survives the layer, the transport and the client.
+#[rstest]
+#[tokio::test]
+async fn test_the_full_allowlist_reaches_the_engine(mock_config: Config) {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok(
+            "/items",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
+
+    let router = build_router(
+        mock_state_against(&engine.server().uri(), mock_config),
+        &CancellationToken::new(),
+    );
+
+    let acl = catalog_client::testing::mock_acl_context();
+    stateless_request(
+        &router,
+        "tools/call",
+        Some("engine_probe"),
+        json!({ "name": "engine_probe", "arguments": {} }),
+        &[
+            ("x-mia-acl-context", &acl),
+            (
+                "x-mia-principal-id",
+                catalog_client::testing::MOCK_PRINCIPAL_ID,
+            ),
+            ("authorization", catalog_client::testing::MOCK_BEARER),
+            ("x-request-id", "test-request-0007"),
+        ],
+    )
+    .await;
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    let headers = &requests[0].headers;
+
+    let value = |name: &str| {
+        headers
+            .get(name)
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_string)
+    };
+
+    assert_eq!(value("x-mia-acl-context"), Some(acl));
+    assert_eq!(
+        value("x-mia-principal-id").as_deref(),
+        Some(catalog_client::testing::MOCK_PRINCIPAL_ID)
+    );
+    assert_eq!(
+        value("authorization").as_deref(),
+        Some(catalog_client::testing::MOCK_BEARER)
+    );
+    assert_eq!(value("x-request-id").as_deref(), Some("test-request-0007"));
 }

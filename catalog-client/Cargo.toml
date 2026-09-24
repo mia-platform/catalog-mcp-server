@@ -1,0 +1,34 @@
+[package]
+name = "catalog-client"
+version = "0.2.3"
+edition.workspace = true
+rust-version = "1.88"
+description = "The typed client for the Mia-Platform catalog-engine: addressing, projections, pagination, warnings and the tool-error contract."
+license-file = "../LICENSE"
+publish = false
+
+[features]
+default = []
+# The mock engine and its fixture library (§12.5), so the binary crate's tests can use the same
+# one rather than rebuilding a worse one per wave.
+testing = ["dep:wiremock"]
+
+[dependencies]
+anyhow.workspace = true
+base64.workspace = true
+http.workspace = true
+regex.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["time"] }
+tracing.workspace = true
+url.workspace = true
+uuid.workspace = true
+wiremock = { version = "0.6.5", optional = true }
+zeroize.workspace = true
+
+[dev-dependencies]
+catalog-client = { path = ".", features = ["testing"] }
+rstest.workspace = true
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "test-util"] }

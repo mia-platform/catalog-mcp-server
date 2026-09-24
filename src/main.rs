@@ -50,7 +50,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     rt.block_on(async {
         signal::register_shutdown_listeners();
 
-        Ok::<_, anyhow::Error>(server::try_init(AppState::new(config)).await?)
+        Ok::<_, anyhow::Error>(server::try_init(AppState::new(config)?).await?)
     })?;
 
     Ok(())

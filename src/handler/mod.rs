@@ -15,7 +15,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::context::AppState;
+use crate::{context::AppState, server::identity::MiaIdentity};
+use catalog_client::CallerIdentity;
 use rmcp::{
     ErrorData as McpError, ServerHandler,
     handler::server::tool::ToolCallContext,
@@ -75,6 +76,15 @@ impl CatalogHandler {
         Self { state }
     }
 
+    /// The shared state behind this handler.
+    ///
+    // Its production caller is the `CallContext` of §5.5, which Step 4 freezes; until then it is
+    // reached only from the tenant-isolation test's probe tool. Hence the allow.
+    #[allow(dead_code)]
+    pub fn state(&self) -> &AppState {
+        &self.state
+    }
+
     /// Whether the negotiated revision requires the SEP-2549 cache hints.
     ///
     /// Mirrors the SDK's own gate rather than reimplementing a version policy: an absent
@@ -93,6 +103,23 @@ impl CatalogHandler {
 /// whole session (D4). `None` on any transport that is not HTTP.
 pub fn inbound_parts(context: &RequestContext<RoleServer>) -> Option<&http::request::Parts> {
     context.extensions.get::<http::request::Parts>()
+}
+
+/// The caller's identity for this request (§6.2).
+///
+/// Two digs, because the value the tower layer inserted sits one level deeper than the `Parts`
+/// the transport injected: `RequestContext.extensions` holds the `Parts`, and the layer's
+/// `MiaIdentity` is inside `Parts.extensions`.
+///
+/// **It is read on every call and never cached on the handler** (D4): in legacy mode one handler
+/// instance serves a whole session, so a field here would be a cross-request leak. An absent
+/// identity yields an empty one rather than an error — the server relays identity, it does not
+/// adjudicate it (D47).
+pub fn caller_identity(context: &RequestContext<RoleServer>) -> CallerIdentity {
+    inbound_parts(context)
+        .and_then(|parts| parts.extensions.get::<MiaIdentity>())
+        .map(CallerIdentity::from)
+        .unwrap_or_default()
 }
 
 impl ServerHandler for CatalogHandler {
@@ -230,6 +257,18 @@ impl ServerHandler for CatalogHandler {
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResponse, McpError>> + Send + '_ {
+        // §7.2 — decode the ACL context for the tenant log and metric fields, and carry on
+        // whatever it says. The principal id is recorded as received and never required: it is
+        // an actor id rather than a secret, and it is the field that makes an audit trail
+        // followable. The raw ACL context and the bearer are never logged.
+        let identity = caller_identity(&context);
+        tracing::debug!(
+            tenant = %identity.tenant_key(),
+            principal_id = identity.principal_id().unwrap_or("none"),
+            tool = %request.name,
+            "tool call"
+        );
+
         let context = ToolCallContext::new(self, request, context);
 
         async move { self.state.registry.router().call(context).await }

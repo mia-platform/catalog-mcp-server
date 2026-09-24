@@ -24,13 +24,15 @@ use rmcp::transport::{
 use std::{io, net::SocketAddr, sync::Arc, time::Duration};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
-use tower::Layer;
+use tower::{Layer, ServiceBuilder};
 use tower_http::{
     normalize_path::NormalizePathLayer,
     request_id::{MakeRequestUuid, SetRequestIdLayer},
 };
 
 mod health;
+/// The identity extractor layer: `MiaIdentity` into the request's extensions (§6.2, D47).
+pub mod identity;
 
 /// Path prefix the operational endpoints are nested under, matching `catalog-engine`.
 const OPERATIONAL_PATH_PREFIX: &str = "/-";
@@ -97,7 +99,15 @@ fn mcp_service(
 /// identity layer, when it arrives, wraps **only** the MCP service for that reason, and the
 /// `http.request` span layer sits between the request-id layer and the routes.
 pub fn build_router(state: AppState, shutdown: &CancellationToken) -> Router {
-    let mcp = mcp_service(state.clone(), shutdown);
+    let auth = state.config.auth.clone();
+
+    // The identity layer wraps **only** the MCP service: it is an extractor and never a gate
+    // (D47), but a probe must not travel through anything request-scoped at all.
+    let mcp = ServiceBuilder::new()
+        .layer(axum::middleware::from_fn(move |request, next| {
+            identity::identity_middleware(auth.clone(), request, next)
+        }))
+        .service(mcp_service(state.clone(), shutdown));
 
     Router::new()
         .nest(OPERATIONAL_PATH_PREFIX, health::routes())
