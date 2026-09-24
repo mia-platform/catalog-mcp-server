@@ -232,10 +232,11 @@ async fn test_an_empty_result_is_not_an_error() {
 
 /// A global item listing is shaped into the typed model, `spec` and all.
 ///
-/// Note what is **not** asserted: `metadata.family`. On the engine build this environment pins
-/// it is absent from the seeded items, even though their item types exist — which is precisely
-/// the state D30 calls `unaddressable_item`. That is an engine-build artefact rather than a
-/// client defect, so it is recorded rather than pinned in either direction.
+/// `metadata.family` is asserted **present** on every item: the engine derives it from the
+/// item's type on every read (since `v0.9.0`), and `null` means only that the type no longer
+/// exists — D30's `unaddressable_item`. §8.1's "address an item from the manifest in hand" rests on
+/// it. It is also an optional field in our model, so a rename would otherwise deserialise to
+/// `None` silently; this is the assertion that would notice.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_global_item_listing_is_shaped() {
@@ -252,6 +253,14 @@ async fn test_a_global_item_listing_is_shaped() {
         assert!(!item.kind.is_empty());
         assert!(!item.metadata.name.is_empty());
         assert!(item.spec.is_object());
+        assert!(
+            item.metadata
+                .family
+                .as_deref()
+                .is_some_and(|family| !family.is_empty()),
+            "`{}` has no family, though its type exists",
+            item.metadata.name
+        );
     }
 }
 
@@ -272,6 +281,78 @@ async fn test_the_partial_projection_is_honoured_by_the_live_engine() {
         assert!(!item.metadata.name.is_empty());
         assert!(!item.kind.is_empty());
     }
+}
+
+/// The exact warning `catalog-engine` attaches when a `PUT` carries `customFields`
+/// (`src/apis/items/upsert/mod.rs`), present since engine `v0.4.0`.
+const CUSTOM_FIELDS_IGNORED: &str = "The 'customFields' field cannot be set or updated through \
+     this endpoint and will be ignored. To set or update 'customFields', use the dedicated \
+     endpoints for managing custom fields.";
+
+/// **§12.3, §15 — the `Warning: 299` path, against the live engine.** The one behaviour no OAS
+/// describes: the engine declares the header nowhere, so only a real response can prove that
+/// the parser reads it and that the runtime's per-call record keeps it for the model (D28).
+///
+/// A `PUT` carrying `customFields` is the deterministic trigger — the engine ignores the field
+/// and says so. The write is a **raw** `put_item` on purpose: the write cycle's
+/// `strip_server_owned` removes `customFields` before sending, precisely so that a tool never
+/// reports a write that did not happen, which would leave nothing here to warn about.
+///
+/// The manifest copies a seeded item's `spec` under a new name, so it is valid against its type
+/// by construction and the test depends on no fixture of its own. The environment is torn down
+/// with its volume after every run, so the fixed name cannot collide with a previous one.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_warning_299_reaches_the_client_and_the_calls_record() {
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", "catalog-agent")
+        .expect("a well-formed address");
+    let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", "e2e-warning-probe")
+        .expect("a well-formed address");
+
+    let seeded = client()
+        .get_item(&template)
+        .await
+        .expect("the engine seeds `catalog-agent`")
+        .value;
+
+    let manifest = serde_json::json!({
+        "apiVersion": seeded.api_version,
+        "kind": seeded.kind,
+        "metadata": { "name": probe.name() },
+        "spec": seeded.spec,
+        "customFields": { "e2e-probe": "ignored" },
+    });
+
+    let writer = client();
+    let response = writer
+        .put_item(&probe, &manifest, false)
+        .await
+        .expect("the engine accepts the item and ignores its `customFields`");
+
+    assert_eq!(response.value.metadata.name, probe.name());
+
+    let warning = response
+        .warnings
+        .iter()
+        .find(|warning| warning.text == CUSTOM_FIELDS_IGNORED)
+        .unwrap_or_else(|| {
+            panic!(
+                "the `customFields` warning did not arrive; got {:?}",
+                response.warnings
+            )
+        });
+    assert_eq!(warning.code, 299);
+
+    let collected = writer
+        .call_warnings()
+        .collected()
+        .expect("the call reached the engine");
+    assert!(
+        collected
+            .iter()
+            .any(|warning| warning.text == CUSTOM_FIELDS_IGNORED),
+        "the call's record lost the warning the response carried: {collected:?}"
+    );
 }
 
 /// A read of something that is not there is `not_found`, with the remedy the model can act on.
