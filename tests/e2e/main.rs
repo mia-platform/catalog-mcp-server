@@ -29,7 +29,7 @@ use catalog_client::{
     CallerIdentity, Deadline, EngineClient, EngineClientFactory, FamilyAddress, FieldPath,
     ItemAddress, Predicate, RegexLiteral, coordinates_of,
     error::codes,
-    find_item_type,
+    find_item_type, find_item_type_document,
     models::{ItdListEntry, ItemTypeDefinition, RelationshipDirection},
     ops::{ListQuery, relationships::RelationshipQuery},
     pagination::{ListPage, MAX_LIMIT, paginate_all},
@@ -660,18 +660,19 @@ const T6_NAMED_KINDS: [&str; 3] = ["Skill", "AgenticWorkflow", "Campaign"];
 
 /// **T6 against the live engine, over every seeded type** — what the plan asked 68 vendored
 /// fixtures to prove, proven on the engine itself instead, so nothing is copied and nothing can go
-/// stale (T6 §7, §9, decision (C)).
+/// stale (T6 §7, §9, decision (C); DR-82).
 ///
-/// Each type goes through T6's exact path: the `kind` lookup (`field=spec.names.kind=…`, two rows
-/// asked for, exactly one back), the core's version selection, and the selected version's
-/// `openAPIV31Schema` — which must equal, **whole**, the schema the engine's own listing carries
-/// for that type. A projection that lost a subtree fails here.
+/// Each type goes through T6's exact path: the `(group, kind)` lookup (two rows asked for, exactly
+/// one back), and the core's version selection, which must land on a version carrying a schema.
+/// And the document it answers with must carry the type's `spec` **byte for byte as the engine's
+/// own listing does** — every version, every field, the ones this client's model does not declare
+/// included — because T6 hands that `spec` back untouched and T12 edits from it (DR-86).
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
-async fn test_every_seeded_type_returns_its_schema_whole() {
+async fn test_every_seeded_type_returns_its_definition_whole() {
     let client = client();
     let listed = client
-        .list_all_item_type_definitions::<ItemTypeDefinition>()
+        .list_all_item_type_definitions::<serde_json::Value>()
         .await
         .expect("the live engine lists its types");
     assert!(
@@ -681,27 +682,31 @@ async fn test_every_seeded_type_returns_its_schema_whole() {
     );
 
     for expected in &listed {
-        let kind = &expected.spec.names.kind;
+        let (kind, group) = (
+            expected["spec"]["names"]["kind"].as_str().expect("a kind"),
+            expected["spec"]["group"].as_str().expect("a group"),
+        );
         // The exact `(group, kind)` lookup: a kind is unique per group only (DR-80).
-        let (found, _) = find_item_type(&client, kind, Some(&expected.spec.group))
+        let (found, _) = find_item_type_document(&client, kind, Some(group))
             .await
             .unwrap_or_else(|err| panic!("`{kind}` does not resolve: {err:?}"));
-        let coordinates = coordinates_of(&found, kind).expect("a served version");
-        let schema_of = |definition: &ItemTypeDefinition| {
-            definition
+        let coordinates = coordinates_of(&found.definition, kind).expect("a served version");
+
+        assert!(
+            found
+                .definition
                 .spec
                 .versions
                 .iter()
                 .find(|version| version.name == coordinates.version)
-                .and_then(|version| version.schema.clone())
-                .and_then(|schema| schema.get("openAPIV31Schema").cloned())
-        };
-
-        assert!(schema_of(&found).is_some(), "`{kind}` has no schema");
+                .and_then(|version| version.schema.as_ref())
+                .and_then(|schema| schema.get("openAPIV31Schema"))
+                .is_some(),
+            "`{kind}` has no schema where T6 reads it"
+        );
         assert_eq!(
-            schema_of(&found),
-            schema_of(expected),
-            "`{kind}`'s schema is not whole"
+            found.raw["spec"], expected["spec"],
+            "`{kind}`'s definition is not whole"
         );
     }
 
@@ -709,7 +714,7 @@ async fn test_every_seeded_type_returns_its_schema_whole() {
         assert!(
             listed
                 .iter()
-                .any(|definition| definition.spec.names.kind == kind),
+                .any(|definition| definition["spec"]["names"]["kind"] == kind),
             "`{kind}` is not seeded"
         );
     }

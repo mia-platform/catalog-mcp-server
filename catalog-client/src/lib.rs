@@ -72,7 +72,8 @@ pub use pagination::{EngineCursor, ListPage, ToolCursor};
 pub use projection::{Grouping, Projection};
 pub use query::{FieldPath, Predicate, QueryValue, RegexLiteral};
 pub use resolve::{
-    ServedVersion, TypeCoordinates, coordinates_of, find_item_type, find_item_type_or_suggest,
+    ItemTypeDocument, ServedVersion, TypeCoordinates, coordinates_of, find_item_type,
+    find_item_type_document, find_item_type_document_or_suggest, find_item_type_or_suggest,
     is_valid_kind, resolve_kind, resolve_kind_or_suggest, select_served_version,
 };
 pub use warning::EngineWarning;

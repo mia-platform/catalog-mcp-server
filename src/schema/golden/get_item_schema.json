@@ -1,6 +1,16 @@
 {
   "additionalProperties": false,
   "properties": {
+    "fields": {
+      "description": "Only these fields' schema, e.g. [\"spec.lifecycle\"]. Absent returns the whole definition.",
+      "items": {
+        "type": "string"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
     "group": {
       "description": "The kind's API group. Only needed when several types share the kind.",
       "type": [
@@ -9,7 +19,7 @@
       ]
     },
     "kind": {
-      "description": "The type's kind, e.g. \"Service\". Not the item-type-definition name.",
+      "description": "The type's kind, e.g. \"Service\".",
       "type": "string"
     },
     "version": {

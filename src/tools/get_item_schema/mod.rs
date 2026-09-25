@@ -23,23 +23,24 @@ use crate::{
     tools::arguments::validate_group,
 };
 use catalog_client::{
-    Remedy, ToolError, coordinates_of,
-    error::codes,
-    find_item_type_or_suggest, is_valid_kind,
-    models::{ItemTypeDefinition, TypeVersion},
+    ItemTypeDocument, Remedy, ToolError, coordinates_of, error::codes,
+    find_item_type_document_or_suggest, is_valid_kind, models::ItemTypeDefinition,
 };
 use rmcp::model::ToolAnnotations;
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{Map, Value, json};
+
+/// T6's `fields` mode (DR-86): the schema of just the fields an agent is about to change.
+mod fields;
 
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "get_item_schema";
 
-/// What the tool does (T6 §3). Its second sentence is the hand-off from `list_catalog_types`,
-/// stated in the one place the model can act on it.
-const TOOL_DESCRIPTION: &str = "Returns the schema of one catalog type: the fields an item of \
-     that kind can have, with their types and descriptions. Call this before creating or updating an \
-     item, or when you need more detail about a type than `list_catalog_types` gave you.";
+/// What the tool does (DR-86). Full by default — creating an item and editing the type both need
+/// the whole thing — and `fields` for a change to an existing item.
+const TOOL_DESCRIPTION: &str = "Returns one catalog type's definition, including the schema its \
+     items follow. Call it before creating an item or editing the type. To change an existing \
+     item, pass `fields` to get only those fields' schema.";
 
 /// The longest `kind`, in bytes (T6 §3).
 pub const MAX_KIND_BYTES: usize = 128;
@@ -47,17 +48,31 @@ pub const MAX_KIND_BYTES: usize = 128;
 /// The longest `version`, in bytes (T6 §3).
 pub const MAX_VERSION_BYTES: usize = 64;
 
+/// The most `fields` one call may ask for.
+pub const MAX_FIELDS: usize = 20;
+
+/// The longest field path, in bytes.
+pub const MAX_FIELD_PATH_BYTES: usize = 256;
+
 /// The key a version's JSON Schema sits under inside `spec.versions[].schema`.
 const OPENAPI_SCHEMA_KEY: &str = "openAPIV31Schema";
 
-/// The key of a selectable field's path inside `spec.versions[].selectableFields[]`.
-const JSON_PATH_KEY: &str = "jsonPath";
+/// `metadata` keys that are routing data, not the type: never actionable, and `name` is returned
+/// at the top level.
+const METADATA_NOISE: [&str; 6] = [
+    "name",
+    "uid",
+    "urn",
+    "family",
+    "creationTimestamp",
+    "updateTimestamp",
+];
 
-/// Arguments for `get_item_schema` (T6 §3).
+/// Arguments for `get_item_schema` (T6 §3, DR-80, DR-86).
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct GetItemSchemaInput {
-    /// The type's kind, e.g. "Service". Not the item-type-definition name.
+    /// The type's kind, e.g. "Service".
     #[serde(rename = "kind")]
     pub kind: String,
 
@@ -68,63 +83,73 @@ pub struct GetItemSchemaInput {
     /// A specific version. Absent means the served one.
     #[serde(rename = "version")]
     pub version: Option<String>,
+
+    /// Only these fields' schema, e.g. ["spec.lifecycle"]. Absent returns the whole definition.
+    #[serde(rename = "fields")]
+    pub fields: Option<Vec<String>>,
 }
 
-/// The response (T6 §4), in its serialised order.
+/// The default answer: the **whole** definition (DR-86).
 ///
-/// Dropped on purpose: `uid`, `urn`, the timestamps, `resourceVersion`, `spec.scope` (always
-/// `Tenant`) and the selected version's `served`/`deprecated` flags — none is actionable, and the
-/// coordinates an agent needs are the three it addresses items by.
+/// `spec` is the engine's, untouched — every version with its flags, selectable fields in their real
+/// shape, history and audit settings — because a model that edits the type with T12 rebuilds
+/// arrays like `versions` from this, and anything missing here would be erased by that edit.
 #[derive(Serialize)]
-struct ItemSchemaOutput {
+struct FullDefinition {
     #[serde(rename = "kind")]
     kind: String,
-
-    #[serde(rename = "family")]
-    family: String,
 
     #[serde(rename = "group")]
     group: String,
 
+    #[serde(rename = "family")]
+    family: String,
+
+    /// The version items are addressed under — the served one, or the one asked for.
     #[serde(rename = "version")]
     version: String,
 
-    /// `spec.names.displaySingular` — **never** `metadata.title`, which no shipped type sets
-    /// (T6-D7).
-    #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
-    display_name: Option<String>,
+    /// The definition's own name, `<family>.<group>` — FR-10's key.
+    #[serde(rename = "name")]
+    name: String,
 
-    /// `spec.names.displayPlural`.
-    #[serde(rename = "displayPlural", skip_serializing_if = "Option::is_none")]
-    display_plural: Option<String>,
+    /// What remains of `metadata` once routing data is removed; omitted when nothing does.
+    #[serde(rename = "metadata", skip_serializing_if = "Option::is_none")]
+    metadata: Option<Value>,
 
-    /// `metadata.description`.
-    #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
-    description: Option<String>,
-
-    /// `spec.llmDescription`, **in full** and unconditionally (T6-D3); omitted when absent or
-    /// blank, and never synthesised from `description`.
-    #[serde(rename = "llmDescription", skip_serializing_if = "Option::is_none")]
-    llm_description: Option<String>,
-
-    /// The selected version's JSON Schema, **whole, always** (§5, D34): a truncated schema is
-    /// not a smaller schema, it is a wrong one.
-    #[serde(rename = "schema", skip_serializing_if = "Option::is_none")]
-    schema: Option<Value>,
-
-    /// The selected version's `selectableFields[].jsonPath`, flattened to strings — what T2's
-    /// `fields` validates against. Omitted when the type has none, which is most of them.
-    #[serde(rename = "selectableFields", skip_serializing_if = "Vec::is_empty")]
-    selectable_fields: Vec<String>,
-
-    #[serde(rename = "historyEnabled")]
-    history_enabled: bool,
+    #[serde(rename = "spec")]
+    spec: Value,
 }
 
-/// T6 · `get_item_schema` — one type's schema, whole, and what an agent needs to write against it.
+/// The `fields` answer: the schema of each requested field of the selected version, and the
+/// definitions they reference (DR-86).
+#[derive(Serialize)]
+struct FieldsAnswer {
+    #[serde(rename = "kind")]
+    kind: String,
+
+    #[serde(rename = "group")]
+    group: String,
+
+    #[serde(rename = "family")]
+    family: String,
+
+    #[serde(rename = "version")]
+    version: String,
+
+    #[serde(rename = "fields")]
+    fields: Map<String, Value>,
+
+    /// Named `$defs` so that every `#/$defs/<name>` inside `fields` resolves against this answer.
+    #[serde(rename = "$defs", skip_serializing_if = "Map::is_empty")]
+    defs: Map<String, Value>,
+}
+
+/// T6 · `get_item_schema` — one type's definition, whole, or the schema of chosen fields.
 ///
-/// **One** engine call — the core's `kind` lookup, the same request coordinate resolution makes
-/// (T6-D1) — and a projection. Nothing is capped, depth-limited or elided (D34).
+/// **One** engine call — the core's `kind` lookup (T6-D1) — and no reshaping of what the engine
+/// returned beyond removing routing data. Nothing is capped, depth-limited or elided (D34); a
+/// `fields` subset is asked for explicitly and is never a quieter version of the whole.
 pub struct GetItemSchema;
 
 impl Tool for GetItemSchema {
@@ -149,29 +174,57 @@ impl Tool for GetItemSchema {
         // An unknown kind comes back with near matches (T2-D9), a shared one with its candidates
         // (DR-80), and two rows for one `(group, kind)` as a `server_defect` (T6-D2) — all the
         // core's.
-        let definition =
-            find_item_type_or_suggest(context.engine(), &input.kind, input.group.as_deref())
-                .await?;
+        let document = find_item_type_document_or_suggest(
+            context.engine(),
+            &input.kind,
+            input.group.as_deref(),
+        )
+        .await?;
 
-        // The core's rule, and its `unaddressable_type` when nothing is served: a schema nothing
-        // can address items against would be worse than an error (D30).
-        let coordinates = coordinates_of(&definition, &input.kind)?;
-        let version = select_version(&definition, &coordinates.version, input.version.as_deref())?;
+        // The core's rule, and its `unaddressable_type` when nothing is served (D30).
+        let coordinates = coordinates_of(&document.definition, &input.kind)?;
+        let version = select_version(
+            &document.definition,
+            &coordinates.version,
+            input.version.as_deref(),
+        )?;
 
-        let output = project(&definition, version, coordinates.family, coordinates.group);
-        let payload = serde_json::to_value(&output).map_err(|err| {
-            ToolError::new(
-                codes::SERVER_DEFECT,
-                Remedy::Escalate,
-                format!("The schema could not be rendered: {err}"),
-            )
-        })?;
+        let payload = match &input.fields {
+            Some(paths) => {
+                let root = version_schema(&document.raw, &version).ok_or_else(|| {
+                    ToolError::new(
+                        codes::UNADDRESSABLE_TYPE,
+                        Remedy::Escalate,
+                        format!(
+                            "Version `{version}` of `{}` declares no schema to read fields from.",
+                            input.kind
+                        ),
+                    )
+                })?;
+                let extracted = fields::extract(root, paths)?;
+
+                to_payload(&FieldsAnswer {
+                    kind: document.definition.spec.names.kind.clone(),
+                    group: coordinates.group,
+                    family: coordinates.family,
+                    version,
+                    fields: extracted.fields,
+                    defs: extracted.defs,
+                })?
+            }
+            None => to_payload(&full_definition(
+                document,
+                version,
+                coordinates.family,
+                coordinates.group,
+            ))?,
+        };
 
         Ok(ToolOutput::new(payload))
     }
 }
 
-/// NFR-10 — T6 §3's bounds, checked before anything reaches the engine.
+/// NFR-10 — T6 §3's bounds and `fields`', checked before anything reaches the engine.
 fn validate(input: &GetItemSchemaInput) -> Result<(), ToolError> {
     if input.kind.is_empty() || input.kind.len() > MAX_KIND_BYTES {
         return Err(invalid(
@@ -200,7 +253,36 @@ fn validate(input: &GetItemSchemaInput) -> Result<(), ToolError> {
         ));
     }
 
+    if let Some(paths) = &input.fields {
+        if paths.is_empty() || paths.len() > MAX_FIELDS {
+            return Err(invalid(
+                "fields",
+                format!(
+                    "`fields` takes between 1 and {MAX_FIELDS} paths; omit it for the whole \
+                     definition."
+                ),
+            ));
+        }
+
+        if let Some(path) = paths.iter().find(|path| !is_field_path(path)) {
+            return Err(invalid(
+                "fields",
+                format!(
+                    "`{path}` is not a field path: dotted names such as `spec.lifecycle`, at most \
+                     {MAX_FIELD_PATH_BYTES} bytes."
+                ),
+            ));
+        }
+    }
+
     validate_group(input.group.as_deref(), true)
+}
+
+/// Whether `path` is a dotted field path with no empty segment.
+fn is_field_path(path: &str) -> bool {
+    !path.is_empty()
+        && path.len() <= MAX_FIELD_PATH_BYTES
+        && path.split('.').all(|segment| !segment.is_empty())
 }
 
 /// An `invalid_input` naming the offending parameter.
@@ -209,80 +291,101 @@ fn invalid(parameter: &str, message: String) -> ToolError {
         .with_details(json!({ "field": parameter }))
 }
 
-/// The version whose schema is returned (T6-D8).
+/// The version to report and to read `fields` from (T6-D8).
 ///
 /// Absent: the one the core's rule selected. Given: it must exist **and** be served, or it is an
-/// error naming the versions that are — **never** silently substituted, which would return a schema
-/// the model cannot address items against.
-fn select_version<'a>(
-    definition: &'a ItemTypeDefinition,
+/// error naming the versions that are — **never** silently substituted.
+fn select_version(
+    definition: &ItemTypeDefinition,
     selected: &str,
     requested: Option<&str>,
-) -> Result<&'a TypeVersion, ToolError> {
+) -> Result<String, ToolError> {
     let wanted = requested.unwrap_or(selected);
 
-    definition
+    if definition
         .spec
         .versions
         .iter()
-        .find(|version| version.name == wanted && version.served)
-        .ok_or_else(|| {
-            let served: Vec<&str> = definition
-                .spec
-                .versions
-                .iter()
-                .filter(|version| version.served)
-                .map(|version| version.name.as_str())
-                .collect();
+        .any(|version| version.name == wanted && version.served)
+    {
+        return Ok(wanted.to_string());
+    }
 
-            invalid(
-                "version",
-                format!(
-                    "`{wanted}` is not a served version of `{}`.",
-                    definition.spec.names.kind
-                ),
-            )
-            .with_details(json!({ "field": "version", "servedVersions": served }))
-        })
+    let served: Vec<&str> = definition
+        .spec
+        .versions
+        .iter()
+        .filter(|version| version.served)
+        .map(|version| version.name.as_str())
+        .collect();
+
+    Err(invalid(
+        "version",
+        format!(
+            "`{wanted}` is not a served version of `{}`.",
+            definition.spec.names.kind
+        ),
+    )
+    .with_details(json!({ "field": "version", "servedVersions": served })))
 }
 
-/// Projects the definition and its selected version into the response (T6 §4).
-fn project(
-    definition: &ItemTypeDefinition,
-    version: &TypeVersion,
+/// The raw `openAPIV31Schema` of the named version, as the engine sent it.
+fn version_schema<'a>(raw: &'a Value, version: &str) -> Option<&'a Value> {
+    raw.get("spec")?
+        .get("versions")?
+        .as_array()?
+        .iter()
+        .find(|candidate| candidate.get("name").and_then(Value::as_str) == Some(version))?
+        .get("schema")?
+        .get(OPENAPI_SCHEMA_KEY)
+}
+
+/// The whole definition, minus routing data (DR-86).
+fn full_definition(
+    document: ItemTypeDocument,
+    version: String,
     family: String,
     group: String,
-) -> ItemSchemaOutput {
-    let spec = &definition.spec;
+) -> FullDefinition {
+    let mut raw = document.raw;
 
-    ItemSchemaOutput {
-        kind: spec.names.kind.clone(),
-        family,
+    let spec = raw.get_mut("spec").map(Value::take).unwrap_or(Value::Null);
+
+    let metadata = raw
+        .get_mut("metadata")
+        .and_then(Value::as_object_mut)
+        .map(|metadata| {
+            for key in METADATA_NOISE {
+                metadata.remove(key);
+            }
+            std::mem::take(metadata)
+        })
+        .filter(|metadata| !metadata.is_empty())
+        .map(Value::Object);
+
+    // Only `metadata` and `spec` are carried over. The document's own `apiVersion` and `kind`
+    // describe the *definition* resource, not the type, and `resourceVersion` is T12's to read for
+    // itself (T12-D8) — so all three are dropped by construction.
+    FullDefinition {
+        kind: document.definition.spec.names.kind.clone(),
         group,
-        version: version.name.clone(),
-        display_name: spec.names.display_singular.clone(),
-        display_plural: spec.names.display_plural.clone(),
-        description: definition.metadata.description.clone(),
-        llm_description: spec
-            .llm_description
-            .clone()
-            .filter(|description| !description.trim().is_empty()),
-        // The JSON Schema proper; a schema in any other shape is returned as it came rather than
-        // dropped, because losing it is the one failure this tool exists to prevent.
-        schema: version.schema.as_ref().map(|schema| {
-            schema
-                .get(OPENAPI_SCHEMA_KEY)
-                .cloned()
-                .unwrap_or_else(|| schema.clone())
-        }),
-        selectable_fields: version
-            .selectable_fields
-            .iter()
-            .filter_map(|field| field.get(JSON_PATH_KEY).and_then(Value::as_str))
-            .map(str::to_string)
-            .collect(),
-        history_enabled: spec.history_enabled(),
+        family,
+        version,
+        name: document.definition.metadata.name,
+        metadata,
+        spec,
     }
+}
+
+/// Serialises an answer, reporting the impossible failure as ours.
+fn to_payload<T: Serialize>(answer: &T) -> Result<Value, ToolError> {
+    serde_json::to_value(answer).map_err(|err| {
+        ToolError::new(
+            codes::SERVER_DEFECT,
+            Remedy::Escalate,
+            format!("The type definition could not be rendered: {err}"),
+        )
+    })
 }
 
 #[cfg(test)]

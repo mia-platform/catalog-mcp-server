@@ -23,7 +23,7 @@ use crate::{
     ops::ListQuery,
     warning::EngineWarning,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// The selector the point lookup filters on.
 const KIND_SELECTOR: &str = "spec.names.kind";
@@ -93,16 +93,49 @@ impl TypeCoordinates {
     }
 }
 
+/// One type definition, both as the engine sent it and as this client reads it.
+///
+/// `raw` is the engine's JSON, untouched. It exists for T6, which hands a definition to a model that
+/// may go on to edit it with T12: T12 merge-patches `spec`, which replaces arrays such as
+/// `versions` whole, so any field the typed model does not declare — a version's
+/// `deprecationWarning`, say — would be silently erased by an edit built from a re-serialised copy
+/// (DR-86). `definition` is what every decision here is made on.
+#[derive(Clone)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug))]
+pub struct ItemTypeDocument {
+    /// The definition, as this client reads it.
+    pub definition: ItemTypeDefinition,
+
+    /// The definition exactly as the engine returned it.
+    pub raw: Value,
+}
+
 /// What a `kind` lookup found.
 enum Lookup {
     /// Exactly one type — boxed, because a definition dwarfs the other variants.
-    One(Box<ItemTypeDefinition>, Vec<EngineWarning>),
+    One(Box<ItemTypeDocument>, Vec<EngineWarning>),
 
     /// None.
     Nothing,
 
     /// Several — a shared kind without a `group`, or a broken invariant with one.
     Several(Vec<ItemTypeDefinition>),
+}
+
+/// Reads one raw definition into the typed model, reporting a shape mismatch as ours.
+fn read_definition(raw: &Value) -> Result<ItemTypeDefinition, ToolError> {
+    serde_json::from_value(raw.clone()).map_err(|err| {
+        tracing::error!(
+            ?err,
+            "the engine returned a type definition this client cannot read"
+        );
+
+        ToolError::new(
+            codes::SERVER_DEFECT,
+            Remedy::Escalate,
+            "The catalog returned a type definition this server cannot read.",
+        )
+    })
 }
 
 /// The one request both coordinate resolution and T6's schema read make (P9, D30, T6-D1).
@@ -117,7 +150,7 @@ async fn lookup(
     }
 
     let response = engine
-        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
+        .list_item_type_definitions::<Value>(&ListQuery {
             limit: Some(match group {
                 Some(_) => EXACT_LOOKUP_LIMIT,
                 None => SHARED_KIND_LIMIT,
@@ -127,12 +160,24 @@ async fn lookup(
         })
         .await?;
 
-    let mut definitions = response.value.items;
+    let mut raws = response.value.items;
 
-    Ok(match definitions.len() {
+    Ok(match raws.len() {
         0 => Lookup::Nothing,
-        1 => Lookup::One(Box::new(definitions.remove(0)), response.warnings),
-        _ => Lookup::Several(definitions),
+        1 => {
+            let raw = raws.remove(0);
+            let definition = read_definition(&raw)?;
+
+            Lookup::One(
+                Box::new(ItemTypeDocument { definition, raw }),
+                response.warnings,
+            )
+        }
+        _ => Lookup::Several(
+            raws.iter()
+                .map(read_definition)
+                .collect::<Result<Vec<_>, ToolError>>()?,
+        ),
     })
 }
 
@@ -161,8 +206,23 @@ pub async fn find_item_type(
     kind: &str,
     group: Option<&str>,
 ) -> Result<(ItemTypeDefinition, Vec<EngineWarning>), ToolError> {
+    find_item_type_document(engine, kind, group)
+        .await
+        .map(|(document, warnings)| (document.definition, warnings))
+}
+
+/// [`find_item_type`], keeping the engine's raw document alongside the typed one (DR-86).
+///
+/// # Errors
+///
+/// Those of [`find_item_type`].
+pub async fn find_item_type_document(
+    engine: &EngineClient,
+    kind: &str,
+    group: Option<&str>,
+) -> Result<(ItemTypeDocument, Vec<EngineWarning>), ToolError> {
     match lookup(engine, kind, group).await? {
-        Lookup::One(definition, warnings) => Ok((*definition, warnings)),
+        Lookup::One(document, warnings) => Ok((*document, warnings)),
         Lookup::Several(definitions) => Err(match group {
             None => shared_kind(kind, &definitions),
             Some(group) => broken_invariant(kind, group, &definitions),
@@ -171,8 +231,8 @@ pub async fn find_item_type(
             None => unknown_kind(kind),
             // The error path's one extra request: is it the group that is wrong, or the kind?
             Some(group) => match lookup(engine, kind, None).await {
-                Ok(Lookup::One(definition, _)) => {
-                    not_in_group(kind, group, std::slice::from_ref(&definition))
+                Ok(Lookup::One(document, _)) => {
+                    not_in_group(kind, group, std::slice::from_ref(&document.definition))
                 }
                 Ok(Lookup::Several(definitions)) => not_in_group(kind, group, &definitions),
                 Ok(Lookup::Nothing) | Err(_) => unknown_kind(kind),
@@ -301,8 +361,20 @@ pub async fn find_item_type_or_suggest(
     kind: &str,
     group: Option<&str>,
 ) -> Result<ItemTypeDefinition, ToolError> {
-    match find_item_type(engine, kind, group).await {
-        Ok((definition, _warnings)) => Ok(definition),
+    find_item_type_document_or_suggest(engine, kind, group)
+        .await
+        .map(|document| document.definition)
+}
+
+/// [`find_item_type_or_suggest`], keeping the engine's raw document alongside the typed one —
+/// what T6 returns (DR-86).
+pub async fn find_item_type_document_or_suggest(
+    engine: &EngineClient,
+    kind: &str,
+    group: Option<&str>,
+) -> Result<ItemTypeDocument, ToolError> {
+    match find_item_type_document(engine, kind, group).await {
+        Ok((document, _warnings)) => Ok(document),
         Err(error) if error.code == codes::NOT_FOUND && !has_candidates(&error) => {
             Err(match kind_candidates(engine, kind).await {
                 Ok(candidates) if !candidates.is_empty() => {
