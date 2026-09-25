@@ -58,8 +58,14 @@ const OBJECT_TYPE: &str = "object";
 /// 2. Every nested `title` is dropped.
 /// 3. A `$defs` entry referenced exactly once is inlined at its `$ref` and removed.
 /// 4. `additionalProperties: false` is set at the root.
+/// 5. Keys are sorted at every depth.
 ///
 /// A parameterless tool therefore minifies to `{"additionalProperties":false,"type":"object"}`.
+///
+/// Rule 5 is explicit because the workspace enables `serde_json`'s `preserve_order`, which makes
+/// a tool's **output** follow its struct order. A schema must not: its bytes are pinned by a
+/// golden and paid on every `tools/list`, and they should not move because `schemars` changed the
+/// order it emits keys in.
 pub fn minify_input_schema(schema: &Map<String, Value>) -> Map<String, Value> {
     let mut schema = schema.clone();
 
@@ -79,6 +85,11 @@ pub fn minify_input_schema(schema: &Map<String, Value>) -> Map<String, Value> {
     {
         schema.remove(PROPERTIES_KEY);
     }
+
+    for value in schema.values_mut() {
+        value.sort_all_objects();
+    }
+    schema.sort_keys();
 
     schema
 }

@@ -444,11 +444,12 @@ async fn test_the_selected_version_reaches_the_row() {
 // §4 — projection and ordering.
 // ---------------------------------------------------------------------------------------------
 
-/// The row is exactly §4's shape, with absent fields omitted rather than null.
+/// The row is exactly §4's shape **in §4's order** — `kind` first, the long `description` after
+/// the coordinates — with absent fields omitted rather than null.
 ///
-/// Compared as a value, not as a string: the payload is a `serde_json::Value`, whose keys
-/// serialise alphabetically, so §4's *"field order is the serialised order"* does not hold today
-/// for this or any tool. Recorded as an open point rather than asserted either way.
+/// Compared as a string on purpose: the order is what is under test. It holds because the
+/// workspace enables `serde_json`'s `preserve_order`; without it a `Value` sorts its keys and the
+/// model would read `description` before `kind`.
 #[rstest]
 #[tokio::test]
 async fn test_a_row_is_the_documented_shape() {
@@ -465,16 +466,8 @@ async fn test_a_row_is_the_documented_shape() {
     .await;
 
     assert_eq!(
-        row,
-        json!({
-            "kind": "Service",
-            "family": "services",
-            "group": "mia-platform.eu",
-            "version": "v1",
-            "displayName": "Services",
-            "description": "A deployable unit.",
-            "historyEnabled": true
-        })
+        serde_json::to_string(&row).expect("a row serialises"),
+        r#"{"kind":"Service","family":"services","group":"mia-platform.eu","version":"v1","displayName":"Services","description":"A deployable unit.","historyEnabled":true}"#
     );
 }
 

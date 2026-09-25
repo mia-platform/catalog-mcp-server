@@ -212,8 +212,13 @@ pub fn fingerprint(value: &serde_json::Value) -> String {
     const FNV_OFFSET: u64 = 0xcbf2_9ce4_8422_2325;
     const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
 
-    // `serde_json::Value`'s map is a `BTreeMap`, so this rendering is key-ordered and stable.
-    let canonical = value.to_string();
+    // Canonicalised explicitly. The workspace enables `serde_json`'s `preserve_order`, so a
+    // `Value`'s own rendering follows insertion order and two equal queries built in a different
+    // order would fingerprint differently — refusing a cursor as "a different search". Sorting
+    // keys here reproduces byte for byte what the `BTreeMap`-backed rendering used to give, so
+    // cursors minted before the feature was turned on stay valid.
+    let mut canonical = String::new();
+    write_canonical(value, &mut canonical);
 
     let mut hash = FNV_OFFSET;
     for byte in canonical.as_bytes() {
@@ -222,6 +227,42 @@ pub fn fingerprint(value: &serde_json::Value) -> String {
     }
 
     format!("{hash:016x}")
+}
+
+/// Renders `value` as compact JSON with every object's keys in sorted order — the one rendering a
+/// fingerprint may depend on.
+fn write_canonical(value: &serde_json::Value, out: &mut String) {
+    match value {
+        serde_json::Value::Object(object) => {
+            let mut keys: Vec<&String> = object.keys().collect();
+            keys.sort();
+
+            out.push('{');
+            for (index, key) in keys.into_iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                // A key is a JSON string; `Value::String`'s rendering is its escaped form.
+                out.push_str(&serde_json::Value::String(key.clone()).to_string());
+                out.push(':');
+                if let Some(entry) = object.get(key) {
+                    write_canonical(entry, out);
+                }
+            }
+            out.push('}');
+        }
+        serde_json::Value::Array(items) => {
+            out.push('[');
+            for (index, item) in items.iter().enumerate() {
+                if index > 0 {
+                    out.push(',');
+                }
+                write_canonical(item, out);
+            }
+            out.push(']');
+        }
+        scalar => out.push_str(&scalar.to_string()),
+    }
 }
 
 #[cfg(test)]

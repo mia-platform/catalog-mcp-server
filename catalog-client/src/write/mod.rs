@@ -178,7 +178,8 @@ pub fn changed_paths(before: &Value, after: &Value) -> Vec<FieldPath> {
 fn collect_changes(prefix: &str, before: &Value, after: &Value, paths: &mut Vec<FieldPath>) {
     match (before, after) {
         (Value::Object(before), Value::Object(after)) => {
-            // Ordered by `serde_json`'s `BTreeMap`, so the report is stable run to run.
+            // Sorted here, not by the map — which keeps insertion order under `preserve_order` —
+            // so the report is stable whatever order either manifest's keys arrived in.
             let mut keys: Vec<&String> = before.keys().chain(after.keys()).collect();
             keys.sort_unstable();
             keys.dedup();

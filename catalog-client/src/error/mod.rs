@@ -90,7 +90,12 @@ pub struct ToolError {
     pub message: String,
 
     /// Candidates, valid keys, field paths, counts — whatever makes the next attempt land.
-    pub details: Option<Value>,
+    ///
+    /// Boxed because a `Value` is large — larger still with `serde_json`'s `preserve_order`, which
+    /// the workspace enables — and a `ToolError` travels in every `Result` this crate returns.
+    /// Unboxed it pushes the error past clippy's `result_large_err` limit; boxed, the allocation
+    /// is paid only by the errors that carry details.
+    pub details: Option<Box<Value>>,
 
     /// The concrete next call, when there is an obvious one.
     pub next_step: Option<String>,
@@ -115,7 +120,7 @@ impl ToolError {
 
     /// Attaches the structured detail the model needs to correct itself.
     pub fn with_details(mut self, details: Value) -> Self {
-        self.details = Some(details);
+        self.details = Some(Box::new(details));
         self
     }
 
@@ -134,7 +139,7 @@ impl ToolError {
         error.insert("message".to_string(), json!(self.message));
 
         if let Some(details) = &self.details {
-            error.insert("details".to_string(), details.clone());
+            error.insert("details".to_string(), details.as_ref().clone());
         }
 
         if let Some(next_step) = &self.next_step {

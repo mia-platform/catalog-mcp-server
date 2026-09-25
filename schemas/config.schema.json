@@ -4,11 +4,11 @@
   "description": "The whole service configuration (§11).",
   "type": "object",
   "properties": {
-    "auth": {
-      "description": "The identity posture and the canonical resource identifiers.",
+    "server": {
+      "description": "How the HTTP listener is bound and what the transport accepts.",
       "allOf": [
         {
-          "$ref": "#/definitions/AuthConfig"
+          "$ref": "#/definitions/ServerConfig"
         }
       ]
     },
@@ -17,6 +17,38 @@
       "allOf": [
         {
           "$ref": "#/definitions/EngineConfig"
+        }
+      ]
+    },
+    "auth": {
+      "description": "The identity posture and the canonical resource identifiers.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/AuthConfig"
+        }
+      ]
+    },
+    "tools": {
+      "description": "What bounds a tool call and what the tool set advertises.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ToolsConfig"
+        }
+      ]
+    },
+    "response": {
+      "description": "How a tool result is rendered.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/ResponseConfig"
+        }
+      ]
+    },
+    "transport": {
+      "description": "The SDK transport knobs.",
+      "allOf": [
+        {
+          "$ref": "#/definitions/TransportConfig"
         }
       ]
     },
@@ -35,41 +67,95 @@
           "$ref": "#/definitions/ObservabilityConfig"
         }
       ]
-    },
-    "response": {
-      "description": "How a tool result is rendered.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ResponseConfig"
-        }
-      ]
-    },
-    "server": {
-      "description": "How the HTTP listener is bound and what the transport accepts.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ServerConfig"
-        }
-      ]
-    },
-    "tools": {
-      "description": "What bounds a tool call and what the tool set advertises.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/ToolsConfig"
-        }
-      ]
-    },
-    "transport": {
-      "description": "The SDK transport knobs.",
-      "allOf": [
-        {
-          "$ref": "#/definitions/TransportConfig"
-        }
-      ]
     }
   },
   "definitions": {
+    "ServerConfig": {
+      "description": "How the HTTP listener is bound and what the transport accepts (§11).\n\n`allowed_hosts` has **no usable default**: the SDK's own default is loopback-only, so a\nremote deployment answers every request `403 Forbidden: Host header is not allowed` until\nthe list is set. Validation therefore refuses an empty list before the listener binds (D11).",
+      "type": "object",
+      "properties": {
+        "ip": {
+          "description": "Server bind IP.",
+          "type": "string",
+          "format": "ipv4",
+          "default": "0.0.0.0"
+        },
+        "port": {
+          "description": "Server bind port.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 8000
+        },
+        "mcpPath": {
+          "description": "Path the MCP service is mounted at.",
+          "type": "string",
+          "default": "/mcp"
+        },
+        "allowedHosts": {
+          "description": "Hostnames or `host:port` authorities accepted in the inbound `Host` header.\nRequired and non-empty — see the type documentation.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "allowedOrigins": {
+          "description": "Browser origins accepted in the inbound `Origin` header. Empty leaves `Origin`\nvalidation switched off, which is what the in-cluster client needs (D11).",
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "maxBodyBytes": {
+          "description": "Maximum accepted POST body size, in bytes.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "default": 1048576
+        }
+      }
+    },
+    "EngineConfig": {
+      "description": "Where `catalog-engine` is reached, and how patiently (§11).\n\n`base_url` always points at the **API gateway**, never at the engine `Service`: every\noutbound call has to traverse `ext_authz` so the server can never do more than its caller\ncould do itself (D27, D48). Validation refuses a `base_url` that addresses the engine\ndirectly.",
+      "type": "object",
+      "properties": {
+        "baseUrl": {
+          "description": "Base URL of the API gateway in front of `catalog-engine`.",
+          "type": "string",
+          "default": ""
+        },
+        "apiPrefix": {
+          "description": "Path prefix the gateway routes `catalog-engine` behind.",
+          "type": "string",
+          "default": "/api/catalog"
+        },
+        "timeoutMs": {
+          "description": "Per-request timeout against the engine, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 5000
+        },
+        "connectTimeoutMs": {
+          "description": "Connect timeout against the engine, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 1000
+        },
+        "maxRetries": {
+          "description": "Maximum retry attempts for a request the §8.1 policy classifies as retryable.",
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "default": 1
+        }
+      }
+    },
     "AuthConfig": {
       "description": "The identity posture and the canonical resource identifiers (§7.3).\n\nThe Protected Resource Metadata document is served by Envoy, not by this process, so\n`resource` exists to match Envoy's string exactly rather than to be published from here.",
       "type": "object",
@@ -109,70 +195,39 @@
         }
       ]
     },
-    "EngineConfig": {
-      "description": "Where `catalog-engine` is reached, and how patiently (§11).\n\n`base_url` always points at the **API gateway**, never at the engine `Service`: every\noutbound call has to traverse `ext_authz` so the server can never do more than its caller\ncould do itself (D27, D48). Validation refuses a `base_url` that addresses the engine\ndirectly.",
+    "ToolsConfig": {
+      "description": "What bounds a tool call and what the tool set advertises (§11).\n\n`tools_list_ttl_ms` sits here rather than under `transport` because it is a property of the\ntool set (D13), not of the wire.",
       "type": "object",
       "properties": {
-        "apiPrefix": {
-          "description": "Path prefix the gateway routes `catalog-engine` behind.",
-          "type": "string",
-          "default": "/api/catalog"
-        },
-        "baseUrl": {
-          "description": "Base URL of the API gateway in front of `catalog-engine`.",
-          "type": "string",
-          "default": ""
-        },
-        "connectTimeoutMs": {
-          "description": "Connect timeout against the engine, in milliseconds.",
+        "callDeadlineSeconds": {
+          "description": "Wall-clock budget for one `tools/call`, in seconds.",
           "type": "integer",
           "format": "uint64",
-          "default": 1000,
-          "minimum": 0
+          "minimum": 0,
+          "default": 25
         },
-        "maxRetries": {
-          "description": "Maximum retry attempts for a request the §8.1 policy classifies as retryable.",
-          "type": "integer",
-          "format": "uint8",
-          "default": 1,
-          "maximum": 255,
-          "minimum": 0
-        },
-        "timeoutMs": {
-          "description": "Per-request timeout against the engine, in milliseconds.",
+        "toolsListTtlMs": {
+          "description": "`ttlMs` advertised with `tools/list`.",
           "type": "integer",
           "format": "uint64",
-          "default": 5000,
-          "minimum": 0
-        }
-      }
-    },
-    "HealthConfig": {
-      "description": "What `/-/ready` checks (D43).\n\n`/-/healthz` takes nothing from here: liveness never calls the engine, because a dependency\noutage must not get the pod restarted.",
-      "type": "object",
-      "properties": {
-        "engineProbeTimeoutMs": {
-          "description": "Timeout for that probe, in milliseconds.",
-          "type": "integer",
-          "format": "uint64",
-          "default": 2000,
-          "minimum": 0
+          "minimum": 0,
+          "default": 3600000
         },
-        "readinessChecksEngine": {
-          "description": "Whether readiness also probes the engine.",
-          "type": "boolean",
-          "default": true
-        }
-      }
-    },
-    "ObservabilityConfig": {
-      "description": "What the server reports about itself (§10).",
-      "type": "object",
-      "properties": {
-        "metricsEnabled": {
-          "description": "Whether `/-/metrics` is mounted.",
-          "type": "boolean",
-          "default": true
+        "rateLimit": {
+          "description": "The per-tenant token bucket.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/RateLimitConfig"
+            }
+          ]
+        },
+        "defaults": {
+          "description": "Per-tool defaults and input ceilings.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ToolDefaults"
+            }
+          ]
         }
       }
     },
@@ -180,13 +235,6 @@
       "description": "The per-tenant token bucket of §6.4. Buckets are per replica, so the effective cluster\nlimit is `replicas × rate`.\n\n**Off by default in v1**: it limits nothing unless `enabled` is set to `true`.",
       "type": "object",
       "properties": {
-        "burst": {
-          "description": "Bucket capacity.",
-          "type": "integer",
-          "format": "uint32",
-          "default": 20,
-          "minimum": 0
-        },
         "enabled": {
           "description": "Whether the limiter runs at all.",
           "type": "boolean",
@@ -196,8 +244,63 @@
           "description": "Refill rate, in calls per minute, per tenant.",
           "type": "integer",
           "format": "uint32",
-          "default": 120,
-          "minimum": 0
+          "minimum": 0,
+          "default": 120
+        },
+        "burst": {
+          "description": "Bucket capacity.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 20
+        }
+      }
+    },
+    "ToolDefaults": {
+      "description": "Every tunable the tool analyses marked as a guess (§11). They live here, not in the code,\nbecause the measurement exercise will change them and a config change is not a release.\n\n**No response ceilings are among them** — there are none (D34).",
+      "type": "object",
+      "properties": {
+        "searchLimit": {
+          "description": "Default `limit` for catalog searches.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 50
+        },
+        "relationshipLimit": {
+          "description": "Default `limit` for relationship listings.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 50
+        },
+        "historyLimit": {
+          "description": "Default `limit` for item history listings.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 10
+        },
+        "auditLimit": {
+          "description": "Default `limit` for audit-log listings.",
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "default": 25
+        },
+        "complianceWaitSeconds": {
+          "description": "How long a compliance evaluation is waited on, in seconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 20
+        },
+        "maxWriteBytes": {
+          "description": "Ceiling on the bytes a caller may send us in one write.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "default": 262144
         }
       }
     },
@@ -212,149 +315,17 @@
         }
       }
     },
-    "ServerConfig": {
-      "description": "How the HTTP listener is bound and what the transport accepts (§11).\n\n`allowed_hosts` has **no usable default**: the SDK's own default is loopback-only, so a\nremote deployment answers every request `403 Forbidden: Host header is not allowed` until\nthe list is set. Validation therefore refuses an empty list before the listener binds (D11).",
-      "type": "object",
-      "properties": {
-        "allowedHosts": {
-          "description": "Hostnames or `host:port` authorities accepted in the inbound `Host` header.\nRequired and non-empty — see the type documentation.",
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "allowedOrigins": {
-          "description": "Browser origins accepted in the inbound `Origin` header. Empty leaves `Origin`\nvalidation switched off, which is what the in-cluster client needs (D11).",
-          "type": "array",
-          "default": [],
-          "items": {
-            "type": "string"
-          }
-        },
-        "ip": {
-          "description": "Server bind IP.",
-          "type": "string",
-          "format": "ipv4",
-          "default": "0.0.0.0"
-        },
-        "maxBodyBytes": {
-          "description": "Maximum accepted POST body size, in bytes.",
-          "type": "integer",
-          "format": "uint",
-          "default": 1048576,
-          "minimum": 0
-        },
-        "mcpPath": {
-          "description": "Path the MCP service is mounted at.",
-          "type": "string",
-          "default": "/mcp"
-        },
-        "port": {
-          "description": "Server bind port.",
-          "type": "integer",
-          "format": "uint16",
-          "default": 8000,
-          "maximum": 65535,
-          "minimum": 0
-        }
-      }
-    },
-    "ToolDefaults": {
-      "description": "Every tunable the tool analyses marked as a guess (§11). They live here, not in the code,\nbecause the measurement exercise will change them and a config change is not a release.\n\n**No response ceilings are among them** — there are none (D34).",
-      "type": "object",
-      "properties": {
-        "auditLimit": {
-          "description": "Default `limit` for audit-log listings.",
-          "type": "integer",
-          "format": "uint32",
-          "default": 25,
-          "minimum": 0
-        },
-        "complianceWaitSeconds": {
-          "description": "How long a compliance evaluation is waited on, in seconds.",
-          "type": "integer",
-          "format": "uint64",
-          "default": 20,
-          "minimum": 0
-        },
-        "historyLimit": {
-          "description": "Default `limit` for item history listings.",
-          "type": "integer",
-          "format": "uint32",
-          "default": 10,
-          "minimum": 0
-        },
-        "maxWriteBytes": {
-          "description": "Ceiling on the bytes a caller may send us in one write.",
-          "type": "integer",
-          "format": "uint",
-          "default": 262144,
-          "minimum": 0
-        },
-        "relationshipLimit": {
-          "description": "Default `limit` for relationship listings.",
-          "type": "integer",
-          "format": "uint32",
-          "default": 50,
-          "minimum": 0
-        },
-        "searchLimit": {
-          "description": "Default `limit` for catalog searches.",
-          "type": "integer",
-          "format": "uint32",
-          "default": 50,
-          "minimum": 0
-        }
-      }
-    },
-    "ToolsConfig": {
-      "description": "What bounds a tool call and what the tool set advertises (§11).\n\n`tools_list_ttl_ms` sits here rather than under `transport` because it is a property of the\ntool set (D13), not of the wire.",
-      "type": "object",
-      "properties": {
-        "callDeadlineSeconds": {
-          "description": "Wall-clock budget for one `tools/call`, in seconds.",
-          "type": "integer",
-          "format": "uint64",
-          "default": 25,
-          "minimum": 0
-        },
-        "defaults": {
-          "description": "Per-tool defaults and input ceilings.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/ToolDefaults"
-            }
-          ]
-        },
-        "rateLimit": {
-          "description": "The per-tenant token bucket.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/RateLimitConfig"
-            }
-          ]
-        },
-        "toolsListTtlMs": {
-          "description": "`ttlMs` advertised with `tools/list`.",
-          "type": "integer",
-          "format": "uint64",
-          "default": 3600000,
-          "minimum": 0
-        }
-      }
-    },
     "TransportConfig": {
       "description": "The SDK transport knobs, every one of them read from configuration rather than hardcoded\n(§6.1).\n\n`legacy_session_mode` stays **on** because our only client today is handshake-era (D2);\nrequests that negotiate `2026-07-28` are served statelessly regardless. `json_response`\nonly *prefers* JSON — the transport falls back to SSE by itself when a handler emits a\nnotification before its result (D9).",
       "type": "object",
       "properties": {
-        "jsonResponse": {
-          "description": "Whether a single JSON response is preferred over an SSE stream.",
+        "legacySessionMode": {
+          "description": "Whether handshake-era sessions are created and tracked.",
           "type": "boolean",
           "default": true
         },
-        "legacySessionMode": {
-          "description": "Whether handshake-era sessions are created and tracked.",
+        "jsonResponse": {
+          "description": "Whether a single JSON response is preferred over an SSE stream.",
           "type": "boolean",
           "default": true
         },
@@ -362,8 +333,37 @@
           "description": "SSE keep-alive interval, in seconds.",
           "type": "integer",
           "format": "uint64",
-          "default": 15,
-          "minimum": 0
+          "minimum": 0,
+          "default": 15
+        }
+      }
+    },
+    "HealthConfig": {
+      "description": "What `/-/ready` checks (D43).\n\n`/-/healthz` takes nothing from here: liveness never calls the engine, because a dependency\noutage must not get the pod restarted.",
+      "type": "object",
+      "properties": {
+        "readinessChecksEngine": {
+          "description": "Whether readiness also probes the engine.",
+          "type": "boolean",
+          "default": true
+        },
+        "engineProbeTimeoutMs": {
+          "description": "Timeout for that probe, in milliseconds.",
+          "type": "integer",
+          "format": "uint64",
+          "minimum": 0,
+          "default": 2000
+        }
+      }
+    },
+    "ObservabilityConfig": {
+      "description": "What the server reports about itself (§10).",
+      "type": "object",
+      "properties": {
+        "metricsEnabled": {
+          "description": "Whether `/-/metrics` is mounted.",
+          "type": "boolean",
+          "default": true
         }
       }
     }

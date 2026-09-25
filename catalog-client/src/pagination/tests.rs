@@ -179,6 +179,26 @@ fn test_the_fingerprint_is_stable_and_order_independent() {
     assert_ne!(first, fingerprint(&json!({ "a": 1, "b": 3 })));
 }
 
+/// The canonical rendering sorts keys **at every depth**, and is byte-identical to what the
+/// sorted-map rendering produced before `preserve_order` was enabled — so a cursor minted then
+/// still verifies now. The pinned value is that earlier rendering's fingerprint.
+#[rstest]
+fn test_the_fingerprint_is_order_independent_at_every_depth_and_unchanged() {
+    let nested =
+        fingerprint(&json!({ "z": { "b": [ { "y": 1, "x": "é\"" } ], "a": null }, "k": true }));
+    let reordered =
+        fingerprint(&json!({ "k": true, "z": { "a": null, "b": [ { "x": "é\"", "y": 1 } ] } }));
+
+    assert_eq!(nested, reordered);
+    assert_eq!(
+        fingerprint(&json!({ "b": 2, "a": 1 })),
+        PRE_PRESERVE_ORDER_AB
+    );
+}
+
+/// `fingerprint(&json!({"a":1,"b":2}))` as computed before `preserve_order` was enabled.
+const PRE_PRESERVE_ORDER_AB: &str = "a0ebc03bdc71de7b";
+
 // ---------------------------------------------------------------------------------------------
 // Internal pagination.
 // ---------------------------------------------------------------------------------------------
