@@ -18,7 +18,7 @@
 use crate::{
     client::EngineClient,
     error::{Remedy, ToolError, codes},
-    models::{ItemTypeDefinition, TypeVersion},
+    models::{ItdVersion, ItemTypeDefinition, TypeVersion},
     ops::ListQuery,
     warning::EngineWarning,
 };
@@ -72,7 +72,7 @@ pub async fn resolve_kind(
     kind: &str,
 ) -> Result<(TypeCoordinates, Vec<EngineWarning>), ToolError> {
     let response = engine
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(1),
             field: vec![format!("{KIND_SELECTOR}={kind}")],
             ..ListQuery::default()
@@ -132,6 +132,50 @@ fn coordinates_of(
     })
 }
 
+/// What version selection reads from a version, whichever model it was deserialised into.
+///
+/// The rule of [`select_served_version`] **lives in one place** (§8.6, T1-D4), but two models
+/// carry versions: the full [`TypeVersion`], schema and all, and T1's lean [`ItdVersion`], which
+/// skips the schema (T1-D3). This is what lets both reach the same rule rather than a copy.
+pub trait ServedVersion {
+    /// `v1`, `v2beta1`, and so on.
+    fn name(&self) -> &str;
+
+    /// Whether items are served under this version.
+    fn served(&self) -> bool;
+
+    /// Whether this version is deprecated. Absent means not.
+    fn deprecated(&self) -> bool;
+}
+
+impl ServedVersion for TypeVersion {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn served(&self) -> bool {
+        self.served
+    }
+
+    fn deprecated(&self) -> bool {
+        self.deprecated.unwrap_or(false)
+    }
+}
+
+impl ServedVersion for ItdVersion {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn served(&self) -> bool {
+        self.served
+    }
+
+    fn deprecated(&self) -> bool {
+        self.deprecated.unwrap_or(false)
+    }
+}
+
 /// Picks the version items are addressed under (§8.6, from T1).
 ///
 /// The rule, in order: consider only `served: true`; prefer one that is not `deprecated`; then
@@ -139,17 +183,17 @@ fn coordinates_of(
 ///
 /// **Today every shipped type has exactly one served `v1`, so this never fires.** It is cheap,
 /// and it is the kind of rule that fires in production first.
-pub fn select_served_version(versions: &[TypeVersion]) -> Option<&TypeVersion> {
+pub fn select_served_version<V: ServedVersion>(versions: &[V]) -> Option<&V> {
     versions
         .iter()
-        .filter(|version| version.served)
+        .filter(|version| version.served())
         .max_by_key(|version| {
             (
                 // A version that is not deprecated always wins.
-                u8::from(!version.deprecated.unwrap_or(false)),
-                stability_rank(&version.name),
-                major_of(&version.name),
-                minor_of(&version.name),
+                u8::from(!version.deprecated()),
+                stability_rank(version.name()),
+                major_of(version.name()),
+                minor_of(version.name()),
             )
         })
 }

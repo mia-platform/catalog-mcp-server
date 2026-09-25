@@ -17,7 +17,7 @@
  */
 use crate::{
     client::{EngineClient, EngineResponse},
-    error::ToolError,
+    error::{BadRequestOrigin, ToolError},
     models::Tenant,
     ops::LIST_TENANTS,
     projection::Projection,
@@ -40,7 +40,13 @@ impl EngineClient {
     pub async fn list_tenants(&self) -> Result<EngineResponse<Vec<Tenant>>, ToolError> {
         let url = self.url(TENANTS_SEGMENTS)?;
 
-        self.get_json(LIST_TENANTS.id, url, Projection::Full.accept())
-            .await
+        // The endpoint declares no parameters, so nothing in the request is the caller's.
+        self.get_json(
+            LIST_TENANTS.id,
+            url,
+            Projection::Full.accept(),
+            BadRequestOrigin::ServerBuilt,
+        )
+        .await
     }
 }

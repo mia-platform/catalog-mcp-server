@@ -28,8 +28,10 @@
 use catalog_client::{
     CallerIdentity, Deadline, EngineClient, EngineClientFactory, ItemAddress,
     error::codes,
+    models::{ItdListEntry, ItemTypeDefinition},
     ops::ListQuery,
-    pagination::{ListPage, paginate_all},
+    pagination::{ListPage, MAX_LIMIT, paginate_all},
+    select_served_version,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -85,7 +87,7 @@ fn client_with(acl: Option<&str>) -> EngineClient {
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_read_reaches_the_live_engine_and_is_shaped() {
     let response = client()
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(5),
             ..ListQuery::default()
         })
@@ -122,7 +124,7 @@ async fn test_pagination_walks_a_real_listing() {
     let client = client();
 
     let first = client
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(2),
             ..ListQuery::default()
         })
@@ -136,7 +138,7 @@ async fn test_pagination_walks_a_real_listing() {
         .expect("the seeded catalogue is larger than two types");
 
     let second = client
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(2),
             cursor: Some(cursor),
             ..ListQuery::default()
@@ -163,7 +165,7 @@ async fn test_pagination_walks_a_real_listing() {
         let client = client.clone();
         async move {
             let response = client
-                .list_item_type_definitions(&ListQuery {
+                .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
                     limit: Some(50),
                     cursor,
                     ..ListQuery::default()
@@ -185,7 +187,7 @@ async fn test_pagination_walks_a_real_listing() {
 #[ignore = "needs `cargo make e2e`"]
 async fn test_the_kind_point_lookup_returns_exactly_one_type() {
     let all = client()
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(200),
             ..ListQuery::default()
         })
@@ -200,7 +202,7 @@ async fn test_the_kind_point_lookup_returns_exactly_one_type() {
     let kind = sample.spec.names.kind.clone();
 
     let found = client()
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(1),
             field: vec![format!("spec.names.kind={kind}")],
             ..ListQuery::default()
@@ -218,7 +220,7 @@ async fn test_the_kind_point_lookup_returns_exactly_one_type() {
 #[ignore = "needs `cargo make e2e`"]
 async fn test_an_empty_result_is_not_an_error() {
     let response = client()
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             field: vec!["spec.names.kind=NoSuchKindExists".to_string()],
             ..ListQuery::default()
         })
@@ -355,6 +357,71 @@ async fn test_a_warning_299_reaches_the_client_and_the_calls_record() {
     );
 }
 
+/// How many item types the pinned engine seeds (`assets/manifests/type-definitions/`, 68 in
+/// `0.9.2`). A floor, not an exact count, so a release that adds one does not fail the run.
+const SEEDED_TYPE_COUNT: usize = 68;
+
+/// **T1 against the live engine** — what its contract test used to assert against a vendored
+/// OAS, asserted against the engine itself (T1 §11, decision (C)).
+///
+/// The lean `ItdListEntry` model reads every seeded type, walked to exhaustion as T1 walks it,
+/// and every one has the four coordinates T1 returns and a version the core's rule can select.
+/// `history.enabled` is optional in the model, so a rename would read as `false` everywhere
+/// without failing; asserting that **some** seeded type has it on is what would notice.
+/// `llmDescription` cannot be pinned this way — no seeded type carries one.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_type_listing_reads_every_seeded_type_through_the_lean_model() {
+    let client = client();
+
+    let entries: Vec<ItdListEntry> = paginate_all(|cursor| {
+        let client = &client;
+        async move {
+            client
+                .list_item_type_definitions::<ItdListEntry>(&ListQuery {
+                    limit: Some(MAX_LIMIT),
+                    cursor,
+                    ..ListQuery::default()
+                })
+                .await
+                .map(|response| response.value)
+        }
+    })
+    .await
+    .expect("the live engine answers the type listing");
+
+    assert!(
+        entries.len() >= SEEDED_TYPE_COUNT,
+        "expected at least {SEEDED_TYPE_COUNT} seeded types, got {}",
+        entries.len()
+    );
+
+    for entry in &entries {
+        let spec = &entry.spec;
+        assert!(!spec.names.kind.is_empty(), "a type has no kind");
+        assert!(
+            !spec.names.plural.is_empty(),
+            "`{}` has no family",
+            spec.names.kind
+        );
+        assert!(!spec.group.is_empty(), "`{}` has no group", spec.names.kind);
+        assert!(
+            select_served_version(&spec.versions).is_some(),
+            "`{}` has no version the core's rule can select",
+            spec.names.kind
+        );
+    }
+
+    assert!(
+        entries.iter().any(|entry| entry
+            .spec
+            .history
+            .as_ref()
+            .is_some_and(|history| history.enabled)),
+        "no seeded type reports history enabled — has `spec.history.enabled` been renamed?"
+    );
+}
+
 /// A read of something that is not there is `not_found`, with the remedy the model can act on.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
@@ -377,6 +444,11 @@ async fn test_a_missing_item_maps_to_not_found() {
 /// The point is not that it fails — it is that the failure comes from **there** and arrives as
 /// an ordinary tool error. This server issued no `401` of its own, added no default tenant, and
 /// refused nothing: it forwarded what arrived and let the owner decide.
+///
+/// It arrives as `server_defect` / `Escalate`: the request carried nothing of the caller's, so
+/// the model is not told to change arguments it cannot change (§8.4). On the in-cluster path a
+/// missing context *is* a deployment defect — headers not forwarded — which is what an operator
+/// should read, and the engine's own reason is carried so they can.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_missing_acl_context_is_the_engines_decision_not_ours() {
@@ -385,7 +457,8 @@ async fn test_a_missing_acl_context_is_the_engines_decision_not_ours() {
         .await
         .expect_err("the engine requires an ACL context");
 
-    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert_eq!(error.code, codes::SERVER_DEFECT);
+    assert_eq!(error.remedy, catalog_client::Remedy::Escalate);
     assert!(
         error.message.to_lowercase().contains("x-mia-acl-context"),
         "the engine's own message should reach the model: {}",
@@ -411,7 +484,7 @@ async fn test_the_acl_context_is_accepted_verbatim_by_the_engine() {
     );
 
     let response = client_with(Some(&with_name))
-        .list_item_type_definitions(&ListQuery {
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
             limit: Some(1),
             ..ListQuery::default()
         })

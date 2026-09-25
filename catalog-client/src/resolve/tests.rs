@@ -269,3 +269,31 @@ async fn test_an_engine_failure_is_not_reported_as_a_missing_kind() {
 
     assert_eq!(error.code, codes::CATALOG_UNAVAILABLE);
 }
+
+/// T1-D4 — the lean listing model reaches **the same** rule, not a copy of it.
+#[rstest]
+fn test_the_lean_model_is_selected_by_the_same_rule() {
+    let lean = [
+        crate::models::ItdVersion {
+            name: "v1".to_string(),
+            served: true,
+            deprecated: Some(true),
+        },
+        crate::models::ItdVersion {
+            name: "v1beta1".to_string(),
+            served: true,
+            deprecated: None,
+        },
+        crate::models::ItdVersion {
+            name: "v2".to_string(),
+            served: false,
+            deprecated: None,
+        },
+    ];
+
+    assert_eq!(
+        select_served_version(&lean).map(|version| version.name.as_str()),
+        Some("v1beta1"),
+        "a served, non-deprecated beta beats a deprecated stable, and an unserved v2 never wins"
+    );
+}

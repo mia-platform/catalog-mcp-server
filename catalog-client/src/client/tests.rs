@@ -487,3 +487,30 @@ async fn test_an_expired_deadline_fails_without_dialling() {
     assert_eq!(error.code, codes::DEADLINE_EXCEEDED);
     assert_eq!(error.remedy, Remedy::Retry);
 }
+
+/// §5.5 rule 4 — a deadline that runs out **while the engine is answering** is
+/// `deadline_exceeded`, not `catalog_unavailable`: the budget was ours, and the catalog may be
+/// perfectly healthy. Before this, only a deadline already spent before dialling said so.
+#[rstest]
+#[tokio::test]
+async fn test_a_deadline_that_expires_mid_request_is_deadline_exceeded() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path("/items"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(mock_list_envelope(vec![], None))
+                .set_delay(Duration::from_millis(500)),
+        )
+        .mount(engine.server())
+        .await;
+
+    let error = engine
+        .client_with_deadline(mock_identity(), Duration::from_millis(100))
+        .list_items(&ListQuery::default())
+        .await
+        .expect_err("the deadline runs out first");
+
+    assert_eq!(error.code, codes::DEADLINE_EXCEEDED);
+    assert_eq!(error.remedy, Remedy::Retry);
+}

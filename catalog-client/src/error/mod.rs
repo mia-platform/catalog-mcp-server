@@ -204,11 +204,19 @@ pub fn map_status(
                     .unwrap_or("The catalog rejected the request as invalid.")
                     .to_string(),
             ),
+            // The engine's reason is relayed, because it is the one thing that says *which*
+            // part of ours was wrong — a missing identity header on the in-cluster path reads
+            // very differently from a malformed `rawq`.
             BadRequestOrigin::ServerBuilt => ToolError::new(
                 codes::SERVER_DEFECT,
                 Remedy::Escalate,
-                "The catalog rejected a request parameter this server built. This is not \
-                 something the request can be changed to fix.",
+                format!(
+                    "The catalog rejected a request this server built{}. This is not something \
+                     the request can be changed to fix.",
+                    engine_message
+                        .map(|message| format!(": {message}"))
+                        .unwrap_or_default()
+                ),
             ),
         },
         401 => ToolError::new(
@@ -322,6 +330,19 @@ pub fn deadline_exceeded(dispatched: Dispatched, request_id: Option<&str>) -> To
             "The call ran out of time before the catalog answered.",
         ),
         request_id,
+    )
+}
+
+/// The caller went away while the tool was still working (§5.5 rule 5).
+///
+/// A tool that loops, fans out or polls `select!`s on its cancellation token and returns this.
+/// The peer that would read it is usually gone; what matters is that the work stops and the
+/// outcome is recorded as a cancellation rather than as a failure of the catalog.
+pub fn cancelled() -> ToolError {
+    ToolError::new(
+        codes::CANCELLED,
+        Remedy::Retry,
+        "The call was cancelled before it finished.",
     )
 }
 

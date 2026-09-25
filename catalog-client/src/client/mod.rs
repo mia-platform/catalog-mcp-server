@@ -17,7 +17,8 @@
  */
 use crate::{
     error::{
-        BadRequestOrigin, Dispatched, ToolError, deadline_exceeded, map_status, transport_failure,
+        BadRequestOrigin, Dispatched, ToolError, codes, deadline_exceeded, map_status,
+        transport_failure,
     },
     identity::CallerIdentity,
     warning::{self, EngineWarning},
@@ -388,14 +389,17 @@ impl EngineClient {
     /// Issues one `GET` and deserialises its body, applying the whole §8.1 policy.
     ///
     /// Reads are idempotent by construction, which is the first of the four retry conditions.
+    /// `origin` says whose fault a `400` would be: the operation knows what it put in the
+    /// request, and the client cannot tell from the response (§8.4).
     pub async fn get_json<T: DeserializeOwned>(
         &self,
         operation: &'static str,
         url: Url,
         accept: &str,
+        origin: BadRequestOrigin,
     ) -> Result<EngineResponse<T>, ToolError> {
         let raw = self
-            .send(operation, Request::get(url, accept), Intent::Read)
+            .send(operation, Request::get(url, accept), Intent::Read, origin)
             .await?;
 
         self.decode(raw)
@@ -412,12 +416,14 @@ impl EngineClient {
         url: Url,
         body: &Value,
         retryable: bool,
+        origin: BadRequestOrigin,
     ) -> Result<EngineResponse<T>, ToolError> {
         let raw = self
             .send(
                 operation,
                 Request::put(url, body.clone()),
                 Intent::Write { retryable },
+                origin,
             )
             .await?;
 
@@ -460,6 +466,7 @@ impl EngineClient {
         operation: &'static str,
         request: Request,
         intent: Intent,
+        origin: BadRequestOrigin,
     ) -> Result<RawResponse, ToolError> {
         self.warnings.note_request();
 
@@ -534,12 +541,25 @@ impl EngineClient {
                 .retry
                 .allows(intent.is_idempotent(), failure, attempt, &self.deadline)
             {
-                return Err(self.to_tool_error(
+                let error = self.to_tool_error(
                     failure,
                     intent.dispatched(failure),
                     request_id.as_deref(),
                     message.as_deref(),
-                ));
+                    origin,
+                );
+
+                // §8.4 — a defect of ours is logged loudly; the model is only told it is not
+                // its fault.
+                if error.code == codes::SERVER_DEFECT {
+                    tracing::error!(
+                        operation,
+                        ?failure,
+                        "the catalog rejected a request this server built"
+                    );
+                }
+
+                return Err(error);
             }
 
             attempt += 1;
@@ -626,23 +646,27 @@ impl EngineClient {
     }
 
     /// Turns a classified failure into the contract's error shape.
+    ///
+    /// A timeout is split by **whose** clock ran out. When the call's deadline has expired it is
+    /// `deadline_exceeded` (§5.5 rule 4) — the budget was ours, and the catalog may be perfectly
+    /// healthy. Only a hop that timed out with budget left is the catalog failing to answer.
     fn to_tool_error(
         &self,
         failure: FailureKind,
         dispatched: Dispatched,
         request_id: Option<&str>,
         engine_message: Option<&str>,
+        origin: BadRequestOrigin,
     ) -> ToolError {
         match failure {
             FailureKind::Connect => transport_failure(dispatched, request_id),
+            FailureKind::Timeout if self.deadline.expired() => {
+                deadline_exceeded(dispatched, request_id)
+            }
             FailureKind::Timeout => transport_failure(dispatched, request_id),
-            FailureKind::Status(status) => map_status(
-                status,
-                BadRequestOrigin::CallerInput,
-                dispatched,
-                engine_message,
-                request_id,
-            ),
+            FailureKind::Status(status) => {
+                map_status(status, origin, dispatched, engine_message, request_id)
+            }
         }
     }
 }

@@ -161,3 +161,72 @@ impl ItemTypeDefinitionSpec {
             .unwrap_or(false)
     }
 }
+
+/// One entry of the type listing, read **only** as far as T1 needs it (T1 §5).
+///
+/// There is no `metadata` and nothing past the names and versions: T1 addresses a type by its
+/// `spec`, never by decomposing `metadata.name`, and every field not declared here is skipped by
+/// the deserialiser without being built.
+#[derive(Clone, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
+pub struct ItdListEntry {
+    /// What the type declares.
+    #[serde(rename = "spec")]
+    pub spec: ItdSpec,
+}
+
+/// The part of an Item Type Definition's `spec` the type listing reads.
+#[derive(Clone, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
+pub struct ItdSpec {
+    /// The API group items of this type are served under.
+    #[serde(rename = "group")]
+    pub group: String,
+
+    /// The names this type is addressed and displayed by.
+    #[serde(rename = "names")]
+    pub names: TypeNames,
+
+    /// The type's versions, without their schemas.
+    #[serde(rename = "versions", default)]
+    pub versions: Vec<ItdVersion>,
+
+    /// The briefing written for a model, returned verbatim (T1 §7).
+    #[serde(rename = "llmDescription", default)]
+    pub llm_description: Option<String>,
+
+    /// Revision-history settings.
+    #[serde(rename = "history", default)]
+    pub history: Option<ItdHistory>,
+}
+
+/// One version of a type, **without its schema** (T1-D3).
+///
+/// `schema` is deliberately not declared. It is ~90 % of the listing's bytes and the type
+/// listing never reads it, so it is left to the deserialiser to skip — which walks it without
+/// allocating a `Value` tree — rather than typed as `Option<Value>` the way the full
+/// [`TypeVersion`] must, for the tools that do read it.
+#[derive(Clone, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
+pub struct ItdVersion {
+    /// `v1`, `v2beta1`, and so on.
+    #[serde(rename = "name")]
+    pub name: String,
+
+    /// Whether items are served under this version.
+    #[serde(rename = "served")]
+    pub served: bool,
+
+    /// Whether this version is deprecated.
+    #[serde(rename = "deprecated", default)]
+    pub deprecated: Option<bool>,
+}
+
+/// A type's revision-history settings.
+#[derive(Clone, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
+pub struct ItdHistory {
+    /// Whether revisions of this type's items are recorded. Absent means not.
+    #[serde(rename = "enabled", default)]
+    pub enabled: bool,
+}

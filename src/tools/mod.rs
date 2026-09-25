@@ -19,6 +19,10 @@
 /// catalog logic behind them (§13.2), and the smallest worked example of the §5.5 contract.
 pub mod hello;
 
+/// T1 — every item type the caller can see, with the coordinates to address its items. The
+/// first tool of wave 1.a.
+pub mod list_catalog_types;
+
 /// The worked example of the contract freeze, and the cheapest end-to-end probe of the identity
 /// path in the whole tool set (§13.5, T11).
 pub mod list_tenants;

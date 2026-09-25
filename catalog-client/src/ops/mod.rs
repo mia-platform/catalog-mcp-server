@@ -18,8 +18,8 @@
 use crate::{
     address::ItemAddress,
     client::{EngineClient, EngineResponse},
-    error::ToolError,
-    models::{Item, ItemTypeDefinition, ListEnvelope, PartialObjectMetadata},
+    error::{BadRequestOrigin, ToolError},
+    models::{Item, ListEnvelope, PartialObjectMetadata},
     pagination::{EngineCursor, ListPage},
     projection::Projection,
 };
@@ -91,9 +91,6 @@ pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
 /// Tool waves add to it; nothing else does.
 pub const OPERATIONS: &[OperationSpec] = &[LIST_ITEMS, GET_ITEM, LIST_ITEM_TYPE_DEFINITIONS];
 
-/// Path segments of the Item Type Definition collection.
-const ITEM_TYPE_DEFINITION_SEGMENTS: [&str; 3] = ["mia-platform.eu", "v1", "item-type-definitions"];
-
 /// How a listing is narrowed and paged.
 ///
 /// Deliberately not a builder: there are four knobs, they are all optional, and a struct with
@@ -120,11 +117,25 @@ pub struct ListQuery {
 }
 
 impl ListQuery {
+    /// Whose fault a `400` on this listing would be (§8.4).
+    ///
+    /// `field`, `label` and `sort` carry what the caller asked for. `limit`, the cursor and
+    /// `rawq` are ours — `rawq` is built by the query translator and never supplied — so a listing
+    /// carrying none of the caller's is one the engine can only have rejected because of us, and
+    /// telling the model to change its input would send it round a loop it cannot win.
+    pub(crate) fn bad_request_origin(&self) -> BadRequestOrigin {
+        if self.field.is_empty() && self.label.is_empty() && self.sort.is_empty() {
+            BadRequestOrigin::ServerBuilt
+        } else {
+            BadRequestOrigin::CallerInput
+        }
+    }
+
     /// Applies the query to a URL.
     ///
     /// `acl-filter` is **never** added: it is policy-injected, a second occurrence is a `400`,
     /// and a client must never send it.
-    fn apply(&self, url: &mut Url, allowed: &[&str]) {
+    pub(crate) fn apply(&self, url: &mut Url, allowed: &[&str]) {
         let mut query = url.query_pairs_mut();
 
         if let Some(limit) = self.limit
@@ -179,7 +190,12 @@ impl EngineClient {
         query.apply(&mut url, LIST_ITEMS.query);
 
         let response: EngineResponse<ListEnvelope<Item>> = self
-            .get_json(LIST_ITEMS.id, url, Projection::Full.accept())
+            .get_json(
+                LIST_ITEMS.id,
+                url,
+                Projection::Full.accept(),
+                query.bad_request_origin(),
+            )
             .await?;
 
         Ok(EngineResponse {
@@ -201,6 +217,7 @@ impl EngineClient {
                 LIST_ITEMS.id,
                 url,
                 Projection::PartialObjectMetadata.accept(),
+                query.bad_request_origin(),
             )
             .await?;
 
@@ -214,8 +231,14 @@ impl EngineClient {
     pub async fn get_item(&self, address: &ItemAddress) -> Result<EngineResponse<Item>, ToolError> {
         let url = self.url(address.segments())?;
 
-        self.get_json(GET_ITEM.id, url, Projection::Full.accept())
-            .await
+        // The address is the caller's, validated but still theirs.
+        self.get_json(
+            GET_ITEM.id,
+            url,
+            Projection::Full.accept(),
+            BadRequestOrigin::CallerInput,
+        )
+        .await
     }
 
     /// `PUT /{group}/{version}/items/{family}/{name}` — write one item whole.
@@ -231,31 +254,20 @@ impl EngineClient {
     ) -> Result<EngineResponse<Item>, ToolError> {
         let url = self.url(address.segments())?;
 
-        self.put_json(PUT_ITEM.id, url, manifest, retryable).await
-    }
-
-    /// `GET /mia-platform.eu/v1/item-type-definitions` — the type listing.
-    pub async fn list_item_type_definitions(
-        &self,
-        query: &ListQuery,
-    ) -> Result<EngineResponse<ListPage<ItemTypeDefinition>>, ToolError> {
-        let mut url = self.url(ITEM_TYPE_DEFINITION_SEGMENTS)?;
-        query.apply(&mut url, LIST_ITEM_TYPE_DEFINITIONS.query);
-
-        let response: EngineResponse<ListEnvelope<ItemTypeDefinition>> = self
-            .get_json(
-                LIST_ITEM_TYPE_DEFINITIONS.id,
-                url,
-                Projection::Full.accept(),
-            )
-            .await?;
-
-        Ok(EngineResponse {
-            value: ListPage::from_envelope(response.value),
-            warnings: response.warnings,
-        })
+        // The manifest is the caller's: a `400` is a schema failure it can correct (§8.4).
+        self.put_json(
+            PUT_ITEM.id,
+            url,
+            manifest,
+            retryable,
+            BadRequestOrigin::CallerInput,
+        )
+        .await
     }
 }
+
+/// The Item Type Definition listing, generic over the model it is read into.
+pub mod item_type_definitions;
 
 /// The tenant listing, which is not a catalog read at all.
 pub mod tenants;

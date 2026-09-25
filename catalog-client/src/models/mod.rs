@@ -34,7 +34,8 @@ pub mod tenant;
 
 pub use item::{Item, Link, ObjectMetadata, PartialObjectMetadata};
 pub use item_type_definition::{
-    ItemTypeDefinition, ItemTypeDefinitionSpec, TypeNames, TypeVersion,
+    ItdHistory, ItdListEntry, ItdSpec, ItdVersion, ItemTypeDefinition, ItemTypeDefinitionSpec,
+    TypeNames, TypeVersion,
 };
 pub use list::{Count, ListEnvelope, ListMetadata};
 pub use tenant::Tenant;

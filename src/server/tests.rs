@@ -52,6 +52,9 @@ const META_CLIENT_CAPABILITIES: &str = "io.modelcontextprotocol/clientCapabiliti
 /// A validated configuration, as `configuration::load` would have returned one.
 #[fixture]
 fn mock_config() -> Config {
+    // Before any router exists, so no span callsite is ever first registered without it.
+    install_span_capture();
+
     let mut config = Config::default();
 
     config.server.allowed_hosts = vec![TEST_HOST.to_string()];
@@ -290,7 +293,7 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(names, vec!["hello", "list_tenants"]);
+    assert_eq!(names, vec!["hello", "list_catalog_types", "list_tenants"]);
 
     let called = stateless_request(
         &mock_router,
@@ -325,7 +328,7 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(names, vec!["hello", "list_tenants"]);
+    assert_eq!(names, vec!["hello", "list_catalog_types", "list_tenants"]);
 
     let called = legacy_request(
         &mock_router,
@@ -773,7 +776,9 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
             .as_array()
             .expect("an array")
             .len(),
-        2
+        crate::registry::Registry::with_shipped_tools()
+            .tools()
+            .len()
     );
     assert!(listed["result"].get("nextCursor").is_none());
 }
@@ -1407,6 +1412,37 @@ struct CapturedSpan {
 #[derive(Clone, Default)]
 struct SpanCapture(std::sync::Arc<Mutex<Vec<CapturedSpan>>>);
 
+impl SpanCapture {
+    /// Every span captured so far, from every test in the process.
+    fn snapshot(&self) -> Vec<CapturedSpan> {
+        self.0.lock().expect("the capture is not poisoned").clone()
+    }
+}
+
+/// The process-wide span capture, installed as the **global** subscriber.
+///
+/// A thread-local `set_default` capture proved flaky — about one run in six, and only alongside
+/// the other server tests: those hit the same span callsites on other threads with no
+/// subscriber, and `tracing`'s process-wide callsite state then let this thread's subscriber miss
+/// `mcp.request`. A global subscriber, installed by the fixture every server test goes through
+/// and so before any router is built, takes part in every callsite's registration and removes
+/// the race. Tests pick out their own spans by a marker unique to them.
+static SPANS: std::sync::LazyLock<SpanCapture> = std::sync::LazyLock::new(|| {
+    let capture = SpanCapture::default();
+    // PANIC: test setup. A second global subscriber would be a defect in the tests themselves.
+    tracing::subscriber::set_global_default(tracing_subscriber::registry().with(capture.clone()))
+        .expect("no other test installs a global subscriber");
+    capture
+});
+
+/// Installs [`SPANS`] once for the whole test process.
+fn install_span_capture() {
+    std::sync::LazyLock::force(&SPANS);
+}
+
+/// The tenant only the span test uses, so its `mcp.request` can be told from everyone else's.
+const SPAN_PROBE_TENANT: &str = "span-probe";
+
 impl<S: tracing::Subscriber> Layer<S> for SpanCapture {
     fn on_new_span(
         &self,
@@ -1442,29 +1478,23 @@ impl<S: tracing::Subscriber> Layer<S> for SpanCapture {
 #[rstest]
 #[tokio::test]
 async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Router) {
-    let capture = SpanCapture::default();
-    let guard =
-        tracing::subscriber::set_default(tracing_subscriber::registry().with(capture.clone()));
-
     stateless_request(
         &mock_router,
         "tools/call",
         Some(TOOL_NAME),
         json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[("x-mia-acl-context", &acl_for("tenant-one"))],
+        &[("x-mia-acl-context", &acl_for(SPAN_PROBE_TENANT))],
     )
     .await;
 
-    drop(guard);
-
-    let spans = capture
-        .0
-        .lock()
-        .expect("the capture is not poisoned")
-        .clone();
+    let probe_tenant = format!("my-org/{SPAN_PROBE_TENANT}");
+    let spans = SPANS.snapshot();
     let span = spans
         .iter()
-        .find(|span| span.name == "mcp.request")
+        .find(|span| {
+            span.name == "mcp.request"
+                && span.fields.get("tenant").map(String::as_str) == Some(probe_tenant.as_str())
+        })
         .unwrap_or_else(|| {
             panic!(
                 "no mcp.request span was opened; captured: {:?}",
@@ -1511,7 +1541,7 @@ async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Rou
     // ...and the identity the layer *did* decode, carried into it.
     assert_eq!(
         span.fields.get("tenant").map(String::as_str),
-        Some("my-org/tenant-one")
+        Some(probe_tenant.as_str())
     );
 }
 
@@ -1520,19 +1550,11 @@ async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Rou
 #[rstest]
 #[tokio::test]
 async fn test_the_http_request_span_carries_transport_fields_only(mock_router: Router) {
-    let capture = SpanCapture::default();
-    let guard =
-        tracing::subscriber::set_default(tracing_subscriber::registry().with(capture.clone()));
-
     let _ = get(&mock_router, "/-/healthz").await;
 
-    drop(guard);
-
-    let spans = capture
-        .0
-        .lock()
-        .expect("the capture is not poisoned")
-        .clone();
+    // Any `http.request` will do: what is asserted is the span's declared **shape**, which is the
+    // same for every request, not a value this test alone sets.
+    let spans = SPANS.snapshot();
     let span = spans
         .iter()
         .find(|span| span.name == "http.request")

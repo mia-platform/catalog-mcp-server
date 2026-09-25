@@ -20,6 +20,7 @@ use crate::{
     client::EngineClient,
     error::codes,
     identity::{ACL_CONTEXT_HEADER, AUTHORIZATION_HEADER, PRINCIPAL_ID_HEADER},
+    models::ItemTypeDefinition,
     ops::{ListQuery, OPERATIONS},
     pagination::{EngineCursor, ListPage, paginate_all},
     testing::{
@@ -54,7 +55,9 @@ async fn record_every_operation(client: &EngineClient) -> Vec<wiremock::Request>
     let _ = client.list_items(&query).await;
     let _ = client.list_items_partial(&query).await;
     let _ = client.get_item(&mock_address()).await;
-    let _ = client.list_item_type_definitions(&query).await;
+    let _ = client
+        .list_item_type_definitions::<ItemTypeDefinition>(&query)
+        .await;
 
     Vec::new()
 }
@@ -431,7 +434,9 @@ async fn test_a_parameter_the_endpoint_does_not_declare_is_not_sent() {
     let client = engine.client(mock_identity());
     // `/items` does not declare `field`; the item-type-definition listing does.
     let _ = client.list_items(&query).await;
-    let _ = client.list_item_type_definitions(&query).await;
+    let _ = client
+        .list_item_type_definitions::<ItemTypeDefinition>(&query)
+        .await;
 
     let requests = engine
         .server()
@@ -451,7 +456,7 @@ async fn test_item_type_definitions_are_shaped() {
 
     let response = engine
         .client(mock_identity())
-        .list_item_type_definitions(&ListQuery::default())
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery::default())
         .await
         .expect("the listing succeeds");
 
@@ -548,4 +553,107 @@ async fn test_a_paginated_listing_walks_exactly_once() {
     let names: Vec<&str> = all.iter().map(|item| item.metadata.name.as_str()).collect();
 
     assert_eq!(names, vec!["example-item-1", "example-item-2"]);
+}
+
+// ---------------------------------------------------------------------------------------------
+// §8.4 — whose fault a `400` is, decided by what the request carried.
+// ---------------------------------------------------------------------------------------------
+
+/// `field`, `label` and `sort` are the caller's; `limit`, the cursor and `rawq` are ours.
+#[rstest]
+#[case::nothing_of_the_callers(ListQuery::default(), crate::error::BadRequestOrigin::ServerBuilt)]
+#[case::only_our_paging(
+    ListQuery { limit: Some(200), cursor: Some(EngineCursor::new("abc")), ..ListQuery::default() },
+    crate::error::BadRequestOrigin::ServerBuilt
+)]
+#[case::rawq_is_ours(
+    ListQuery { raw_query: vec!["eyJ9".to_string()], ..ListQuery::default() },
+    crate::error::BadRequestOrigin::ServerBuilt
+)]
+#[case::a_field_is_the_callers(
+    ListQuery { field: vec!["spec.names.kind=Service".to_string()], ..ListQuery::default() },
+    crate::error::BadRequestOrigin::CallerInput
+)]
+#[case::a_label_is_the_callers(
+    ListQuery { label: vec!["tier=gold".to_string()], ..ListQuery::default() },
+    crate::error::BadRequestOrigin::CallerInput
+)]
+#[case::a_sort_is_the_callers(
+    ListQuery { sort: vec!["metadata.name".to_string()], ..ListQuery::default() },
+    crate::error::BadRequestOrigin::CallerInput
+)]
+fn test_a_listings_bad_request_origin_follows_what_it_carries(
+    #[case] query: ListQuery,
+    #[case] expected: crate::error::BadRequestOrigin,
+) {
+    assert_eq!(query.bad_request_origin(), expected);
+}
+
+/// A `400` on a listing built entirely by us is **our** defect, and the model is told so rather
+/// than being asked to change arguments it never sent (T1 §9).
+#[rstest]
+#[tokio::test]
+async fn test_a_400_on_a_listing_we_built_is_a_server_defect() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_error(
+            "/mia-platform.eu/v1/item-type-definitions",
+            400,
+            "bad limit",
+        )
+        .await;
+
+    let error = engine
+        .client(mock_identity())
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
+            limit: Some(200),
+            ..ListQuery::default()
+        })
+        .await
+        .expect_err("a 400 is an error");
+
+    assert_eq!(error.code, codes::SERVER_DEFECT);
+    assert_eq!(error.remedy, crate::error::Remedy::Escalate);
+}
+
+/// The same `400`, on a listing carrying the caller's filter, stays the caller's to correct.
+#[rstest]
+#[tokio::test]
+async fn test_a_400_on_a_listing_with_the_callers_filter_is_invalid_input() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_error(
+            "/mia-platform.eu/v1/item-type-definitions",
+            400,
+            "bad selector",
+        )
+        .await;
+
+    let error = engine
+        .client(mock_identity())
+        .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
+            field: vec!["spec.names.kind=Service".to_string()],
+            ..ListQuery::default()
+        })
+        .await
+        .expect_err("a 400 is an error");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert_eq!(error.remedy, crate::error::Remedy::RetryAfterChange);
+}
+
+/// The tenant listing declares no parameters, so nothing in it can be the caller's fault.
+#[rstest]
+#[tokio::test]
+async fn test_a_400_on_the_tenant_listing_is_a_server_defect() {
+    let engine = MockEngine::start().await;
+    engine.get_error("/bff/tenants", 400, "bad request").await;
+
+    let error = engine
+        .client(mock_identity())
+        .list_tenants()
+        .await
+        .expect_err("a 400 is an error");
+
+    assert_eq!(error.code, codes::SERVER_DEFECT);
 }

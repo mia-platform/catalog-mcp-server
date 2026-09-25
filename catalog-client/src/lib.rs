@@ -71,6 +71,6 @@ pub use models::Tenant;
 pub use pagination::{EngineCursor, ListPage, ToolCursor};
 pub use projection::{Grouping, Projection};
 pub use query::{FieldPath, Predicate, QueryValue, RegexLiteral};
-pub use resolve::{TypeCoordinates, resolve_kind};
+pub use resolve::{ServedVersion, TypeCoordinates, resolve_kind, select_served_version};
 pub use warning::EngineWarning;
 pub use write::{ConflictPolicy, ResourceVersionIn, WriteCycle, WriteOutcome, merge_patch};
