@@ -56,6 +56,23 @@ static MATCHES_LITERAL_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^/((?:[^/\\]|\\.)*)/(i)?$").expect("MATCHES_LITERAL_RE is a constant pattern")
 });
 
+/// The engine's label-key grammar (`LABEL_ANNOTATION_KEY_PATTERN`), anchored at **both** ends.
+///
+/// The engine anchors only the start; this is stricter on purpose. A label key becomes part of a
+/// field path — `metadata.labels.<key>`, everything after the prefix, dots and slash included —
+/// so an unvalidated key would be a way to smuggle a different path into a query.
+static LABEL_KEY_RE: LazyLock<Regex> = LazyLock::new(|| {
+    // PANIC: a compile-time constant pattern, copied from the engine.
+    Regex::new(r"^([a-zA-Z0-9][a-zA-Z0-9.-]{0,253}/)?[a-zA-Z0-9][a-zA-Z0-9.-]{0,63}[a-zA-Z0-9]?$")
+        .expect("LABEL_KEY_RE is a constant pattern")
+});
+
+/// Whether `key` is a label key the engine accepts — for a tool that wants to name the parameter
+/// in its error before [`FieldPath::new`] would refuse the path.
+pub fn is_valid_label_key(key: &str) -> bool {
+    LABEL_KEY_RE.is_match(key)
+}
+
 /// A field the engine will accept in a query (§8.8).
 ///
 /// **Anything else is unconstructible.** The engine's parser rejects an unknown field with a
@@ -77,7 +94,7 @@ impl FieldPath {
                 | "metadata.urn"
         ) || path
             .strip_prefix("metadata.labels.")
-            .is_some_and(|key| !key.is_empty())
+            .is_some_and(is_valid_label_key)
             || path
                 .strip_prefix("spec.")
                 .is_some_and(|rest| !rest.is_empty());

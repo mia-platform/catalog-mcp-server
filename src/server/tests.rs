@@ -293,7 +293,15 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(names, vec!["hello", "list_catalog_types", "list_tenants"]);
+    assert_eq!(
+        names,
+        vec![
+            "hello",
+            "list_catalog_types",
+            "list_tenants",
+            "search_catalog"
+        ]
+    );
 
     let called = stateless_request(
         &mock_router,
@@ -328,7 +336,15 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(names, vec!["hello", "list_catalog_types", "list_tenants"]);
+    assert_eq!(
+        names,
+        vec![
+            "hello",
+            "list_catalog_types",
+            "list_tenants",
+            "search_catalog"
+        ]
+    );
 
     let called = legacy_request(
         &mock_router,

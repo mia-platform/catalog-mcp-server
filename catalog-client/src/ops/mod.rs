@@ -19,8 +19,8 @@ use crate::{
     address::ItemAddress,
     client::{EngineClient, EngineResponse},
     error::{BadRequestOrigin, ToolError},
-    models::{Item, ListEnvelope, PartialObjectMetadata},
-    pagination::{EngineCursor, ListPage},
+    models::Item,
+    pagination::EngineCursor,
     projection::Projection,
 };
 use url::Url;
@@ -86,10 +86,42 @@ pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
     query: &["limit", "continue", "field", "label", "rawq", "sort"],
 };
 
+/// One family's items. Unlike the global listing it also takes `label` and `field`, which this
+/// client never sends: `rawq` expresses both, on both paths (T2-D1).
+pub const LIST_FAMILY_ITEMS: OperationSpec = OperationSpec {
+    id: "list_family_items",
+    method: "get",
+    path: "/{group}/{version}/items/{family}",
+    query: &["limit", "continue", "rawq", "sort"],
+};
+
+/// How many items match across every type.
+pub const COUNT_ITEMS: OperationSpec = OperationSpec {
+    id: "count_items",
+    method: "get",
+    path: "/items/count",
+    query: &["rawq"],
+};
+
+/// How many of one family's items match.
+pub const COUNT_FAMILY_ITEMS: OperationSpec = OperationSpec {
+    id: "count_family_items",
+    method: "get",
+    path: "/{group}/{version}/items/{family}/count",
+    query: &["rawq"],
+};
+
 /// Every operation this client wraps today.
 ///
 /// Tool waves add to it; nothing else does.
-pub const OPERATIONS: &[OperationSpec] = &[LIST_ITEMS, GET_ITEM, LIST_ITEM_TYPE_DEFINITIONS];
+pub const OPERATIONS: &[OperationSpec] = &[
+    LIST_ITEMS,
+    GET_ITEM,
+    LIST_ITEM_TYPE_DEFINITIONS,
+    LIST_FAMILY_ITEMS,
+    COUNT_ITEMS,
+    COUNT_FAMILY_ITEMS,
+];
 
 /// How a listing is narrowed and paged.
 ///
@@ -177,56 +209,6 @@ impl ListQuery {
 }
 
 impl EngineClient {
-    /// `GET /items` — the global item listing.
-    ///
-    /// **The four core families are excluded by the engine** — `Relationship`,
-    /// `RelationshipType`, `RelationshipConstraint` and `CustomField` — so a global search never
-    /// returns them, and custom-field discovery must use the family-scoped endpoint instead.
-    pub async fn list_items(
-        &self,
-        query: &ListQuery,
-    ) -> Result<EngineResponse<ListPage<Item>>, ToolError> {
-        let mut url = self.url(["items"])?;
-        query.apply(&mut url, LIST_ITEMS.query);
-
-        let response: EngineResponse<ListEnvelope<Item>> = self
-            .get_json(
-                LIST_ITEMS.id,
-                url,
-                Projection::Full.accept(),
-                query.bad_request_origin(),
-            )
-            .await?;
-
-        Ok(EngineResponse {
-            value: ListPage::from_envelope(response.value),
-            warnings: response.warnings,
-        })
-    }
-
-    /// `GET /items` with the metadata-only projection, which is what a search wants.
-    pub async fn list_items_partial(
-        &self,
-        query: &ListQuery,
-    ) -> Result<EngineResponse<ListPage<PartialObjectMetadata>>, ToolError> {
-        let mut url = self.url(["items"])?;
-        query.apply(&mut url, LIST_ITEMS.query);
-
-        let response: EngineResponse<ListEnvelope<PartialObjectMetadata>> = self
-            .get_json(
-                LIST_ITEMS.id,
-                url,
-                Projection::PartialObjectMetadata.accept(),
-                query.bad_request_origin(),
-            )
-            .await?;
-
-        Ok(EngineResponse {
-            value: ListPage::from_envelope(response.value),
-            warnings: response.warnings,
-        })
-    }
-
     /// `GET /{group}/{version}/items/{family}/{name}` — one item, by address.
     pub async fn get_item(&self, address: &ItemAddress) -> Result<EngineResponse<Item>, ToolError> {
         let url = self.url(address.segments())?;
@@ -265,6 +247,9 @@ impl EngineClient {
         .await
     }
 }
+
+/// The item listings and counts: global, and scoped to one family.
+pub mod items;
 
 /// The Item Type Definition listing, generic over the model it is read into.
 pub mod item_type_definitions;

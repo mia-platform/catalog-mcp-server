@@ -58,8 +58,18 @@ async fn record_every_operation(client: &EngineClient) -> Vec<wiremock::Request>
     let _ = client
         .list_item_type_definitions::<ItemTypeDefinition>(&query)
         .await;
+    let family = mock_family();
+    let _ = client.list_family_items_partial(&family, &query).await;
+    let _ = client.count_items(&query).await;
+    let _ = client.count_family_items(&family, &query).await;
 
     Vec::new()
+}
+
+/// The family every family-scoped operation is exercised against.
+fn mock_family() -> crate::address::FamilyAddress {
+    crate::address::FamilyAddress::new("stable.example.com", "v1", "services")
+        .expect("a well-formed family")
 }
 
 /// Mounts a catch-all `200` so every operation gets an answer it can parse.
@@ -113,9 +123,10 @@ async fn test_every_operation_forwards_the_identity_pair() {
         .await
         .expect("the mock records its requests");
 
+    // Seven calls over six operations: the global listing has two projections.
     assert_eq!(
         requests.len(),
-        4,
+        7,
         "every operation in `ops` must be exercised here; `OPERATIONS` lists {}",
         OPERATIONS.len()
     );
@@ -150,7 +161,14 @@ fn test_the_operation_list_matches_what_the_client_implements() {
 
     assert_eq!(
         ids,
-        vec!["list_items", "get_item", "list_item_type_definitions"]
+        vec![
+            "list_items",
+            "get_item",
+            "list_item_type_definitions",
+            "list_family_items",
+            "count_items",
+            "count_family_items"
+        ]
     );
 }
 
@@ -656,4 +674,109 @@ async fn test_a_400_on_the_tenant_listing_is_a_server_defect() {
         .expect_err("a 400 is an error");
 
     assert_eq!(error.code, codes::SERVER_DEFECT);
+}
+
+// ---------------------------------------------------------------------------------------------
+// T2 — the family listing and the two counts.
+// ---------------------------------------------------------------------------------------------
+
+/// The family listing reaches `/{group}/{version}/items/{family}` with the metadata-only
+/// projection and nothing but `rawq`, `limit` and the cursor.
+#[rstest]
+#[tokio::test]
+async fn test_the_family_listing_is_addressed_and_projected() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path("/stable.example.com/v1/items/services"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(mock_list_envelope(vec![mock_item(MOCK_ITEM_NAME)], None)),
+        )
+        .mount(engine.server())
+        .await;
+
+    let page = engine
+        .client(mock_identity())
+        .list_family_items_partial(
+            &mock_family(),
+            &ListQuery {
+                limit: Some(50),
+                raw_query: vec!["eyJhIjoxfQ".to_string()],
+                ..ListQuery::default()
+            },
+        )
+        .await
+        .expect("the listing succeeds")
+        .value;
+
+    assert_eq!(page.items[0].metadata.name, MOCK_ITEM_NAME);
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("accept")
+            .and_then(|value| value.to_str().ok()),
+        Some(crate::projection::Projection::PartialObjectMetadata.accept())
+    );
+    assert_eq!(
+        requests[0].url.query(),
+        Some("limit=50&rawq=eyJhIjoxfQ"),
+        "only the paging and the query are sent"
+    );
+}
+
+/// Both counts read `{count}` and send the listing's `rawq` — and **never** `limit` or the
+/// cursor, which a count does not take.
+#[rstest]
+#[tokio::test]
+async fn test_the_counts_send_only_the_query() {
+    let engine = MockEngine::start().await;
+    for count_path in [
+        "/items/count",
+        "/stable.example.com/v1/items/services/count",
+    ] {
+        Mock::given(method("GET"))
+            .and(path(count_path))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "count": 128 })),
+            )
+            .mount(engine.server())
+            .await;
+    }
+    let client = engine.client(mock_identity());
+    let query = ListQuery {
+        limit: Some(50),
+        cursor: Some(EngineCursor::new("next-page")),
+        raw_query: vec!["eyJhIjoxfQ".to_string()],
+        ..ListQuery::default()
+    };
+
+    let global = client
+        .count_items(&query)
+        .await
+        .expect("the count succeeds");
+    let family = client
+        .count_family_items(&mock_family(), &query)
+        .await
+        .expect("the count succeeds");
+
+    assert_eq!((global.value.count, family.value.count), (128, 128));
+    for request in engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests")
+    {
+        assert_eq!(
+            request.url.query(),
+            Some("rawq=eyJhIjoxfQ"),
+            "{}",
+            request.url.path()
+        );
+    }
 }

@@ -63,7 +63,7 @@ pub mod ops;
 #[cfg(feature = "testing")]
 pub mod testing;
 
-pub use address::ItemAddress;
+pub use address::{FamilyAddress, ItemAddress};
 pub use client::{CallWarnings, Deadline, EngineClient, EngineClientFactory, EngineResponse};
 pub use error::{Remedy, ToolError};
 pub use identity::{AclContext, CallerIdentity, Sensitive, TenantKey};

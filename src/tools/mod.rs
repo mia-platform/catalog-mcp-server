@@ -23,6 +23,9 @@ pub mod hello;
 /// first tool of wave 1.a.
 pub mod list_catalog_types;
 
+/// T2 — search the catalog by free text, type, labels and fields. Wave 1.a.
+pub mod search_catalog;
+
 /// The worked example of the contract freeze, and the cheapest end-to-end probe of the identity
 /// path in the whole tool set (§13.5, T11).
 pub mod list_tenants;

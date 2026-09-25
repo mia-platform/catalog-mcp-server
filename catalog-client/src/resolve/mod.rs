@@ -16,6 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::{
+    address::FamilyAddress,
     client::EngineClient,
     error::{Remedy, ToolError, codes},
     models::{ItdVersion, ItemTypeDefinition, TypeVersion},
@@ -55,6 +56,13 @@ pub struct TypeCoordinates {
 
     /// Whether revision history is recorded for this type's items.
     pub history_enabled: bool,
+}
+
+impl TypeCoordinates {
+    /// The validated address of this type's items, for listing or counting them.
+    pub fn family_address(&self) -> Result<FamilyAddress, ToolError> {
+        FamilyAddress::new(&self.group, &self.version, &self.family)
+    }
 }
 
 /// Resolves `kind → {group, version, family}` in **one** request (P9, D30).

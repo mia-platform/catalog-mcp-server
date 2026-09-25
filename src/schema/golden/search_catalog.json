@@ -1,0 +1,57 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "description": "The cursor a previous call returned, to fetch the next page.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "fields": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Exact-match field filters, by JSON path.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "kind": {
+      "description": "Restrict to one type, e.g. \"Service\".",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "labels": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "Exact-match label filters.",
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "limit": {
+      "description": "Page size. Default 50, clamped to 200.",
+      "format": "uint16",
+      "maximum": 65535,
+      "minimum": 0,
+      "type": [
+        "integer",
+        "null"
+      ]
+    },
+    "query": {
+      "description": "Free text over names, titles and tags.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "type": "object"
+}

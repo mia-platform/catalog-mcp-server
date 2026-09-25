@@ -23,8 +23,6 @@ use catalog_client::{
     Remedy, ToolError,
     error::{cancelled, codes},
     models::ItdListEntry,
-    ops::ListQuery,
-    pagination::{MAX_LIMIT, paginate_all},
     select_served_version,
 };
 use rmcp::model::ToolAnnotations;
@@ -227,26 +225,14 @@ fn validate_search(search: &str) -> Result<(), ToolError> {
     })))
 }
 
-/// Walks the whole type listing (T1-D1, T1-D7).
-///
-/// **All or nothing.** A page that fails fails the call: a silently short list makes real types
-/// look nonexistent, which is strictly worse than an error the model can retry (T1 §9). Only
-/// `limit` and the cursor are sent — nothing of the caller's — which is why a `400` here is
-/// reported as ours.
+/// Walks the whole type listing (T1-D1, T1-D7) — all or nothing, so a failing page fails the
+/// call. Only `limit` and the cursor are sent, nothing of the caller's, which is why a `400`
+/// here is reported as ours.
 async fn fetch_every_type(context: &CallContext) -> Result<Vec<ItdListEntry>, ToolError> {
-    let engine = context.engine();
-
-    paginate_all(|cursor| async move {
-        engine
-            .list_item_type_definitions::<ItdListEntry>(&ListQuery {
-                limit: Some(MAX_LIMIT),
-                cursor,
-                ..ListQuery::default()
-            })
-            .await
-            .map(|response| response.value)
-    })
-    .await
+    context
+        .engine()
+        .list_all_item_type_definitions::<ItdListEntry>()
+        .await
 }
 
 /// Projects one listed type into its row, or `None` when it has no served version.

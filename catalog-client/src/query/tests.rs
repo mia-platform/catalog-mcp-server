@@ -643,3 +643,16 @@ fn test_encoding_validates_before_encoding() {
 
     assert_eq!(error.code, codes::INVALID_INPUT);
 }
+
+/// A label key becomes part of a path, so a malformed one makes the path unconstructible — the
+/// engine's grammar, dots and a prefix slash included, anchored at both ends.
+#[rstest]
+#[case::simple("metadata.labels.env", true)]
+#[case::prefixed("metadata.labels.app.example.com/name", true)]
+#[case::empty("metadata.labels.", false)]
+#[case::space("metadata.labels.bad key", false)]
+#[case::trailing_garbage("metadata.labels.env!", false)]
+#[case::two_slashes("metadata.labels.a/b/c", false)]
+fn test_a_label_path_requires_a_valid_key(#[case] path: &str, #[case] accepted: bool) {
+    assert_eq!(FieldPath::new(path).is_ok(), accepted, "{path}");
+}

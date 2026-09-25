@@ -26,7 +26,8 @@
 // of D26's propagation rather than of the policy layer's regeneration of it.
 
 use catalog_client::{
-    CallerIdentity, Deadline, EngineClient, EngineClientFactory, ItemAddress,
+    CallerIdentity, Deadline, EngineClient, EngineClientFactory, FamilyAddress, FieldPath,
+    ItemAddress, Predicate, RegexLiteral,
     error::codes,
     models::{ItdListEntry, ItemTypeDefinition},
     ops::ListQuery,
@@ -420,6 +421,136 @@ async fn test_the_type_listing_reads_every_seeded_type_through_the_lean_model() 
             .is_some_and(|history| history.enabled)),
         "no seeded type reports history enabled — has `spec.history.enabled` been renamed?"
     );
+}
+
+/// The seeded family the cursor walk pages through: 12 `tools.ai.mia-platform.eu` items, written
+/// by no other test, so the walk cannot race a write.
+const WALKED_FAMILY: (&str, &str, &str) = ("ai.mia-platform.eu", "v1", "tools");
+
+/// Small enough that the walked family spans at least three pages (T2 §10, §12).
+const WALK_PAGE_SIZE: u32 = 5;
+
+/// **T2 against the live engine: a cursor walk returns every item exactly once.** Driven through
+/// the same operations `search_catalog` uses — the family listing with the metadata-only
+/// projection, then its count — so the engine's `continue` semantics are proven on the path the
+/// tool takes, and the count agrees with what the walk saw.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_family_walk_returns_every_item_exactly_once() {
+    let client = client();
+    let (group, version, family) = WALKED_FAMILY;
+    let family = FamilyAddress::new(group, version, family).expect("a well-formed family");
+
+    let mut names = Vec::new();
+    let mut pages = 0;
+    let mut cursor = None;
+    loop {
+        let page = client
+            .list_family_items_partial(
+                &family,
+                &ListQuery {
+                    limit: Some(WALK_PAGE_SIZE),
+                    cursor,
+                    ..ListQuery::default()
+                },
+            )
+            .await
+            .expect("the live engine answers the page")
+            .value;
+        pages += 1;
+        names.extend(page.items.into_iter().map(|item| item.metadata.name));
+
+        match page.next {
+            Some(next) => cursor = Some(next),
+            None => break,
+        }
+    }
+
+    let distinct: std::collections::BTreeSet<&String> = names.iter().collect();
+    assert!(pages >= 3, "the walk spanned only {pages} pages");
+    assert_eq!(
+        distinct.len(),
+        names.len(),
+        "an item was returned twice: {names:?}"
+    );
+
+    let count = client
+        .count_family_items(&family, &ListQuery::default())
+        .await
+        .expect("the live engine answers the count")
+        .value
+        .count;
+    assert_eq!(
+        count,
+        names.len() as u64,
+        "the count disagrees with the walk"
+    );
+}
+
+/// **T2-P2's regression guard: `matches` on `metadata.tags` hits any element of the array.**
+/// No seeded item carries tags, so the test writes one — `catalog-agent`'s `spec` under a new
+/// name, with two tags — and searches for the second.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_matches_on_tags_hits_one_element_of_the_array() {
+    let client = client();
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", "catalog-agent")
+        .expect("a well-formed address");
+    let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", "e2e-tags-probe")
+        .expect("a well-formed address");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds `catalog-agent`")
+        .value;
+    client
+        .put_item(
+            &probe,
+            &serde_json::json!({
+                "apiVersion": seeded.api_version,
+                "kind": seeded.kind,
+                "metadata": { "name": probe.name(), "tags": ["alpha-tag", "beta-tag"] },
+                "spec": seeded.spec,
+            }),
+            false,
+        )
+        .await
+        .expect("the engine accepts the tagged item");
+
+    let agents = FamilyAddress::new("ai.mia-platform.eu", "v1", "agents").expect("a family");
+    let found = |text: &'static str| {
+        let client = &client;
+        let agents = &agents;
+        async move {
+            let rawq = Predicate::Matches {
+                field: FieldPath::new("metadata.tags").expect("a filterable field"),
+                pattern: RegexLiteral::containing(text).expect("a valid literal"),
+            }
+            .encode_rawq()
+            .expect("it encodes");
+
+            client
+                .list_family_items_partial(
+                    agents,
+                    &ListQuery {
+                        raw_query: rawq,
+                        ..ListQuery::default()
+                    },
+                )
+                .await
+                .expect("the live engine answers the search")
+                .value
+                .items
+                .into_iter()
+                .any(|item| item.metadata.name == "e2e-tags-probe")
+        }
+    };
+
+    assert!(
+        found("BETA").await,
+        "a pattern matching the second tag finds the item"
+    );
+    assert!(!found("gamma").await, "a pattern matching no tag does not");
 }
 
 /// A read of something that is not there is `not_found`, with the remedy the model can act on.

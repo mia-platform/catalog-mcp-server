@@ -173,6 +173,66 @@ impl std::fmt::Display for ItemAddress {
     }
 }
 
+/// Where a **family** of items lives: `/{group}/{version}/items/{family}` (§8.1).
+///
+/// An [`ItemAddress`] without the name, for the operations that act on a whole family — listing
+/// it and counting it. Validated the same way, segment by segment, so coordinates that come back
+/// inside a tool's cursor are checked before they become a path, exactly like the ones a
+/// resolution returned.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FamilyAddress {
+    group: String,
+    version: String,
+    family: String,
+}
+
+impl FamilyAddress {
+    /// Validates and builds a family address from its three parts.
+    pub fn new(
+        group: impl Into<String>,
+        version: impl Into<String>,
+        family: impl Into<String>,
+    ) -> Result<Self, ToolError> {
+        let (group, version, family) = (group.into(), version.into(), family.into());
+
+        validate("group", &group, &GROUP_RE)?;
+        validate("version", &version, &VERSION_RE)?;
+        validate("family", &family, &FAMILY_RE)?;
+
+        Ok(Self {
+            group,
+            version,
+            family,
+        })
+    }
+
+    /// The API group.
+    pub fn group(&self) -> &str {
+        &self.group
+    }
+
+    /// The served version.
+    pub fn version(&self) -> &str {
+        &self.version
+    }
+
+    /// The family — the type's `spec.names.plural`.
+    pub fn family(&self) -> &str {
+        &self.family
+    }
+
+    /// The URL path segments of the family's collection.
+    pub fn segments(&self) -> [&str; 4] {
+        [&self.group, &self.version, "items", &self.family]
+    }
+}
+
+impl std::fmt::Display for FamilyAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "/{}/{}/items/{}", self.group, self.version, self.family)
+    }
+}
+
 /// Validates one path segment against the engine's own pattern for it.
 fn validate(field: &'static str, value: &str, pattern: &Regex) -> Result<(), ToolError> {
     if value.is_empty() {
@@ -309,5 +369,34 @@ mod tests {
             .expect_err("a malformed apiVersion is refused");
 
         assert_eq!(error.code, codes::INVALID_INPUT);
+    }
+
+    /// A family address is validated like an item address, so coordinates that come back in a
+    /// cursor are checked before they become a path.
+    #[rstest::rstest]
+    #[case::bad_group("Not A Group", "v1", "services")]
+    #[case::bad_version("mia-platform.eu", "1", "services")]
+    #[case::bad_family("mia-platform.eu", "v1", "../items")]
+    fn test_a_family_address_refuses_a_malformed_segment(
+        #[case] group: &str,
+        #[case] version: &str,
+        #[case] family: &str,
+    ) {
+        let error =
+            FamilyAddress::new(group, version, family).expect_err("a malformed segment is refused");
+
+        assert_eq!(error.code, codes::INVALID_INPUT);
+    }
+
+    #[rstest::rstest]
+    fn test_a_family_address_is_the_collection_path() {
+        let family =
+            FamilyAddress::new("mia-platform.eu", "v1", "services").expect("a well-formed family");
+
+        assert_eq!(
+            family.segments(),
+            ["mia-platform.eu", "v1", "items", "services"]
+        );
+        assert_eq!(family.to_string(), "/mia-platform.eu/v1/items/services");
     }
 }

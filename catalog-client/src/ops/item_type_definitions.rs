@@ -20,7 +20,7 @@ use crate::{
     error::ToolError,
     models::ListEnvelope,
     ops::{LIST_ITEM_TYPE_DEFINITIONS, ListQuery},
-    pagination::ListPage,
+    pagination::{ListPage, MAX_LIMIT, paginate_all},
     projection::Projection,
 };
 use serde::de::DeserializeOwned;
@@ -60,5 +60,27 @@ impl EngineClient {
             value: ListPage::from_envelope(response.value),
             warnings: response.warnings,
         })
+    }
+
+    /// **Every** type the caller can see, walked to exhaustion under
+    /// [`MAX_INTERNAL_PAGES`](crate::pagination::MAX_INTERNAL_PAGES).
+    ///
+    /// All or nothing: a page that fails fails the walk, because a silently short list makes
+    /// real types look nonexistent (T1 §9). Only `limit` — the engine's maximum — and the cursor
+    /// are sent, nothing of the caller's. Shared by T1, which lists the catalogue, and T2, which
+    /// suggests near matches for a `kind` that does not exist (T2-D9).
+    pub async fn list_all_item_type_definitions<T: DeserializeOwned>(
+        &self,
+    ) -> Result<Vec<T>, ToolError> {
+        paginate_all(|cursor| async move {
+            self.list_item_type_definitions::<T>(&ListQuery {
+                limit: Some(MAX_LIMIT),
+                cursor,
+                ..ListQuery::default()
+            })
+            .await
+            .map(|response| response.value)
+        })
+        .await
     }
 }

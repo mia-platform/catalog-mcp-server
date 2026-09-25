@@ -151,7 +151,8 @@ impl Registry {
             ToolRouter::new()
                 .with_route(route_for(tools::hello::Hello))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
-                .with_route(route_for(tools::list_tenants::ListTenants)),
+                .with_route(route_for(tools::list_tenants::ListTenants))
+                .with_route(route_for(tools::search_catalog::SearchCatalog)),
         )
     }
 
