@@ -187,7 +187,8 @@ async fn test_the_lookup_is_one_tenant_scoped_point_query() {
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect();
 
-    assert!(pairs.contains(&("limit".to_string(), "1".to_string())));
+    // Two, not one: a second row is impossible, and asking for it is what makes it visible.
+    assert!(pairs.contains(&("limit".to_string(), "2".to_string())));
     assert!(pairs.contains(&("field".to_string(), "spec.names.kind=Service".to_string())));
     // Tenancy comes from the forwarded header, not from a query parameter of ours.
     assert!(requests[0].headers.get("x-mia-acl-context").is_some());
@@ -295,5 +296,42 @@ fn test_the_lean_model_is_selected_by_the_same_rule() {
         select_served_version(&lean).map(|version| version.name.as_str()),
         Some("v1beta1"),
         "a served, non-deprecated beta beats a deprecated stable, and an unserved v2 never wins"
+    );
+}
+
+/// T6-D2 — two types claiming one `kind` break the catalog's own invariant: `server_defect`,
+/// and **neither** is picked.
+#[rstest]
+#[tokio::test]
+async fn test_two_types_with_one_kind_are_a_server_defect() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            mock_list_envelope(
+                vec![
+                    mock_item_type_definition("Service", "services", "stable.example.com"),
+                    mock_item_type_definition("Service", "services", "other.example.com"),
+                ],
+                None,
+            ),
+        )
+        .await;
+
+    let error = resolve_kind(&engine.client(mock_identity()), "Service")
+        .await
+        .expect_err("an ambiguous kind is never resolved");
+
+    assert_eq!(error.code, codes::SERVER_DEFECT);
+    assert_eq!(error.remedy, crate::error::Remedy::Escalate);
+    assert_eq!(
+        error
+            .details
+            .as_deref()
+            .map(|details| details["itemTypes"].clone()),
+        Some(json!([
+            "services.stable.example.com",
+            "services.other.example.com"
+        ]))
     );
 }

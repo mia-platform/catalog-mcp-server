@@ -297,6 +297,7 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
         names,
         vec![
             "describe_item",
+            "get_item_schema",
             "hello",
             "list_catalog_types",
             "list_tenants",
@@ -341,6 +342,7 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
         names,
         vec![
             "describe_item",
+            "get_item_schema",
             "hello",
             "list_catalog_types",
             "list_tenants",

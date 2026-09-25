@@ -27,8 +27,9 @@
 
 use catalog_client::{
     CallerIdentity, Deadline, EngineClient, EngineClientFactory, FamilyAddress, FieldPath,
-    ItemAddress, Predicate, RegexLiteral,
+    ItemAddress, Predicate, RegexLiteral, coordinates_of,
     error::codes,
+    find_item_type,
     models::{ItdListEntry, ItemTypeDefinition, RelationshipDirection},
     ops::{ListQuery, relationships::RelationshipQuery},
     pagination::{ListPage, MAX_LIMIT, paginate_all},
@@ -651,6 +652,66 @@ async fn test_the_relationships_listing_is_flat_and_keeps_unresolved_entries() {
         dangling.other_end(),
         Some(agent_urn("no-such-agent").as_str())
     );
+}
+
+/// The seeded types T6's definition of done names — the smallest useful one, the depth-table
+/// example and the largest shipped type.
+const T6_NAMED_KINDS: [&str; 3] = ["Skill", "AgenticWorkflow", "Campaign"];
+
+/// **T6 against the live engine, over every seeded type** — what the plan asked 68 vendored
+/// fixtures to prove, proven on the engine itself instead, so nothing is copied and nothing can go
+/// stale (T6 §7, §9, decision (C)).
+///
+/// Each type goes through T6's exact path: the `kind` lookup (`field=spec.names.kind=…`, two rows
+/// asked for, exactly one back), the core's version selection, and the selected version's
+/// `openAPIV31Schema` — which must equal, **whole**, the schema the engine's own listing carries
+/// for that type. A projection that lost a subtree fails here.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_every_seeded_type_returns_its_schema_whole() {
+    let client = client();
+    let listed = client
+        .list_all_item_type_definitions::<ItemTypeDefinition>()
+        .await
+        .expect("the live engine lists its types");
+    assert!(
+        listed.len() >= SEEDED_TYPE_COUNT,
+        "only {} types listed",
+        listed.len()
+    );
+
+    for expected in &listed {
+        let kind = &expected.spec.names.kind;
+        let (found, _) = find_item_type(&client, kind)
+            .await
+            .unwrap_or_else(|err| panic!("`{kind}` does not resolve: {err:?}"));
+        let coordinates = coordinates_of(&found, kind).expect("a served version");
+        let schema_of = |definition: &ItemTypeDefinition| {
+            definition
+                .spec
+                .versions
+                .iter()
+                .find(|version| version.name == coordinates.version)
+                .and_then(|version| version.schema.clone())
+                .and_then(|schema| schema.get("openAPIV31Schema").cloned())
+        };
+
+        assert!(schema_of(&found).is_some(), "`{kind}` has no schema");
+        assert_eq!(
+            schema_of(&found),
+            schema_of(expected),
+            "`{kind}`'s schema is not whole"
+        );
+    }
+
+    for kind in T6_NAMED_KINDS {
+        assert!(
+            listed
+                .iter()
+                .any(|definition| definition.spec.names.kind == kind),
+            "`{kind}` is not seeded"
+        );
+    }
 }
 
 /// A read of something that is not there is `not_found`, with the remedy the model can act on.

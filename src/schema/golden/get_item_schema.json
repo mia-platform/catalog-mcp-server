@@ -1,0 +1,20 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "kind": {
+      "description": "The type's kind, e.g. \"Service\". Not the item-type-definition name.",
+      "type": "string"
+    },
+    "version": {
+      "description": "A specific version. Absent means the served one.",
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

@@ -31,6 +31,11 @@ const KIND_SELECTOR: &str = "spec.names.kind";
 /// How many near matches an unknown `kind` is answered with (T2-D9, and T3 by reference).
 pub const MAX_KIND_CANDIDATES: usize = 5;
 
+/// How many rows the `kind` lookup asks for (T6-D2): **two**. `kind` is unique per tenant, so a
+/// second row cannot happen — which is exactly why asking for it is worth nothing extra. With one,
+/// a broken invariant would resolve silently to whichever row came first.
+const KIND_LOOKUP_LIMIT: u32 = 2;
+
 /// Whether `kind` matches the engine's `kind` grammar, `^[a-zA-Z][a-zA-Z0-9]*$`
 /// (`SPEC_KIND_PATTERN`) — checked before a lookup, so a malformed `kind` is an `invalid_input`
 /// the model can act on rather than a lookup that can only find nothing.
@@ -80,39 +85,77 @@ impl TypeCoordinates {
     }
 }
 
-/// Resolves `kind → {group, version, family}` in **one** request (P9, D30).
+/// The Item Type Definition whose `spec.names.kind` is `kind`, in **one** request (P9, D30, T6-D1).
 ///
-/// A tenant-scoped point lookup, never a cache read: there is no cache in v1, so this cannot be
-/// stale and there is no tenant key to get wrong. `404`-loud rather than silently wrong.
+/// A tenant-scoped point lookup on a denormalised, filterable column — never a cache read, so it
+/// cannot be stale and there is no tenant key to get wrong. The **only** place that knows this URL:
+/// coordinate resolution and T6's schema read are the same request.
 ///
 /// # Errors
 ///
 /// - no such kind in this tenant → `not_found`, with the lookup echoed in `details`;
-/// - the kind resolves but no version is `served: true` → `unaddressable_type`, naming the
-///   versions that do exist and saying that none is served.
-pub async fn resolve_kind(
+/// - two rows → `server_defect`, logged with both names: `kind` is unique per tenant, so the
+///   catalog's own invariant is broken, and neither row may be picked (T6-D2).
+pub async fn find_item_type(
     engine: &EngineClient,
     kind: &str,
-) -> Result<(TypeCoordinates, Vec<EngineWarning>), ToolError> {
+) -> Result<(ItemTypeDefinition, Vec<EngineWarning>), ToolError> {
     let response = engine
         .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
-            limit: Some(1),
+            limit: Some(KIND_LOOKUP_LIMIT),
             field: vec![format!("{KIND_SELECTOR}={kind}")],
             ..ListQuery::default()
         })
         .await?;
 
-    let definition = response.value.items.into_iter().next().ok_or_else(|| {
-        ToolError::new(
+    let mut definitions = response.value.items;
+
+    match definitions.len() {
+        0 => Err(ToolError::new(
             codes::NOT_FOUND,
             Remedy::RetryAfterChange,
             format!("No item type with kind `{kind}` exists in this tenant."),
         )
         .with_details(json!({ "kind": kind }))
-        .with_next_step("call list_catalog_types to see the kinds that do exist")
-    })?;
+        .with_next_step("call list_catalog_types to see the kinds that do exist")),
+        1 => Ok((definitions.remove(0), response.warnings)),
+        _ => {
+            let names: Vec<&str> = definitions
+                .iter()
+                .map(|definition| definition.metadata.name.as_str())
+                .collect();
+            tracing::error!(
+                kind,
+                ?names,
+                "more than one item type claims the same kind in one tenant"
+            );
 
-    Ok((coordinates_of(&definition, kind)?, response.warnings))
+            Err(ToolError::new(
+                codes::SERVER_DEFECT,
+                Remedy::Escalate,
+                format!(
+                    "More than one item type claims the kind `{kind}`, which the catalog should \
+                     not allow. Neither is guessed at."
+                ),
+            )
+            .with_details(json!({ "kind": kind, "itemTypes": names })))
+        }
+    }
+}
+
+/// Resolves `kind → {group, version, family}` in **one** request (P9, D30).
+///
+/// # Errors
+///
+/// Those of [`find_item_type`], and `unaddressable_type` when the kind resolves but no version is
+/// `served: true` — naming the versions that do exist and saying that none is served.
+pub async fn resolve_kind(
+    engine: &EngineClient,
+    kind: &str,
+) -> Result<(TypeCoordinates, Vec<EngineWarning>), ToolError> {
+    let (definition, warnings) = find_item_type(engine, kind).await?;
+
+    Ok((coordinates_of(&definition, kind)?, warnings))
 }
 
 /// [`resolve_kind`], answering an unknown `kind` with the types it was probably meant to be.
@@ -126,8 +169,19 @@ pub async fn resolve_kind_or_suggest(
     engine: &EngineClient,
     kind: &str,
 ) -> Result<TypeCoordinates, ToolError> {
-    match resolve_kind(engine, kind).await {
-        Ok((coordinates, _warnings)) => Ok(coordinates),
+    let definition = find_item_type_or_suggest(engine, kind).await?;
+
+    coordinates_of(&definition, kind)
+}
+
+/// [`find_item_type`], answering an unknown `kind` with near matches — the whole definition, for
+/// a tool that needs more of it than the coordinates (T6).
+pub async fn find_item_type_or_suggest(
+    engine: &EngineClient,
+    kind: &str,
+) -> Result<ItemTypeDefinition, ToolError> {
+    match find_item_type(engine, kind).await {
+        Ok((definition, _warnings)) => Ok(definition),
         Err(error) if error.code == codes::NOT_FOUND => {
             Err(match kind_candidates(engine, kind).await {
                 Ok(candidates) if !candidates.is_empty() => {
@@ -172,7 +226,10 @@ async fn kind_candidates(engine: &EngineClient, kind: &str) -> Result<Vec<String
 }
 
 /// Builds the coordinates from a resolved definition, applying the served-version rule.
-fn coordinates_of(
+///
+/// Public so a tool holding the whole definition (T6) gets the same selection and the same
+/// `unaddressable_type` error without a second request.
+pub fn coordinates_of(
     definition: &ItemTypeDefinition,
     kind: &str,
 ) -> Result<TypeCoordinates, ToolError> {
