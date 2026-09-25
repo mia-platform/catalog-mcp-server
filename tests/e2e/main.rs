@@ -29,8 +29,8 @@ use catalog_client::{
     CallerIdentity, Deadline, EngineClient, EngineClientFactory, FamilyAddress, FieldPath,
     ItemAddress, Predicate, RegexLiteral,
     error::codes,
-    models::{ItdListEntry, ItemTypeDefinition},
-    ops::ListQuery,
+    models::{ItdListEntry, ItemTypeDefinition, RelationshipDirection},
+    ops::{ListQuery, relationships::RelationshipQuery},
     pagination::{ListPage, MAX_LIMIT, paginate_all},
     select_served_version,
 };
@@ -551,6 +551,106 @@ async fn test_matches_on_tags_hits_one_element_of_the_array() {
         "a pattern matching the second tag finds the item"
     );
     assert!(!found("gamma").await, "a pattern matching no tag does not");
+}
+
+/// The seeded agent T3's e2e test describes, and the agent its relationship points at.
+const DESCRIBED_AGENT: &str = "catalog-agent";
+const RELATED_AGENT: &str = "assisted-ai-resource-generator";
+
+/// The seeded relationship type the test links them with.
+const DEPENDENCY_TYPE: &str =
+    "urn:mia-platform-catalog:mia-platform.eu:v1:RelationshipType:dependency.mia-platform.eu";
+
+/// An agent's URN, as the engine builds it.
+fn agent_urn(name: &str) -> String {
+    format!("urn:mia-platform-catalog:ai.mia-platform.eu:v1:Agent:{name}")
+}
+
+/// Writes a `dependency` relationship from the described agent to `target`.
+async fn relate(client: &EngineClient, name: &str, target: &str) {
+    let address = ItemAddress::new("mia-platform.eu", "v1", "relationships", name)
+        .expect("a well-formed relationship address");
+
+    client
+        .put_item(
+            &address,
+            &serde_json::json!({
+                "apiVersion": "mia-platform.eu/v1",
+                "kind": "Relationship",
+                "metadata": { "name": name },
+                "spec": {
+                    "sourceRef": agent_urn(DESCRIBED_AGENT),
+                    "targetRef": agent_urn(target),
+                    "typeRef": DEPENDENCY_TYPE,
+                },
+            }),
+            false,
+        )
+        .await
+        .expect("the engine accepts the relationship");
+}
+
+/// **T3 against the live engine** — what its contract and integration lines asked of the
+/// relationships endpoint, asserted on the endpoint itself (T3 §8, decision (C)).
+///
+/// A `groupBy`-free request answers with a flat `List` whose entries parse as
+/// `{direction, relationship, relatedItem}`, with `relationship` the **full** record — `typeRef`,
+/// `sourceRef`, `targetRef` all present under the metadata-only projection, which T3-D1's
+/// client-side grouping rests on. And with no `acl-filter` on this path, an entry whose other end
+/// does not exist comes back **without** `relatedItem` rather than being dropped — the case T3-D7
+/// reports as `unresolved`.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_relationships_listing_is_flat_and_keeps_unresolved_entries() {
+    let client = client();
+    relate(&client, "e2e-rel-resolved", RELATED_AGENT).await;
+    relate(&client, "e2e-rel-dangling", "no-such-agent").await;
+
+    let described = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let entries = client
+        .get_relationships(
+            &described,
+            &RelationshipQuery {
+                direction: Some(RelationshipDirection::Outbound),
+                ..RelationshipQuery::default()
+            },
+        )
+        .await
+        .expect("the live engine answers with a flat list")
+        .value
+        .items;
+
+    let resolved = entries
+        .iter()
+        .find(|entry| entry.relationship.metadata.name == "e2e-rel-resolved")
+        .expect("the resolved relationship is listed");
+    assert_eq!(resolved.direction, RelationshipDirection::Outbound);
+    assert_eq!(resolved.type_ref(), Some(DEPENDENCY_TYPE));
+    assert_eq!(
+        resolved.other_end(),
+        Some(agent_urn(RELATED_AGENT).as_str())
+    );
+    assert_eq!(
+        resolved
+            .related_item
+            .as_ref()
+            .map(|item| item.metadata.name.as_str()),
+        Some(RELATED_AGENT)
+    );
+
+    let dangling = entries
+        .iter()
+        .find(|entry| entry.relationship.metadata.name == "e2e-rel-dangling")
+        .expect("an entry whose other end does not exist is still listed");
+    assert!(
+        dangling.related_item.is_none(),
+        "its relatedItem is omitted, not invented"
+    );
+    assert_eq!(
+        dangling.other_end(),
+        Some(agent_urn("no-such-agent").as_str())
+    );
 }
 
 /// A read of something that is not there is `not_found`, with the remedy the model can act on.

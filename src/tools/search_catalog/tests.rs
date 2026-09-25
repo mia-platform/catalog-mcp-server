@@ -18,13 +18,13 @@
 use crate::{
     registry::contract::{CallContext, Tool},
     tools::search_catalog::{
-        MAX_FILTER_ENTRIES, MAX_KIND_CANDIDATES, MAX_QUERY_BYTES, SearchCatalog,
-        SearchCatalogInput, ast, cursor,
+        MAX_FILTER_ENTRIES, MAX_QUERY_BYTES, SearchCatalog, SearchCatalogInput, ast, cursor,
     },
 };
 use catalog_client::{
     CallerIdentity, Deadline, EngineClientFactory, Remedy, ToolError,
     error::codes,
+    resolve::MAX_KIND_CANDIDATES,
     testing::{
         MockEngine, mock_acl_context, mock_error_body, mock_item, mock_item_type_definition,
     },

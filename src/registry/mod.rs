@@ -149,6 +149,7 @@ impl Registry {
     pub fn with_shipped_tools() -> Self {
         Self::new(
             ToolRouter::new()
+                .with_route(route_for(tools::describe_item::DescribeItem))
                 .with_route(route_for(tools::hello::Hello))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
                 .with_route(route_for(tools::list_tenants::ListTenants))

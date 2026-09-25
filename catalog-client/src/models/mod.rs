@@ -29,6 +29,9 @@ pub mod item_type_definition;
 /// The engine's list and count envelopes.
 pub mod list;
 
+/// A relationship between two items, as the relationships listing returns it (T3).
+pub mod relationship;
+
 /// Tenants, as the authz service describes them.
 pub mod tenant;
 
@@ -38,4 +41,5 @@ pub use item_type_definition::{
     TypeNames, TypeVersion,
 };
 pub use list::{Count, ListEnvelope, ListMetadata};
+pub use relationship::{ItemRelationshipEntry, RelationshipDirection};
 pub use tenant::Tenant;

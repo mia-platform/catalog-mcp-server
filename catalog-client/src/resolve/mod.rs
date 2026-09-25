@@ -19,7 +19,7 @@ use crate::{
     address::FamilyAddress,
     client::EngineClient,
     error::{Remedy, ToolError, codes},
-    models::{ItdVersion, ItemTypeDefinition, TypeVersion},
+    models::{ItdListEntry, ItdVersion, ItemTypeDefinition, TypeVersion},
     ops::ListQuery,
     warning::EngineWarning,
 };
@@ -27,6 +27,21 @@ use serde_json::json;
 
 /// The selector the point lookup filters on.
 const KIND_SELECTOR: &str = "spec.names.kind";
+
+/// How many near matches an unknown `kind` is answered with (T2-D9, and T3 by reference).
+pub const MAX_KIND_CANDIDATES: usize = 5;
+
+/// Whether `kind` matches the engine's `kind` grammar, `^[a-zA-Z][a-zA-Z0-9]*$`
+/// (`SPEC_KIND_PATTERN`) — checked before a lookup, so a malformed `kind` is an `invalid_input`
+/// the model can act on rather than a lookup that can only find nothing.
+pub fn is_valid_kind(kind: &str) -> bool {
+    let mut characters = kind.chars();
+
+    characters
+        .next()
+        .is_some_and(|first| first.is_ascii_alphabetic())
+        && characters.all(|rest| rest.is_ascii_alphanumeric())
+}
 
 /// Where a kind's items live, plus the two fields that come back in the same response (§8.6).
 ///
@@ -98,6 +113,62 @@ pub async fn resolve_kind(
     })?;
 
     Ok((coordinates_of(&definition, kind)?, response.warnings))
+}
+
+/// [`resolve_kind`], answering an unknown `kind` with the types it was probably meant to be.
+///
+/// A bare `not_found` tells the model nothing, so on that path — **and only that one** — the types
+/// are listed once and up to [`MAX_KIND_CANDIDATES`] near matches go into `details.candidates`
+/// (T2-D9): a case-insensitive substring, in both directions, over each type's `kind`, family and
+/// display name, with no edit distance. If that listing fails too, the original `not_found` is
+/// returned unchanged rather than masked. The happy path costs nothing extra.
+pub async fn resolve_kind_or_suggest(
+    engine: &EngineClient,
+    kind: &str,
+) -> Result<TypeCoordinates, ToolError> {
+    match resolve_kind(engine, kind).await {
+        Ok((coordinates, _warnings)) => Ok(coordinates),
+        Err(error) if error.code == codes::NOT_FOUND => {
+            Err(match kind_candidates(engine, kind).await {
+                Ok(candidates) if !candidates.is_empty() => {
+                    error.with_details(json!({ "kind": kind, "candidates": candidates }))
+                }
+                _ => error,
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+/// The near matches for an unknown `kind`, sorted and capped.
+async fn kind_candidates(engine: &EngineClient, kind: &str) -> Result<Vec<String>, ToolError> {
+    let needle = kind.to_lowercase();
+    let types = engine
+        .list_all_item_type_definitions::<ItdListEntry>()
+        .await?;
+
+    let mut candidates: Vec<String> = types
+        .into_iter()
+        .filter(|entry| {
+            let names = &entry.spec.names;
+            [
+                Some(names.kind.as_str()),
+                Some(names.plural.as_str()),
+                names.display_plural.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .map(str::to_lowercase)
+            .any(|name| !name.is_empty() && (name.contains(&needle) || needle.contains(&name)))
+        })
+        .map(|entry| entry.spec.names.kind)
+        .collect();
+
+    candidates.sort();
+    candidates.dedup();
+    candidates.truncate(MAX_KIND_CANDIDATES);
+
+    Ok(candidates)
 }
 
 /// Builds the coordinates from a resolved definition, applying the served-version rule.

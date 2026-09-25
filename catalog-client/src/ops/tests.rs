@@ -62,6 +62,12 @@ async fn record_every_operation(client: &EngineClient) -> Vec<wiremock::Request>
     let _ = client.list_family_items_partial(&family, &query).await;
     let _ = client.count_items(&query).await;
     let _ = client.count_family_items(&family, &query).await;
+    let _ = client
+        .get_relationships(
+            &mock_address(),
+            &super::relationships::RelationshipQuery::default(),
+        )
+        .await;
 
     Vec::new()
 }
@@ -123,10 +129,10 @@ async fn test_every_operation_forwards_the_identity_pair() {
         .await
         .expect("the mock records its requests");
 
-    // Seven calls over six operations: the global listing has two projections.
+    // Eight calls over seven operations: the global listing has two projections.
     assert_eq!(
         requests.len(),
-        7,
+        8,
         "every operation in `ops` must be exercised here; `OPERATIONS` lists {}",
         OPERATIONS.len()
     );
@@ -167,7 +173,8 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_item_type_definitions",
             "list_family_items",
             "count_items",
-            "count_family_items"
+            "count_family_items",
+            "get_relationships"
         ]
     );
 }
@@ -779,4 +786,51 @@ async fn test_the_counts_send_only_the_query() {
             request.url.path()
         );
     }
+}
+
+/// T3-D1 and T3-D7 — the relationships call is addressed by the item, asks for the partial
+/// projection, and sends **only** paging and `direction`: never `groupBy`, never `rawq`.
+#[rstest]
+#[tokio::test]
+async fn test_the_relationships_call_never_sends_group_by_or_rawq() {
+    let engine = MockEngine::start().await;
+    let relationships_path =
+        format!("/bff/stable.example.com/v1/items/services/{MOCK_ITEM_NAME}/relationships");
+    Mock::given(method("GET"))
+        .and(path(relationships_path.as_str()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(vec![], None)))
+        .mount(engine.server())
+        .await;
+
+    let page = engine
+        .client(mock_identity())
+        .get_relationships(
+            &mock_address(),
+            &super::relationships::RelationshipQuery {
+                limit: Some(50),
+                cursor: Some(EngineCursor::new("next")),
+                direction: Some(crate::models::RelationshipDirection::Outbound),
+            },
+        )
+        .await
+        .expect("the listing succeeds")
+        .value;
+
+    assert!(page.items.is_empty());
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    assert_eq!(
+        requests[0].url.query(),
+        Some("limit=50&continue=next&direction=outbound")
+    );
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("accept")
+            .and_then(|value| value.to_str().ok()),
+        Some(crate::projection::Projection::PartialObjectMetadata.accept())
+    );
 }

@@ -111,6 +111,16 @@ pub const COUNT_FAMILY_ITEMS: OperationSpec = OperationSpec {
     query: &["rawq"],
 };
 
+/// One item's relationships (T3). **Never** `groupBy` — grouping is done in the server, so the
+/// response is always a flat `List` (T3-D1) — and **never** `rawq`, which would silently drop the
+/// entries whose other end is unresolved (T3-D7).
+pub const GET_RELATIONSHIPS: OperationSpec = OperationSpec {
+    id: "get_relationships",
+    method: "get",
+    path: "/bff/{group}/{version}/items/{family}/{name}/relationships",
+    query: &["limit", "continue", "direction"],
+};
+
 /// Every operation this client wraps today.
 ///
 /// Tool waves add to it; nothing else does.
@@ -121,6 +131,7 @@ pub const OPERATIONS: &[OperationSpec] = &[
     LIST_FAMILY_ITEMS,
     COUNT_ITEMS,
     COUNT_FAMILY_ITEMS,
+    GET_RELATIONSHIPS,
 ];
 
 /// How a listing is narrowed and paged.
@@ -253,6 +264,9 @@ pub mod items;
 
 /// The Item Type Definition listing, generic over the model it is read into.
 pub mod item_type_definitions;
+
+/// One item's relationships, flat and unfiltered.
+pub mod relationships;
 
 /// The tenant listing, which is not a catalog read at all.
 pub mod tenants;

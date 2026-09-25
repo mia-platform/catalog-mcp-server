@@ -22,11 +22,12 @@ use crate::registry::{
 use catalog_client::{
     EngineClient, FamilyAddress, Predicate, Remedy, ToolError,
     error::codes,
-    models::{ItdListEntry, PartialObjectMetadata},
+    is_valid_kind,
+    models::PartialObjectMetadata,
     ops::ListQuery,
     pagination::{DEFAULT_LIMIT, MAX_LIMIT},
     query::{MAX_VALUE_BYTES, is_valid_label_key},
-    resolve_kind,
+    resolve_kind_or_suggest,
 };
 use rmcp::model::ToolAnnotations;
 use serde::{Deserialize, Serialize};
@@ -62,9 +63,6 @@ pub const MAX_FILTER_ENTRIES: usize = 20;
 
 /// The smallest page. The engine checks only the upper bound, so a `0` would be sent as is.
 const MIN_LIMIT: u32 = 1;
-
-/// How many near matches an unknown `kind` returns (T2-D9).
-pub const MAX_KIND_CANDIDATES: usize = 5;
 
 /// The prefix of a field path the family-scoped endpoint restricts to its type's selectable
 /// fields (T2-D3). `metadata.*` paths are accepted on both endpoints.
@@ -308,7 +306,7 @@ fn validate(input: &SearchCatalogInput) -> Result<(), ToolError> {
             ));
         }
 
-        if !is_kind(kind) {
+        if !is_valid_kind(kind) {
             return Err(invalid(
                 "kind",
                 format!(
@@ -335,16 +333,6 @@ fn validate(input: &SearchCatalogInput) -> Result<(), ToolError> {
     }
 
     Ok(())
-}
-
-/// The engine's `kind` grammar, `^[a-zA-Z][a-zA-Z0-9]*$` (`SPEC_KIND_PATTERN`).
-fn is_kind(kind: &str) -> bool {
-    let mut characters = kind.chars();
-
-    characters
-        .next()
-        .is_some_and(|first| first.is_ascii_alphabetic())
-        && characters.all(|rest| rest.is_ascii_alphanumeric())
 }
 
 /// The entry-count and value-length bounds shared by `labels` and `fields`.
@@ -395,26 +383,13 @@ fn effective_limit(requested: Option<u16>) -> (u32, Option<u32>) {
 
 /// Resolves `kind` to its family and checks `fields` against what that family can filter on.
 ///
-/// An unknown `kind` costs one more call, on the error path only: the types are listed once and
-/// the near matches returned in `details.candidates` (T2-D9). If that listing fails too, the
-/// original `not_found` is returned unchanged rather than masked.
+/// An unknown `kind` is answered with near matches by the core (T2-D9).
 async fn resolve_family(
     engine: &EngineClient,
     kind: &str,
     fields: Option<&BTreeMap<String, String>>,
 ) -> Result<FamilyAddress, ToolError> {
-    let coordinates = match resolve_kind(engine, kind).await {
-        Ok((coordinates, _warnings)) => coordinates,
-        Err(error) if error.code == codes::NOT_FOUND => {
-            return Err(match kind_candidates(engine, kind).await {
-                Ok(candidates) if !candidates.is_empty() => {
-                    error.with_details(json!({ "kind": kind, "candidates": candidates }))
-                }
-                _ => error,
-            });
-        }
-        Err(error) => return Err(error),
-    };
+    let coordinates = resolve_kind_or_suggest(engine, kind).await?;
 
     validate_fields_for(kind, fields, &coordinates.selectable_fields)?;
 
@@ -445,38 +420,6 @@ fn validate_fields_for(
         format!("`{path}` is not a field `{kind}` items can be filtered by."),
     )
     .with_details(json!({ "field": path, "validPaths": selectable })))
-}
-
-/// Near matches for an unknown `kind` (T2-D9): a case-insensitive substring, **in both
-/// directions**, over each type's `kind`, family and display name. No edit distance.
-async fn kind_candidates(engine: &EngineClient, kind: &str) -> Result<Vec<String>, ToolError> {
-    let needle = kind.to_lowercase();
-    let types = engine
-        .list_all_item_type_definitions::<ItdListEntry>()
-        .await?;
-
-    let mut candidates: Vec<String> = types
-        .into_iter()
-        .filter(|entry| {
-            let names = &entry.spec.names;
-            [
-                Some(names.kind.as_str()),
-                Some(names.plural.as_str()),
-                names.display_plural.as_deref(),
-            ]
-            .into_iter()
-            .flatten()
-            .map(str::to_lowercase)
-            .any(|name| !name.is_empty() && (name.contains(&needle) || needle.contains(&name)))
-        })
-        .map(|entry| entry.spec.names.kind)
-        .collect();
-
-    candidates.sort();
-    candidates.dedup();
-    candidates.truncate(MAX_KIND_CANDIDATES);
-
-    Ok(candidates)
 }
 
 /// T2 §8 — a `400` on a query this server built is logged with the **decoded** query, never the

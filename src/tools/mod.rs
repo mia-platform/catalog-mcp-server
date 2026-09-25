@@ -19,6 +19,9 @@
 /// catalog logic behind them (§13.2), and the smallest worked example of the §5.5 contract.
 pub mod hello;
 
+/// T3 — one item, what it is and what it is connected to, in one call. Wave 1.a.
+pub mod describe_item;
+
 /// T1 — every item type the caller can see, with the coordinates to address its items. The
 /// first tool of wave 1.a.
 pub mod list_catalog_types;

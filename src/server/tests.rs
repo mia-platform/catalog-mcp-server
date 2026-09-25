@@ -296,6 +296,7 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
     assert_eq!(
         names,
         vec![
+            "describe_item",
             "hello",
             "list_catalog_types",
             "list_tenants",
@@ -339,6 +340,7 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
     assert_eq!(
         names,
         vec![
+            "describe_item",
             "hello",
             "list_catalog_types",
             "list_tenants",
@@ -786,7 +788,14 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
     )
     .await;
 
-    assert_eq!(listed["result"]["tools"][0]["name"], json!(TOOL_NAME));
+    assert!(
+        listed["result"]["tools"]
+            .as_array()
+            .expect("an array")
+            .iter()
+            .any(|tool| tool["name"] == json!(TOOL_NAME)),
+        "the whole set is listed despite the cursor"
+    );
     assert_eq!(
         listed["result"]["tools"]
             .as_array()
