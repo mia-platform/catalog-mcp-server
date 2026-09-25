@@ -15,9 +15,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::registry::{
-    ToolDescriptor,
-    contract::{CallContext, Tool, ToolOutput},
+use crate::{
+    registry::{
+        ToolDescriptor,
+        contract::{CallContext, Tool, ToolOutput},
+    },
+    tools::arguments::validate_group,
 };
 use catalog_client::{
     EngineClient, FieldPath, ItemAddress, Predicate, QueryValue, RegexLiteral, Remedy, ToolError,
@@ -126,6 +129,10 @@ pub struct DescribeItemInput {
     /// Only needed when the name is ambiguous.
     #[serde(rename = "kind")]
     pub kind: Option<String>,
+
+    /// The kind's API group. Only needed when several types share the kind.
+    #[serde(rename = "group")]
+    pub group: Option<String>,
 
     /// Return the item's spec. Default true.
     #[serde(rename = "include_spec", default = "default_true")]
@@ -270,14 +277,24 @@ impl Tool for DescribeItem {
             Some(GroupBy::Type) => Grouping::ByType,
             Some(GroupBy::Direction) | None => Grouping::ByDirection,
         };
-        let cursor_fingerprint =
-            relationships_fingerprint(&input.name, input.kind.as_deref(), direction);
+        let cursor_fingerprint = relationships_fingerprint(
+            &input.name,
+            input.kind.as_deref(),
+            input.group.as_deref(),
+            direction,
+        );
         let engine = context.engine();
 
         let (address, engine_cursor) = match &input.relationship_cursor {
             Some(raw) => resume(raw, &cursor_fingerprint, &input.name)?,
             None => (
-                resolve(engine, &input.name, input.kind.as_deref()).await?,
+                resolve(
+                    engine,
+                    &input.name,
+                    input.kind.as_deref(),
+                    input.group.as_deref(),
+                )
+                .await?,
                 None,
             ),
         };
@@ -409,7 +426,7 @@ fn validate(input: &DescribeItemInput) -> Result<(), ToolError> {
         }
     }
 
-    Ok(())
+    validate_group(input.group.as_deref(), input.kind.is_some())
 }
 
 /// An `invalid_input` naming the offending parameter.
@@ -441,11 +458,13 @@ async fn resolve(
     engine: &EngineClient,
     name: &str,
     kind: Option<&str>,
+    group: Option<&str>,
 ) -> Result<ItemAddress, ToolError> {
     match kind {
-        // An unknown `kind` is answered with near matches by the core (T2-D9).
+        // An unknown `kind` is answered with near matches, and a shared one with its candidates,
+        // by the core (T2-D9, DR-80).
         Some(kind) => {
-            let coordinates = resolve_kind_or_suggest(engine, kind).await?;
+            let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
 
             ItemAddress::new(
                 &coordinates.group,
@@ -564,11 +583,13 @@ fn candidate(item: PartialObjectMetadata) -> Candidate {
 fn relationships_fingerprint(
     name: &str,
     kind: Option<&str>,
+    group: Option<&str>,
     direction: Option<RelationshipDirection>,
 ) -> String {
     fingerprint(&json!({
         "name": name,
         "kind": kind,
+        "group": group,
         "direction": direction.map(RelationshipDirection::as_str),
     }))
 }

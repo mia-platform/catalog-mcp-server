@@ -22,6 +22,9 @@ pub mod get_item_schema;
 /// catalog logic behind them (§13.2), and the smallest worked example of the §5.5 contract.
 pub mod hello;
 
+/// Argument checks shared by more than one tool.
+mod arguments;
+
 /// T3 — one item, what it is and what it is connected to, in one call. Wave 1.a.
 pub mod describe_item;
 

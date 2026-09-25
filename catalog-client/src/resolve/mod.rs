@@ -31,10 +31,18 @@ const KIND_SELECTOR: &str = "spec.names.kind";
 /// How many near matches an unknown `kind` is answered with (T2-D9, and T3 by reference).
 pub const MAX_KIND_CANDIDATES: usize = 5;
 
-/// How many rows the `kind` lookup asks for (T6-D2): **two**. `kind` is unique per tenant, so a
-/// second row cannot happen — which is exactly why asking for it is worth nothing extra. With one,
-/// a broken invariant would resolve silently to whichever row came first.
-const KIND_LOOKUP_LIMIT: u32 = 2;
+/// The selector a `group` narrows the lookup by.
+const GROUP_SELECTOR: &str = "spec.group";
+
+/// How many rows an exact `(group, kind)` lookup asks for (T6-D2): **two**. The pair is unique by
+/// the engine's own constraint (`UNIQUE (spec_group, spec_names_kind)`), so a second row cannot
+/// happen — which is exactly why asking for it costs nothing and makes a broken invariant visible.
+const EXACT_LOOKUP_LIMIT: u32 = 2;
+
+/// How many rows a `kind`-only lookup asks for. A kind is unique per **group**, not per tenant,
+/// so several types can share one — the seeded catalogue's worst case is three (`Project`) — and
+/// every one of them must come back to be offered as a candidate (DR-80).
+const SHARED_KIND_LIMIT: u32 = 20;
 
 /// Whether `kind` matches the engine's `kind` grammar, `^[a-zA-Z][a-zA-Z0-9]*$`
 /// (`SPEC_KIND_PATTERN`) — checked before a lookup, so a malformed `kind` is an `invalid_input`
@@ -85,75 +93,185 @@ impl TypeCoordinates {
     }
 }
 
-/// The Item Type Definition whose `spec.names.kind` is `kind`, in **one** request (P9, D30, T6-D1).
-///
-/// A tenant-scoped point lookup on a denormalised, filterable column — never a cache read, so it
-/// cannot be stale and there is no tenant key to get wrong. The **only** place that knows this URL:
-/// coordinate resolution and T6's schema read are the same request.
-///
-/// # Errors
-///
-/// - no such kind in this tenant → `not_found`, with the lookup echoed in `details`;
-/// - two rows → `server_defect`, logged with both names: `kind` is unique per tenant, so the
-///   catalog's own invariant is broken, and neither row may be picked (T6-D2).
-pub async fn find_item_type(
+/// What a `kind` lookup found.
+enum Lookup {
+    /// Exactly one type — boxed, because a definition dwarfs the other variants.
+    One(Box<ItemTypeDefinition>, Vec<EngineWarning>),
+
+    /// None.
+    Nothing,
+
+    /// Several — a shared kind without a `group`, or a broken invariant with one.
+    Several(Vec<ItemTypeDefinition>),
+}
+
+/// The one request both coordinate resolution and T6's schema read make (P9, D30, T6-D1).
+async fn lookup(
     engine: &EngineClient,
     kind: &str,
-) -> Result<(ItemTypeDefinition, Vec<EngineWarning>), ToolError> {
+    group: Option<&str>,
+) -> Result<Lookup, ToolError> {
+    let mut field = vec![format!("{KIND_SELECTOR}={kind}")];
+    if let Some(group) = group {
+        field.push(format!("{GROUP_SELECTOR}={group}"));
+    }
+
     let response = engine
         .list_item_type_definitions::<ItemTypeDefinition>(&ListQuery {
-            limit: Some(KIND_LOOKUP_LIMIT),
-            field: vec![format!("{KIND_SELECTOR}={kind}")],
+            limit: Some(match group {
+                Some(_) => EXACT_LOOKUP_LIMIT,
+                None => SHARED_KIND_LIMIT,
+            }),
+            field,
             ..ListQuery::default()
         })
         .await?;
 
     let mut definitions = response.value.items;
 
-    match definitions.len() {
-        0 => Err(ToolError::new(
-            codes::NOT_FOUND,
-            Remedy::RetryAfterChange,
-            format!("No item type with kind `{kind}` exists in this tenant."),
-        )
-        .with_details(json!({ "kind": kind }))
-        .with_next_step("call list_catalog_types to see the kinds that do exist")),
-        1 => Ok((definitions.remove(0), response.warnings)),
-        _ => {
-            let names: Vec<&str> = definitions
-                .iter()
-                .map(|definition| definition.metadata.name.as_str())
-                .collect();
-            tracing::error!(
-                kind,
-                ?names,
-                "more than one item type claims the same kind in one tenant"
-            );
-
-            Err(ToolError::new(
-                codes::SERVER_DEFECT,
-                Remedy::Escalate,
-                format!(
-                    "More than one item type claims the kind `{kind}`, which the catalog should \
-                     not allow. Neither is guessed at."
-                ),
-            )
-            .with_details(json!({ "kind": kind, "itemTypes": names })))
-        }
-    }
+    Ok(match definitions.len() {
+        0 => Lookup::Nothing,
+        1 => Lookup::One(Box::new(definitions.remove(0)), response.warnings),
+        _ => Lookup::Several(definitions),
+    })
 }
 
-/// Resolves `kind → {group, version, family}` in **one** request (P9, D30).
+/// The Item Type Definition a `kind` — and, when it is shared, a `group` — names (P9, D30, T6-D1).
+///
+/// A tenant-scoped point lookup on denormalised, filterable columns, in **one** request on the happy
+/// path — never a cache read, so it cannot be stale and there is no tenant key to get wrong. The
+/// **only** place that knows this URL.
+///
+/// **A kind is unique per group, not per tenant** (DR-80): `Service`, `Project` and four more are
+/// shared by several groups in the seeded catalogue. So a shared kind is never guessed at — the
+/// failure T3-D6 and T6-D2 exist to prevent — and `group` is how the caller says which.
 ///
 /// # Errors
 ///
-/// Those of [`find_item_type`], and `unaddressable_type` when the kind resolves but no version is
+/// All `not_found` / `RetryAfterChange` unless stated:
+/// - **several types share the kind** and no `group` was given → the candidates, each as
+///   `{kind, group, family}`, and a next step naming `group`;
+/// - the kind exists, **but not in the given `group`** → the groups it does exist in, found by one
+///   more request on this error path only;
+/// - no such kind in this tenant → the lookup echoed in `details`;
+/// - two rows for one `(group, kind)` → `server_defect`, logged with both names: the engine's own
+///   uniqueness constraint is broken, and neither row may be picked (T6-D2).
+pub async fn find_item_type(
+    engine: &EngineClient,
+    kind: &str,
+    group: Option<&str>,
+) -> Result<(ItemTypeDefinition, Vec<EngineWarning>), ToolError> {
+    match lookup(engine, kind, group).await? {
+        Lookup::One(definition, warnings) => Ok((*definition, warnings)),
+        Lookup::Several(definitions) => Err(match group {
+            None => shared_kind(kind, &definitions),
+            Some(group) => broken_invariant(kind, group, &definitions),
+        }),
+        Lookup::Nothing => Err(match group {
+            None => unknown_kind(kind),
+            // The error path's one extra request: is it the group that is wrong, or the kind?
+            Some(group) => match lookup(engine, kind, None).await {
+                Ok(Lookup::One(definition, _)) => {
+                    not_in_group(kind, group, std::slice::from_ref(&definition))
+                }
+                Ok(Lookup::Several(definitions)) => not_in_group(kind, group, &definitions),
+                Ok(Lookup::Nothing) | Err(_) => unknown_kind(kind),
+            },
+        }),
+    }
+}
+
+/// A type as a candidate the caller can pick with `group`.
+fn candidates_of(definitions: &[ItemTypeDefinition]) -> Vec<serde_json::Value> {
+    definitions
+        .iter()
+        .map(|definition| {
+            json!({
+                "kind": definition.spec.names.kind,
+                "group": definition.spec.group,
+                "family": definition.spec.names.plural,
+            })
+        })
+        .collect()
+}
+
+/// No type has this kind.
+fn unknown_kind(kind: &str) -> ToolError {
+    ToolError::new(
+        codes::NOT_FOUND,
+        Remedy::RetryAfterChange,
+        format!("No item type with kind `{kind}` exists in this tenant."),
+    )
+    .with_details(json!({ "kind": kind }))
+    .with_next_step("call list_catalog_types to see the kinds that do exist")
+}
+
+/// Several types share this kind, and nothing says which (DR-80). The same answer T3-D6 gives an
+/// ambiguous item name: the candidates, never a pick.
+fn shared_kind(kind: &str, definitions: &[ItemTypeDefinition]) -> ToolError {
+    ToolError::new(
+        codes::NOT_FOUND,
+        Remedy::RetryAfterChange,
+        format!(
+            "`{kind}` is the kind of {} item types, in different groups. Say which with `group`.",
+            definitions.len()
+        ),
+    )
+    .with_details(json!({ "kind": kind, "candidates": candidates_of(definitions) }))
+    .with_next_step("call again with `group` set to the intended candidate's")
+}
+
+/// The kind exists, but not in the group asked for.
+fn not_in_group(kind: &str, group: &str, definitions: &[ItemTypeDefinition]) -> ToolError {
+    ToolError::new(
+        codes::NOT_FOUND,
+        Remedy::RetryAfterChange,
+        format!("There is a `{kind}` type, but not in group `{group}`."),
+    )
+    .with_details(json!({
+        "kind": kind,
+        "group": group,
+        "candidates": candidates_of(definitions),
+    }))
+    .with_next_step("call again with `group` set to one of the candidates'")
+}
+
+/// Two types for one `(group, kind)` — the engine's own uniqueness constraint is broken.
+fn broken_invariant(kind: &str, group: &str, definitions: &[ItemTypeDefinition]) -> ToolError {
+    let names: Vec<&str> = definitions
+        .iter()
+        .map(|definition| definition.metadata.name.as_str())
+        .collect();
+    tracing::error!(
+        kind,
+        group,
+        ?names,
+        "more than one item type claims the same group and kind"
+    );
+
+    ToolError::new(
+        codes::SERVER_DEFECT,
+        Remedy::Escalate,
+        format!(
+            "More than one item type claims `{kind}` in group `{group}`, which the catalog should \
+             not allow. Neither is guessed at."
+        ),
+    )
+    .with_details(json!({ "kind": kind, "group": group, "itemTypes": names }))
+}
+
+/// Resolves `kind` (and `group`, when the kind is shared) to `{group, version, family}` (P9, D30).
+///
+/// # Errors
+///
+/// Those of [`find_item_type`], and `unaddressable_type` when the type resolves but no version is
 /// `served: true` — naming the versions that do exist and saying that none is served.
 pub async fn resolve_kind(
     engine: &EngineClient,
     kind: &str,
+    group: Option<&str>,
 ) -> Result<(TypeCoordinates, Vec<EngineWarning>), ToolError> {
-    let (definition, warnings) = find_item_type(engine, kind).await?;
+    let (definition, warnings) = find_item_type(engine, kind, group).await?;
 
     Ok((coordinates_of(&definition, kind)?, warnings))
 }
@@ -164,12 +282,14 @@ pub async fn resolve_kind(
 /// are listed once and up to [`MAX_KIND_CANDIDATES`] near matches go into `details.candidates`
 /// (T2-D9): a case-insensitive substring, in both directions, over each type's `kind`, family and
 /// display name, with no edit distance. If that listing fails too, the original `not_found` is
-/// returned unchanged rather than masked. The happy path costs nothing extra.
+/// returned unchanged rather than masked. A shared kind or a wrong group already carries its own
+/// candidates, and is left as it is. The happy path costs nothing extra.
 pub async fn resolve_kind_or_suggest(
     engine: &EngineClient,
     kind: &str,
+    group: Option<&str>,
 ) -> Result<TypeCoordinates, ToolError> {
-    let definition = find_item_type_or_suggest(engine, kind).await?;
+    let definition = find_item_type_or_suggest(engine, kind, group).await?;
 
     coordinates_of(&definition, kind)
 }
@@ -179,10 +299,11 @@ pub async fn resolve_kind_or_suggest(
 pub async fn find_item_type_or_suggest(
     engine: &EngineClient,
     kind: &str,
+    group: Option<&str>,
 ) -> Result<ItemTypeDefinition, ToolError> {
-    match find_item_type(engine, kind).await {
+    match find_item_type(engine, kind, group).await {
         Ok((definition, _warnings)) => Ok(definition),
-        Err(error) if error.code == codes::NOT_FOUND => {
+        Err(error) if error.code == codes::NOT_FOUND && !has_candidates(&error) => {
             Err(match kind_candidates(engine, kind).await {
                 Ok(candidates) if !candidates.is_empty() => {
                     error.with_details(json!({ "kind": kind, "candidates": candidates }))
@@ -192,6 +313,14 @@ pub async fn find_item_type_or_suggest(
         }
         Err(error) => Err(error),
     }
+}
+
+/// Whether an error already names its candidates.
+fn has_candidates(error: &ToolError) -> bool {
+    error
+        .details
+        .as_deref()
+        .is_some_and(|details| details.get("candidates").is_some())
 }
 
 /// The near matches for an unknown `kind`, sorted and capped.

@@ -1142,3 +1142,101 @@ async fn test_fifty_relationships_serialise_to_their_recorded_size() {
          (±{SIZE_TOLERANCE_PERCENT} %). Update the recording if the growth is intended."
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// DR-80 — a kind is unique per group, not per tenant.
+// ---------------------------------------------------------------------------------------------
+
+/// A shared kind with no `group` is answered with its candidates; with `group`, the item is read in
+/// the named group's family.
+#[rstest]
+#[tokio::test]
+async fn test_a_shared_kind_needs_its_group() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.group=stable.example.com"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![mock_item_type_definition(
+                "Service",
+                "services",
+                "stable.example.com",
+            )],
+            None,
+        )))
+        .with_priority(1)
+        .mount(engine.server())
+        .await;
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.names.kind=Service"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![
+                mock_item_type_definition("Service", "services", "stable.example.com"),
+                mock_item_type_definition("Service", "services", "other.example.com"),
+            ],
+            None,
+        )))
+        .with_priority(2)
+        .mount(engine.server())
+        .await;
+    mount(&engine, ITEM_PATH, 200, mock_item(ITEM), None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(vec![], None),
+        None,
+    )
+    .await;
+    let context = mock_context(&engine);
+
+    let error = run(&context, mock_kinded_input())
+        .await
+        .expect_err("a shared kind is not guessed");
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::NOT_FOUND, Remedy::RetryAfterChange)
+    );
+    assert_eq!(
+        error
+            .details
+            .as_deref()
+            .and_then(|details| details["candidates"].as_array().map(Vec::len)),
+        Some(2)
+    );
+
+    let payload = run(
+        &context,
+        DescribeItemInput {
+            group: Some("stable.example.com".to_string()),
+            ..mock_kinded_input()
+        },
+    )
+    .await
+    .expect("the pair names one type");
+    assert_eq!(payload["group"], json!("stable.example.com"));
+}
+
+/// `group` without `kind` is refused before the engine is asked.
+#[rstest]
+#[tokio::test]
+async fn test_a_group_without_a_kind_is_refused() {
+    let engine = MockEngine::start().await;
+
+    let error = run(
+        &mock_context(&engine),
+        DescribeItemInput {
+            group: Some("stable.example.com".to_string()),
+            ..mock_input(ITEM)
+        },
+    )
+    .await
+    .expect_err("refused");
+
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::INVALID_INPUT, Remedy::RetryAfterChange)
+    );
+    assert!(requests(&engine).await.is_empty());
+}

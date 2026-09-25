@@ -16,6 +16,13 @@
       ],
       "description": "Restrict relationships to one direction."
     },
+    "group": {
+      "description": "The kind's API group. Only needed when several types share the kind.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "group_by": {
       "anyOf": [
         {

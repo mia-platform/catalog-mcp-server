@@ -74,6 +74,7 @@ fn mock_input() -> SearchCatalogInput {
     SearchCatalogInput {
         query: None,
         kind: None,
+        group: None,
         labels: None,
         fields: None,
         limit: None,
@@ -315,7 +316,7 @@ fn test_key_order_does_not_change_the_rawq_or_the_fingerprint() {
             .expect("a predicate");
         (
             predicate.encode_rawq().expect("it encodes"),
-            cursor::fingerprint(None, Some(&predicate)),
+            cursor::fingerprint(None, None, Some(&predicate)),
         )
     };
 
@@ -1157,5 +1158,170 @@ async fn test_a_realistic_full_page_serialises_to_its_recorded_size() {
         actual.abs_diff(RECORDED_FULL_PAGE_BYTES) <= tolerance,
         "a full page serialises to {actual} B, recorded {RECORDED_FULL_PAGE_BYTES} B \
          (±{SIZE_TOLERANCE_PERCENT} %). Update the recording if the growth is intended."
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// DR-80 — a kind is unique per group, not per tenant.
+// ---------------------------------------------------------------------------------------------
+
+/// Two types sharing `Service`, in different groups.
+async fn mount_shared_service(engine: &MockEngine) {
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", SERVICE_LOOKUP))
+        .and(query_param_is_missing_group())
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![
+                mock_item_type_definition("Service", "services", "stable.example.com"),
+                mock_item_type_definition("Service", "services", "other.example.com"),
+            ],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+}
+
+/// Matches a request with no `spec.group` filter among its `field`s.
+fn query_param_is_missing_group() -> impl wiremock::Match {
+    |request: &wiremock::Request| {
+        !request
+            .url
+            .query_pairs()
+            .any(|(key, value)| key == "field" && value.starts_with("spec.group="))
+    }
+}
+
+/// A shared kind with no `group` is answered with the candidates — never a guess.
+#[rstest]
+#[tokio::test]
+async fn test_a_shared_kind_returns_candidates() {
+    let engine = MockEngine::start().await;
+    mount_shared_service(&engine).await;
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Service".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("a shared kind is not guessed");
+
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::NOT_FOUND, Remedy::RetryAfterChange)
+    );
+    assert_eq!(
+        error
+            .details
+            .as_deref()
+            .and_then(|details| details["candidates"].as_array().map(Vec::len)),
+        Some(2)
+    );
+    assert!(
+        requests(&engine)
+            .await
+            .iter()
+            .all(|sent| sent.path != GLOBAL_PATH),
+        "nothing is searched until the type is known"
+    );
+}
+
+/// With `group`, the lookup is exact and the search runs on that family.
+#[rstest]
+#[tokio::test]
+async fn test_a_group_names_one_of_a_shared_kind() {
+    let engine = MockEngine::start().await;
+    mount_shared_service(&engine).await;
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.group=other.example.com"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![mock_item_type_definition(
+                "Service",
+                "services",
+                "other.example.com",
+            )],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+    mount_listing(
+        &engine,
+        "/other.example.com/v1/items/services",
+        mock_page(vec![], None),
+    )
+    .await;
+
+    run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Service".to_string()),
+            group: Some("other.example.com".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the pair names one type");
+
+    assert!(
+        requests(&engine)
+            .await
+            .iter()
+            .any(|sent| sent.path == "/other.example.com/v1/items/services"),
+        "the search ran on the named group's family"
+    );
+}
+
+/// `group` without `kind`, or not a group at all, is `invalid_input` before the engine is asked.
+#[rstest]
+#[case::without_kind(None, "other.example.com")]
+#[case::malformed(Some("Service"), "Not A Group")]
+#[tokio::test]
+async fn test_a_bad_group_is_refused(#[case] kind: Option<&str>, #[case] group: &str) {
+    let engine = MockEngine::start().await;
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: kind.map(str::to_string),
+            group: Some(group.to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("refused");
+
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::INVALID_INPUT, Remedy::RetryAfterChange)
+    );
+    assert_eq!(
+        error
+            .details
+            .as_deref()
+            .map(|details| details["field"].clone()),
+        Some(json!("group"))
+    );
+    assert!(requests(&engine).await.is_empty());
+}
+
+/// The group is part of the search: a cursor minted in one group cannot continue another.
+#[rstest]
+#[tokio::test]
+async fn test_the_group_is_part_of_the_fingerprint() {
+    let predicate = ast::build(Some("gateway"), None, None)
+        .expect("valid")
+        .expect("a predicate");
+
+    assert_ne!(
+        cursor::fingerprint(
+            Some("Service"),
+            Some("stable.example.com"),
+            Some(&predicate)
+        ),
+        cursor::fingerprint(Some("Service"), Some("other.example.com"), Some(&predicate))
     );
 }

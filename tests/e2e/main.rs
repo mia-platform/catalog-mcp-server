@@ -682,7 +682,8 @@ async fn test_every_seeded_type_returns_its_schema_whole() {
 
     for expected in &listed {
         let kind = &expected.spec.names.kind;
-        let (found, _) = find_item_type(&client, kind)
+        // The exact `(group, kind)` lookup: a kind is unique per group only (DR-80).
+        let (found, _) = find_item_type(&client, kind, Some(&expected.spec.group))
             .await
             .unwrap_or_else(|err| panic!("`{kind}` does not resolve: {err:?}"));
         let coordinates = coordinates_of(&found, kind).expect("a served version");
@@ -712,6 +713,34 @@ async fn test_every_seeded_type_returns_its_schema_whole() {
             "`{kind}` is not seeded"
         );
     }
+}
+
+/// **DR-80, live: a kind is unique per group, not per tenant.** `Service` is seeded in two groups,
+/// so a lookup by `kind` alone is answered with both as candidates — the premise the plans had
+/// wrong, pinned against the engine that disproved it.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_shared_kind_is_answered_with_its_groups() {
+    let error = find_item_type(&client(), "Service", None)
+        .await
+        .expect_err("a shared kind is never resolved without a group");
+
+    assert_eq!(error.code, codes::NOT_FOUND);
+    let groups: Vec<String> = error
+        .details
+        .as_deref()
+        .and_then(|details| details["candidates"].as_array().cloned())
+        .expect("candidates")
+        .iter()
+        .map(|candidate| candidate["group"].as_str().unwrap_or_default().to_string())
+        .collect();
+    assert!(
+        groups.len() >= 2
+            && groups
+                .iter()
+                .any(|group| group == "console.mia-platform.eu"),
+        "{groups:?}"
+    );
 }
 
 /// A read of something that is not there is `not_found`, with the remedy the model can act on.

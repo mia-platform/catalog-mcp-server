@@ -142,6 +142,7 @@ async fn run(context: &CallContext, kind: &str, version: Option<&str>) -> Result
             context,
             GetItemSchemaInput {
                 kind: kind.to_string(),
+                group: None,
                 version: version.map(str::to_string),
             },
         )
@@ -429,16 +430,102 @@ async fn test_an_unknown_kind_returns_candidates() {
     );
 }
 
-/// T6-D2 — two types claiming one `kind` is `server_defect`, and neither is picked.
+/// DR-80 — a kind shared by two groups is answered with the candidates; neither is picked.
 #[rstest]
 #[tokio::test]
-async fn test_two_types_for_one_kind_are_a_server_defect() {
+async fn test_a_shared_kind_returns_the_candidates() {
     let mut other = mock_skill_type();
+    other["spec"]["group"] = json!("example.com");
     other["metadata"]["name"] = json!("skills.example.com");
 
     let error = call_with(vec![mock_skill_type(), other], "Skill", None)
         .await
         .expect_err("never guessed");
+
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::NOT_FOUND, Remedy::RetryAfterChange)
+    );
+    assert_eq!(
+        error
+            .details
+            .as_deref()
+            .map(|details| details["candidates"].clone()),
+        Some(json!([
+            { "kind": "Skill", "group": "ai.mia-platform.eu", "family": "skills" },
+            { "kind": "Skill", "group": "example.com", "family": "skills" }
+        ]))
+    );
+}
+
+/// With `group` the lookup is exact; two rows for one `(group, kind)` are then a
+/// `server_defect` (T6-D2), because the engine's own constraint forbids them.
+#[rstest]
+#[tokio::test]
+async fn test_a_group_makes_the_lookup_exact() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.group=ai.mia-platform.eu"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(vec![mock_skill_type()])))
+        .mount(engine.server())
+        .await;
+    let context = mock_context_at(&engine.server().uri(), CALL_BUDGET);
+
+    let payload = GetItemSchema
+        .call(
+            &context,
+            GetItemSchemaInput {
+                kind: "Skill".to_string(),
+                group: Some("ai.mia-platform.eu".to_string()),
+                version: None,
+            },
+        )
+        .await
+        .expect("the pair names one type")
+        .payload()
+        .clone();
+
+    assert_eq!(payload["group"], json!("ai.mia-platform.eu"));
+    let query = engine
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default()[0]
+        .url
+        .query()
+        .unwrap_or_default()
+        .to_string();
+    assert!(query.contains("limit=2"), "{query}");
+}
+
+#[rstest]
+#[tokio::test]
+async fn test_two_types_for_one_group_and_kind_are_a_server_defect() {
+    let engine = MockEngine::start().await;
+    let mut duplicate = mock_skill_type();
+    duplicate["metadata"]["name"] = json!("skills.ai.mia-platform.eu-again");
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.group=ai.mia-platform.eu"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(mock_page(vec![mock_skill_type(), duplicate])),
+        )
+        .mount(engine.server())
+        .await;
+    let context = mock_context_at(&engine.server().uri(), CALL_BUDGET);
+
+    let error = GetItemSchema
+        .call(
+            &context,
+            GetItemSchemaInput {
+                kind: "Skill".to_string(),
+                group: Some("ai.mia-platform.eu".to_string()),
+                version: None,
+            },
+        )
+        .await
+        .expect_err("an impossible pair is never guessed");
 
     assert_eq!(
         (error.code, error.remedy),

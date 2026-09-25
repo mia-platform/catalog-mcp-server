@@ -23,6 +23,10 @@ use crate::{
 };
 use rstest::rstest;
 use serde_json::json;
+use wiremock::{
+    Mock, ResponseTemplate,
+    matchers::{method, path, query_param},
+};
 
 /// A version, named and flagged.
 fn version(name: &str, served: bool, deprecated: bool) -> TypeVersion {
@@ -137,7 +141,7 @@ async fn test_a_kind_resolves_to_its_coordinates() {
         )
         .await;
 
-    let (coordinates, warnings) = resolve_kind(&engine.client(mock_identity()), "Service")
+    let (coordinates, warnings) = resolve_kind(&engine.client(mock_identity()), "Service", None)
         .await
         .expect("the kind resolves");
 
@@ -171,7 +175,7 @@ async fn test_the_lookup_is_one_tenant_scoped_point_query() {
         )
         .await;
 
-    let _ = resolve_kind(&engine.client(mock_identity()), "Service").await;
+    let _ = resolve_kind(&engine.client(mock_identity()), "Service", None).await;
 
     let requests = engine
         .server()
@@ -187,8 +191,9 @@ async fn test_the_lookup_is_one_tenant_scoped_point_query() {
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect();
 
-    // Two, not one: a second row is impossible, and asking for it is what makes it visible.
-    assert!(pairs.contains(&("limit".to_string(), "2".to_string())));
+    // Without a group, every type sharing the kind must come back to be offered as a candidate
+    // (DR-80); the exact `(group, kind)` lookup asks for two instead (T6-D2), pinned below.
+    assert!(pairs.contains(&("limit".to_string(), "20".to_string())));
     assert!(pairs.contains(&("field".to_string(), "spec.names.kind=Service".to_string())));
     // Tenancy comes from the forwarded header, not from a query parameter of ours.
     assert!(requests[0].headers.get("x-mia-acl-context").is_some());
@@ -206,7 +211,7 @@ async fn test_an_unknown_kind_is_not_found_with_a_next_step() {
         )
         .await;
 
-    let error = resolve_kind(&engine.client(mock_identity()), "NoSuchKind")
+    let error = resolve_kind(&engine.client(mock_identity()), "NoSuchKind", None)
         .await
         .expect_err("an unknown kind is an error");
 
@@ -239,7 +244,7 @@ async fn test_a_type_with_no_served_version_is_unaddressable() {
         )
         .await;
 
-    let error = resolve_kind(&engine.client(mock_identity()), "Service")
+    let error = resolve_kind(&engine.client(mock_identity()), "Service", None)
         .await
         .expect_err("an unserved type is an error");
 
@@ -264,9 +269,13 @@ async fn test_an_engine_failure_is_not_reported_as_a_missing_kind() {
         )
         .await;
 
-    let error = resolve_kind(&engine.client_without_retries(mock_identity()), "Service")
-        .await
-        .expect_err("an unavailable engine is an error");
+    let error = resolve_kind(
+        &engine.client_without_retries(mock_identity()),
+        "Service",
+        None,
+    )
+    .await
+    .expect_err("an unavailable engine is an error");
 
     assert_eq!(error.code, codes::CATALOG_UNAVAILABLE);
 }
@@ -299,39 +308,162 @@ fn test_the_lean_model_is_selected_by_the_same_rule() {
     );
 }
 
-/// T6-D2 — two types claiming one `kind` break the catalog's own invariant: `server_defect`,
-/// and **neither** is picked.
+/// Two types sharing one kind, in different groups — as `Service` is in the seeded catalogue.
+fn mock_shared_service() -> serde_json::Value {
+    mock_list_envelope(
+        vec![
+            mock_item_type_definition("Service", "services", "stable.example.com"),
+            mock_item_type_definition("Service", "services", "other.example.com"),
+        ],
+        None,
+    )
+}
+
+/// DR-80 — a kind is unique per group, not per tenant. A shared kind with no `group` is answered
+/// with the candidates, **never** a pick.
 #[rstest]
 #[tokio::test]
-async fn test_two_types_with_one_kind_are_a_server_defect() {
+async fn test_a_shared_kind_without_a_group_returns_the_candidates() {
     let engine = MockEngine::start().await;
     engine
         .get_ok(
             "/mia-platform.eu/v1/item-type-definitions",
-            mock_list_envelope(
-                vec![
-                    mock_item_type_definition("Service", "services", "stable.example.com"),
-                    mock_item_type_definition("Service", "services", "other.example.com"),
-                ],
-                None,
-            ),
+            mock_shared_service(),
         )
         .await;
 
-    let error = resolve_kind(&engine.client(mock_identity()), "Service")
+    let error = resolve_kind(&engine.client(mock_identity()), "Service", None)
         .await
-        .expect_err("an ambiguous kind is never resolved");
+        .expect_err("a shared kind is never resolved without a group");
 
-    assert_eq!(error.code, codes::SERVER_DEFECT);
-    assert_eq!(error.remedy, crate::error::Remedy::Escalate);
+    assert_eq!(error.code, codes::NOT_FOUND);
+    assert_eq!(error.remedy, crate::error::Remedy::RetryAfterChange);
     assert_eq!(
         error
             .details
             .as_deref()
-            .map(|details| details["itemTypes"].clone()),
+            .map(|details| details["candidates"].clone()),
         Some(json!([
-            "services.stable.example.com",
-            "services.other.example.com"
+            { "kind": "Service", "group": "stable.example.com", "family": "services" },
+            { "kind": "Service", "group": "other.example.com", "family": "services" }
         ]))
     );
+    assert!(
+        error
+            .next_step
+            .as_deref()
+            .is_some_and(|step| step.contains("group"))
+    );
+}
+
+/// With `group`, the lookup filters on both columns — exact by the engine's own constraint.
+#[rstest]
+#[tokio::test]
+async fn test_a_group_makes_the_lookup_exact() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path("/mia-platform.eu/v1/item-type-definitions"))
+        .and(query_param("field", "spec.group=other.example.com"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(
+            vec![mock_item_type_definition(
+                "Service",
+                "services",
+                "other.example.com",
+            )],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+
+    let (coordinates, _) = resolve_kind(
+        &engine.client(mock_identity()),
+        "Service",
+        Some("other.example.com"),
+    )
+    .await
+    .expect("the pair names one type");
+
+    assert_eq!(coordinates.group, "other.example.com");
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    let fields: Vec<String> = requests[0]
+        .url
+        .query_pairs()
+        .filter(|(key, _)| key == "field")
+        .map(|(_, value)| value.into_owned())
+        .collect();
+    assert_eq!(
+        fields,
+        vec!["spec.names.kind=Service", "spec.group=other.example.com"]
+    );
+    assert!(
+        requests[0]
+            .url
+            .query()
+            .is_some_and(|query| query.contains("limit=2"))
+    );
+}
+
+/// A group that does not hold the kind is `not_found`, naming the groups that do.
+#[rstest]
+#[tokio::test]
+async fn test_a_kind_outside_its_group_names_the_groups_it_is_in() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path("/mia-platform.eu/v1/item-type-definitions"))
+        .and(query_param("field", "spec.group=wrong.example.com"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(vec![], None)))
+        .mount(engine.server())
+        .await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            mock_shared_service(),
+        )
+        .await;
+
+    let error = resolve_kind(
+        &engine.client(mock_identity()),
+        "Service",
+        Some("wrong.example.com"),
+    )
+    .await
+    .expect_err("the kind is not in that group");
+
+    assert_eq!(error.code, codes::NOT_FOUND);
+    assert_eq!(
+        error
+            .details
+            .as_deref()
+            .and_then(|details| details["candidates"].as_array().map(Vec::len)),
+        Some(2)
+    );
+}
+
+/// T6-D2 — two rows for one `(group, kind)` break the engine's own constraint: `server_defect`,
+/// and **neither** is picked.
+#[rstest]
+#[tokio::test]
+async fn test_two_types_for_one_group_and_kind_are_a_server_defect() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            mock_shared_service(),
+        )
+        .await;
+
+    let error = resolve_kind(
+        &engine.client(mock_identity()),
+        "Service",
+        Some("stable.example.com"),
+    )
+    .await
+    .expect_err("an impossible pair is never resolved");
+
+    assert_eq!(error.code, codes::SERVER_DEFECT);
+    assert_eq!(error.remedy, crate::error::Remedy::Escalate);
 }

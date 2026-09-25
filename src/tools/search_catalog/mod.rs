@@ -15,9 +15,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::registry::{
-    ToolDescriptor,
-    contract::{CallContext, Tool, ToolOutput},
+use crate::{
+    registry::{
+        ToolDescriptor,
+        contract::{CallContext, Tool, ToolOutput},
+    },
+    tools::arguments::validate_group,
 };
 use catalog_client::{
     EngineClient, FamilyAddress, Predicate, Remedy, ToolError,
@@ -83,6 +86,10 @@ pub struct SearchCatalogInput {
     /// Restrict to one type, e.g. "Service".
     #[serde(rename = "kind")]
     pub kind: Option<String>,
+
+    /// The kind's API group. Only needed when several types share the kind.
+    #[serde(rename = "group")]
+    pub group: Option<String>,
 
     /// Exact-match label filters.
     #[serde(rename = "labels")]
@@ -200,7 +207,11 @@ impl Tool for SearchCatalog {
             Some(predicate) => predicate.encode_rawq()?,
             None => Vec::new(),
         };
-        let fingerprint = cursor::fingerprint(input.kind.as_deref(), predicate.as_ref());
+        let fingerprint = cursor::fingerprint(
+            input.kind.as_deref(),
+            input.group.as_deref(),
+            predicate.as_ref(),
+        );
         let engine = context.engine();
 
         let (family, engine_cursor, returned) = match &input.cursor {
@@ -210,7 +221,10 @@ impl Tool for SearchCatalog {
             }
             None => {
                 let family = match &input.kind {
-                    Some(kind) => Some(resolve_family(engine, kind, input.fields.as_ref()).await?),
+                    Some(kind) => Some(
+                        resolve_family(engine, kind, input.group.as_deref(), input.fields.as_ref())
+                            .await?,
+                    ),
                     None => None,
                 };
                 (family, None, 0)
@@ -317,6 +331,8 @@ fn validate(input: &SearchCatalogInput) -> Result<(), ToolError> {
         }
     }
 
+    validate_group(input.group.as_deref(), input.kind.is_some())?;
+
     if let Some(labels) = &input.labels {
         validate_entries("labels", labels)?;
 
@@ -387,9 +403,10 @@ fn effective_limit(requested: Option<u16>) -> (u32, Option<u32>) {
 async fn resolve_family(
     engine: &EngineClient,
     kind: &str,
+    group: Option<&str>,
     fields: Option<&BTreeMap<String, String>>,
 ) -> Result<FamilyAddress, ToolError> {
-    let coordinates = resolve_kind_or_suggest(engine, kind).await?;
+    let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
 
     validate_fields_for(kind, fields, &coordinates.selectable_fields)?;
 
@@ -462,6 +479,9 @@ fn interpreted_filters(input: &SearchCatalogInput) -> Value {
     }
     if let Some(kind) = &input.kind {
         filters.insert("kind".to_string(), json!(kind));
+    }
+    if let Some(group) = &input.group {
+        filters.insert("group".to_string(), json!(group));
     }
     if let Some(labels) = input.labels.as_ref().filter(|labels| !labels.is_empty()) {
         filters.insert("labels".to_string(), json!(labels));

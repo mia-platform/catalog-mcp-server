@@ -233,6 +233,12 @@ impl std::fmt::Display for FamilyAddress {
     }
 }
 
+/// Whether `group` is an API group the engine accepts (its `spec.group` pattern) — for a tool
+/// narrowing a shared `kind` to one type (DR-80).
+pub fn is_valid_group(group: &str) -> bool {
+    group.len() <= MAX_SEGMENT_LENGTH && GROUP_RE.is_match(group)
+}
+
 /// Validates one path segment against the engine's own pattern for it.
 fn validate(field: &'static str, value: &str, pattern: &Regex) -> Result<(), ToolError> {
     if value.is_empty() {

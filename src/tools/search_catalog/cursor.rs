@@ -64,15 +64,20 @@ pub struct Resumed {
     pub returned: u64,
 }
 
-/// The fingerprint of one search: its predicate and the `kind` it was restricted to.
+/// The fingerprint of one search: its predicate and the type it was restricted to.
 ///
-/// The `kind` **argument** stands in for the resolved coordinates the plan names: the
-/// coordinates are only known after the cursor is decoded, and the same `kind` resolves to the
-/// same family, so pinning the argument gives the same protection. Changing any filter, the
-/// query or the `kind` makes an old cursor refuse to continue.
-pub fn fingerprint(kind: Option<&str>, predicate: Option<&Predicate>) -> String {
+/// The `kind` and `group` **arguments** stand in for the resolved coordinates the plan names: the
+/// coordinates are only known after the cursor is decoded, and the same pair resolves to the same
+/// family, so pinning the arguments gives the same protection. Changing any filter, the query,
+/// the `kind` or the `group` makes an old cursor refuse to continue.
+pub fn fingerprint(
+    kind: Option<&str>,
+    group: Option<&str>,
+    predicate: Option<&Predicate>,
+) -> String {
     fingerprint_of(&json!({
         "kind": kind,
+        "group": group,
         "query": predicate.map(Predicate::to_json),
     }))
 }

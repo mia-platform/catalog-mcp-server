@@ -15,9 +15,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-use crate::registry::{
-    ToolDescriptor,
-    contract::{CallContext, Tool, ToolOutput},
+use crate::{
+    registry::{
+        ToolDescriptor,
+        contract::{CallContext, Tool, ToolOutput},
+    },
+    tools::arguments::validate_group,
 };
 use catalog_client::{
     Remedy, ToolError, coordinates_of,
@@ -57,6 +60,10 @@ pub struct GetItemSchemaInput {
     /// The type's kind, e.g. "Service". Not the item-type-definition name.
     #[serde(rename = "kind")]
     pub kind: String,
+
+    /// The kind's API group. Only needed when several types share the kind.
+    #[serde(rename = "group")]
+    pub group: Option<String>,
 
     /// A specific version. Absent means the served one.
     #[serde(rename = "version")]
@@ -139,9 +146,12 @@ impl Tool for GetItemSchema {
     ) -> Result<ToolOutput, ToolError> {
         validate(&input)?;
 
-        // An unknown kind comes back with near matches (T2-D9); two types claiming it are a
-        // `server_defect` (T6-D2) — both are the core's.
-        let definition = find_item_type_or_suggest(context.engine(), &input.kind).await?;
+        // An unknown kind comes back with near matches (T2-D9), a shared one with its candidates
+        // (DR-80), and two rows for one `(group, kind)` as a `server_defect` (T6-D2) — all the
+        // core's.
+        let definition =
+            find_item_type_or_suggest(context.engine(), &input.kind, input.group.as_deref())
+                .await?;
 
         // The core's rule, and its `unaddressable_type` when nothing is served: a schema nothing
         // can address items against would be worse than an error (D30).
@@ -190,7 +200,7 @@ fn validate(input: &GetItemSchemaInput) -> Result<(), ToolError> {
         ));
     }
 
-    Ok(())
+    validate_group(input.group.as_deref(), true)
 }
 
 /// An `invalid_input` naming the offending parameter.

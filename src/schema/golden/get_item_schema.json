@@ -1,6 +1,13 @@
 {
   "additionalProperties": false,
   "properties": {
+    "group": {
+      "description": "The kind's API group. Only needed when several types share the kind.",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "kind": {
       "description": "The type's kind, e.g. \"Service\". Not the item-type-definition name.",
       "type": "string"
