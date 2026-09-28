@@ -75,6 +75,24 @@ The service accepts the following environment variables:
 | RUST_LOG             |                 `EnvFilter` directives            |          |                                               | When set, overrides `LOG_LEVEL` entirely.      |
 | CONFIGURATION_FOLDER |                     `path`                        |          | the platform config folder, e.g. `~/.config/catalog-mcp-server` | Folder holding `config.json`. |
 
+#### Debugging with `RUST_LOG`
+
+At `debug` the MCP SDK (`rmcp`) logs **every** JSON-RPC exchange in full: a `received request` line with
+the call's arguments, and a `response message` line with the whole result. That holds for every tool,
+for `tools/list` and for errors. It never includes HTTP headers, so the bearer token and the
+`x-mia-acl-context` value cannot appear. The two sources can be switched independently:
+
+| Goal | Setting |
+| :--- | :--- |
+| Production default: no payloads | `LOG_LEVEL=info` |
+| Everything, including every request and response in full | `LOG_LEVEL=debug` |
+| This service's debug events, without the SDK's payload dumps | `RUST_LOG=catalog_mcp_server=debug,rmcp=info,info` |
+| Only the full requests and responses | `RUST_LOG=info,rmcp=debug` |
+
+> [!WARNING]
+> Payload logging copies tenant catalog data into the logs, and a single response can be tens of
+> kilobytes. Use it as a temporary diagnostic setting, not as a production default.
+
 ### CLI options
 
 | Flag                       | Required |                             Default                              | Description                     |
