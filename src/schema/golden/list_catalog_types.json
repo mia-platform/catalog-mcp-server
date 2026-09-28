@@ -3,10 +3,7 @@
   "properties": {
     "search": {
       "description": "Case-insensitive substring, matched over kind, family, display name and description.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     }
   },
   "type": "object"

@@ -43,7 +43,7 @@ impl EngineClient {
 
         let response: EngineResponse<ListEnvelope<Item>> = self
             .get_json(
-                LIST_ITEMS.id,
+                &LIST_ITEMS,
                 url,
                 Projection::Full.accept(),
                 query.bad_request_origin(),
@@ -66,7 +66,7 @@ impl EngineClient {
 
         let response: EngineResponse<ListEnvelope<PartialObjectMetadata>> = self
             .get_json(
-                LIST_ITEMS.id,
+                &LIST_ITEMS,
                 url,
                 Projection::PartialObjectMetadata.accept(),
                 query.bad_request_origin(),
@@ -91,7 +91,7 @@ impl EngineClient {
 
         let response: EngineResponse<ListEnvelope<PartialObjectMetadata>> = self
             .get_json(
-                LIST_FAMILY_ITEMS.id,
+                &LIST_FAMILY_ITEMS,
                 url,
                 Projection::PartialObjectMetadata.accept(),
                 query.bad_request_origin(),
@@ -113,7 +113,7 @@ impl EngineClient {
         query.apply(&mut url, COUNT_ITEMS.query);
 
         self.get_json(
-            COUNT_ITEMS.id,
+            &COUNT_ITEMS,
             url,
             Projection::Full.accept(),
             query.bad_request_origin(),
@@ -132,7 +132,7 @@ impl EngineClient {
         query.apply(&mut url, COUNT_FAMILY_ITEMS.query);
 
         self.get_json(
-            COUNT_FAMILY_ITEMS.id,
+            &COUNT_FAMILY_ITEMS,
             url,
             Projection::Full.accept(),
             query.bad_request_origin(),

@@ -17,13 +17,14 @@
  */
 use crate::{
     error::{
-        BadRequestOrigin, Dispatched, ToolError, codes, deadline_exceeded, map_status,
-        transport_failure,
+        BadRequestOrigin, Dispatched, ToolError, Upstream, codes, deadline_exceeded, map_status,
+        transport_failure, unreadable_response,
     },
     identity::CallerIdentity,
+    ops::OperationSpec,
     warning::{self, EngineWarning},
 };
-use http::HeaderMap;
+use http::{HeaderMap, HeaderName, HeaderValue};
 use serde::de::DeserializeOwned;
 use serde_json::Value;
 use std::{
@@ -89,6 +90,7 @@ pub struct CallWarnings {
 #[derive(Debug, Default)]
 struct CallWarningsState {
     engine_called: bool,
+    requests: u32,
     warnings: Vec<EngineWarning>,
 }
 
@@ -108,6 +110,17 @@ impl CallWarnings {
     /// Records that the call reached for the engine, whatever came of it.
     fn note_request(&self) {
         self.with_state(|state| state.engine_called = true);
+    }
+
+    /// Records one HTTP attempt dispatched to the engine — a retry is a second one.
+    fn note_attempt(&self) {
+        self.with_state(|state| state.requests = state.requests.saturating_add(1));
+    }
+
+    /// How many HTTP requests this call has sent the engine, retries included: `mcp.request`'s
+    /// `engine.calls` (§10).
+    pub fn engine_calls(&self) -> u32 {
+        self.with_state(|state| state.requests)
     }
 
     /// Records the warnings one successful response carried.
@@ -303,6 +316,7 @@ impl EngineClientFactory {
             identity,
             deadline,
             warnings: CallWarnings::default(),
+            trace: TraceContext::default(),
         }
     }
 
@@ -310,7 +324,33 @@ impl EngineClientFactory {
     pub fn base_url(&self) -> &Url {
         &self.base
     }
+
+    /// Whether the engine is reachable through the configured base URL, for `/-/ready` (D43).
+    ///
+    /// **Reachable** means an HTTP response arrived within `timeout` and was not a `5XX`; a
+    /// transport error, a timeout or a `5XX` is unreachable. The probe carries **no caller
+    /// identity** — there is no caller — so a `401`/`403` from the gateway, or the engine's own
+    /// `400` for a missing ACL context, still proves the path to the engine is up.
+    ///
+    /// It asks for [`PROBE_PATH`], one row of the type listing: routed by the gateway like
+    /// every catalog read, and the cheapest one the engine has.
+    pub async fn probe(&self, timeout: Duration) -> bool {
+        let Ok(url) = self.base.join(PROBE_PATH) else {
+            return false;
+        };
+
+        match self.http.get(url).timeout(timeout).send().await {
+            Ok(response) => !response.status().is_server_error(),
+            Err(error) => {
+                tracing::warn!(?error, "the readiness probe did not reach the engine");
+                false
+            }
+        }
+    }
 }
+
+/// What [`EngineClientFactory::probe`] asks for: one row of the type listing.
+pub const PROBE_PATH: &str = "mia-platform.eu/v1/item-type-definitions?limit=1";
 
 /// Joins `base_url` and `api_prefix` into the one URL every path is resolved against.
 ///
@@ -329,6 +369,45 @@ fn join_base(base_url: &str, api_prefix: &str) -> anyhow::Result<Url> {
     Ok(base)
 }
 
+/// The W3C `traceparent` header (§10).
+pub const TRACEPARENT_HEADER: HeaderName = HeaderName::from_static("traceparent");
+
+/// The W3C `tracestate` header (§10).
+pub const TRACESTATE_HEADER: HeaderName = HeaderName::from_static("tracestate");
+
+/// The W3C `baggage` header (§10).
+pub const BAGGAGE_HEADER: HeaderName = HeaderName::from_static("baggage");
+
+/// The W3C trace context of one MCP call, as its `_meta` carried it (§10, SEP-414).
+///
+/// **Not** part of [`CallerIdentity`]: these are headers this server *sets* on every engine
+/// request, read from the JSON-RPC body, not inbound HTTP headers it forwards. D26's allowlist —
+/// and therefore what `forwarded()` means — is unchanged by it. A value that is not a valid
+/// header is dropped rather than sent mangled.
+#[derive(Clone, Debug, Default)]
+pub struct TraceContext {
+    headers: HeaderMap,
+}
+
+impl TraceContext {
+    /// The trace context from the three reserved `_meta` values; any of them may be absent.
+    pub fn new(traceparent: Option<&str>, tracestate: Option<&str>, baggage: Option<&str>) -> Self {
+        let mut headers = HeaderMap::new();
+
+        for (name, value) in [
+            (TRACEPARENT_HEADER, traceparent),
+            (TRACESTATE_HEADER, tracestate),
+            (BAGGAGE_HEADER, baggage),
+        ] {
+            if let Some(value) = value.and_then(|value| HeaderValue::from_str(value).ok()) {
+                headers.insert(name, value);
+            }
+        }
+
+        Self { headers }
+    }
+}
+
 /// The request-scoped client: one caller, one deadline, one set of forwarded headers (D25).
 ///
 /// **There is no API here that takes a `HeaderMap`.** Every request method applies the caller's
@@ -343,9 +422,16 @@ pub struct EngineClient {
     identity: Arc<CallerIdentity>,
     deadline: Deadline,
     warnings: CallWarnings,
+    trace: TraceContext,
 }
 
 impl EngineClient {
+    /// Sets the W3C trace context every request of this call carries (§10).
+    pub fn with_trace_context(mut self, trace: TraceContext) -> Self {
+        self.trace = trace;
+        self
+    }
+
     /// Everything this call's engine responses warned about, for the runtime to render (D28).
     pub fn call_warnings(&self) -> &CallWarnings {
         &self.warnings
@@ -393,7 +479,7 @@ impl EngineClient {
     /// request, and the client cannot tell from the response (§8.4).
     pub async fn get_json<T: DeserializeOwned>(
         &self,
-        operation: &'static str,
+        operation: &'static OperationSpec,
         url: Url,
         accept: &str,
         origin: BadRequestOrigin,
@@ -412,7 +498,7 @@ impl EngineClient {
     /// clean failure (D20).
     pub async fn put_json<T: DeserializeOwned>(
         &self,
-        operation: &'static str,
+        operation: &'static OperationSpec,
         url: Url,
         body: &Value,
         retryable: bool,
@@ -441,13 +527,7 @@ impl EngineClient {
             // to catch before a deployment does.
             tracing::error!(?err, "the engine returned a body this client cannot read");
 
-            map_status(
-                406,
-                BadRequestOrigin::ServerBuilt,
-                Dispatched::No,
-                None,
-                raw.request_id.as_deref(),
-            )
+            unreadable_response(raw.request_id.as_deref())
         })?;
 
         Ok(EngineResponse {
@@ -463,13 +543,14 @@ impl EngineClient {
     /// template is what an operator actually groups by.
     async fn send(
         &self,
-        operation: &'static str,
+        spec: &'static OperationSpec,
         request: Request,
         intent: Intent,
         origin: BadRequestOrigin,
     ) -> Result<RawResponse, ToolError> {
         self.warnings.note_request();
 
+        let operation = spec.id;
         let mut attempt: u8 = 0;
 
         loop {
@@ -491,6 +572,7 @@ impl EngineClient {
                 retried = attempt > 0,
             );
 
+            self.warnings.note_attempt();
             let outcome = self.attempt(&request).instrument(span.clone()).await;
 
             let status = match &outcome {
@@ -547,6 +629,7 @@ impl EngineClient {
                     request_id.as_deref(),
                     message.as_deref(),
                     origin,
+                    spec.upstream,
                 );
 
                 // §8.4 — a defect of ours is logged loudly; the model is only told it is not
@@ -573,7 +656,9 @@ impl EngineClient {
         let builder = request
             .build(&self.http)
             // The D26 allowlist, applied here and nowhere else.
-            .headers(self.identity.forwarded().clone());
+            .headers(self.identity.forwarded().clone())
+            // Set by this server from the call's `_meta`, not forwarded (§10).
+            .headers(self.trace.headers.clone());
 
         let bounded = self.deadline.bounded(builder.send());
 
@@ -657,6 +742,7 @@ impl EngineClient {
         request_id: Option<&str>,
         engine_message: Option<&str>,
         origin: BadRequestOrigin,
+        upstream: Upstream,
     ) -> ToolError {
         match failure {
             FailureKind::Connect => transport_failure(dispatched, request_id),
@@ -664,9 +750,14 @@ impl EngineClient {
                 deadline_exceeded(dispatched, request_id)
             }
             FailureKind::Timeout => transport_failure(dispatched, request_id),
-            FailureKind::Status(status) => {
-                map_status(status, origin, dispatched, engine_message, request_id)
-            }
+            FailureKind::Status(status) => map_status(
+                status,
+                origin,
+                upstream,
+                dispatched,
+                engine_message,
+                request_id,
+            ),
         }
     }
 }

@@ -42,7 +42,7 @@ impl EngineClient {
 
         // The endpoint declares no parameters, so nothing in the request is the caller's.
         self.get_json(
-            LIST_TENANTS.id,
+            &LIST_TENANTS,
             url,
             Projection::Full.accept(),
             BadRequestOrigin::ServerBuilt,

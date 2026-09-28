@@ -23,9 +23,10 @@ use std::collections::BTreeMap;
 #[derive(Clone, Deserialize, Serialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
 pub struct Link {
-    /// The link's display text.
-    #[serde(rename = "title")]
-    pub title: String,
+    /// The link's display text. Optional in the engine's own model (`ObjectMetadataLink`), whose
+    /// schema example is a bare `{"url": …}`; omitted when absent, never `null`.
+    #[serde(rename = "title", default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
 
     /// Where it points.
     #[serde(rename = "url")]

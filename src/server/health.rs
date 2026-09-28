@@ -70,9 +70,19 @@ async fn healthz() -> impl IntoResponse {
     HealthPayload::respond(true)
 }
 
-/// Readiness: every startup condition holds and shutdown has not begun (D43).
+/// Readiness: every startup condition holds, shutdown has not begun and — when
+/// `health.readinessChecksEngine` is on — the engine was reachable at the last probe (D43).
+///
+/// The flag is checked first, so a draining process answers `503` without probing and whatever
+/// the cached probe said (D42).
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
-    HealthPayload::respond(state.readiness.is_ready())
+    let ready = state.readiness.is_ready()
+        && match &state.engine_probe {
+            Some(probe) => probe.reachable(&state.engine).await,
+            None => true,
+        };
+
+    HealthPayload::respond(ready)
 }
 
 /// The `/-/healthz` and `/-/ready` routes, to be nested under `/-`.

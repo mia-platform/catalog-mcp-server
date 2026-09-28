@@ -18,10 +18,13 @@
 use crate::{
     address::ItemAddress,
     client::EngineClient,
-    error::codes,
+    error::{Remedy, ToolError, codes},
     identity::{ACL_CONTEXT_HEADER, AUTHORIZATION_HEADER, PRINCIPAL_ID_HEADER},
     models::ItemTypeDefinition,
-    ops::{ListQuery, OPERATIONS},
+    ops::{
+        COUNT_FAMILY_ITEMS, COUNT_ITEMS, GET_ITEM, GET_RELATIONSHIPS, LIST_FAMILY_ITEMS,
+        LIST_ITEM_TYPE_DEFINITIONS, LIST_ITEMS, LIST_TENANTS, ListQuery, OPERATIONS, OperationSpec,
+    },
     pagination::{EngineCursor, ListPage, paginate_all},
     testing::{
         MOCK_BEARER, MOCK_ITEM_NAME, MOCK_PRINCIPAL_ID, MockEngine, mock_acl_context,
@@ -42,34 +45,56 @@ fn mock_address() -> ItemAddress {
         .expect("a well-formed fixture address")
 }
 
-/// Calls every operation once against a mock that accepts anything, and returns the requests it
-/// recorded.
+/// Calls the operation `spec` declares, once — both projections for the global listing — and
+/// returns the first error it met.
 ///
-/// This is what makes the NFR-11 assertion **structural**: it is driven by [`OPERATIONS`], so an
-/// operation added without the identity pair fails here rather than being noticed in
-/// production.
-async fn record_every_operation(client: &EngineClient) -> Vec<wiremock::Request> {
+/// **Every `OperationSpec` has an arm here, and an id without one panics**, so a new operation
+/// cannot be exercised by nothing: the propagation sweep and the `502` table both go through it.
+async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), ToolError> {
     let query = ListQuery::default();
-
-    // Each call is allowed to fail: what is under test is what went out, not what came back.
-    let _ = client.list_items(&query).await;
-    let _ = client.list_items_partial(&query).await;
-    let _ = client.get_item(&mock_address()).await;
-    let _ = client
-        .list_item_type_definitions::<ItemTypeDefinition>(&query)
-        .await;
     let family = mock_family();
-    let _ = client.list_family_items_partial(&family, &query).await;
-    let _ = client.count_items(&query).await;
-    let _ = client.count_family_items(&family, &query).await;
-    let _ = client
-        .get_relationships(
-            &mock_address(),
-            &super::relationships::RelationshipQuery::default(),
-        )
-        .await;
 
-    Vec::new()
+    match spec.id {
+        "list_items" => {
+            client.list_items(&query).await?;
+            client.list_items_partial(&query).await.map(|_| ())
+        }
+        "get_item" => client.get_item(&mock_address()).await.map(|_| ()),
+        "put_item" => client
+            .put_item(&mock_address(), &mock_item(MOCK_ITEM_NAME), false)
+            .await
+            .map(|_| ()),
+        "list_tenants" => client.list_tenants().await.map(|_| ()),
+        "list_item_type_definitions" => client
+            .list_item_type_definitions::<ItemTypeDefinition>(&query)
+            .await
+            .map(|_| ()),
+        "list_family_items" => client
+            .list_family_items_partial(&family, &query)
+            .await
+            .map(|_| ()),
+        "count_items" => client.count_items(&query).await.map(|_| ()),
+        "count_family_items" => client.count_family_items(&family, &query).await.map(|_| ()),
+        "get_relationships" => client
+            .get_relationships(
+                &mock_address(),
+                &super::relationships::RelationshipQuery::default(),
+            )
+            .await
+            .map(|_| ()),
+        unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
+    }
+}
+
+/// Calls every operation in [`OPERATIONS`] once against a mock that accepts anything.
+///
+/// Driven by the list itself through [`exercise`], so an operation added to it is exercised
+/// here with nothing else to change — and one added without an arm there fails loudly.
+async fn record_every_operation(client: &EngineClient) {
+    for spec in OPERATIONS {
+        // Each call is allowed to fail: what is under test is what went out, not what came back.
+        let _ = exercise(client, spec).await;
+    }
 }
 
 /// The family every family-scoped operation is exercised against.
@@ -115,48 +140,72 @@ async fn mount_catch_all(engine: &MockEngine) {
 
 /// (a) **Every** method in `ops` sends `x-mia-acl-context` *and* `x-mia-principal-id` when both
 /// arrived — driven by the [`OPERATIONS`] list, so none can be skipped.
+///
+/// Each operation runs against an engine of its own, so a request is attributed to the operation
+/// that sent it: one that sent nothing fails as **not exercised**, rather than hiding behind a
+/// total count the others make up.
 #[rstest]
 #[tokio::test]
 async fn test_every_operation_forwards_the_identity_pair() {
-    let engine = MockEngine::start().await;
-    mount_catch_all(&engine).await;
+    let mut exercised = Vec::new();
 
-    let _ = record_every_operation(&engine.client(mock_identity())).await;
+    for spec in OPERATIONS {
+        let engine = MockEngine::start().await;
+        Mock::given(wiremock::matchers::any())
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({})))
+            .mount(engine.server())
+            .await;
 
-    let requests = engine
-        .server()
-        .received_requests()
-        .await
-        .expect("the mock records its requests");
+        let _ = exercise(&engine.client(mock_identity()), spec).await;
 
-    // Eight calls over seven operations: the global listing has two projections.
+        let requests = engine
+            .server()
+            .received_requests()
+            .await
+            .expect("the mock records its requests");
+        assert!(!requests.is_empty(), "`{}` was not exercised", spec.id);
+
+        for request in &requests {
+            assert_eq!(
+                request
+                    .headers
+                    .get(ACL_CONTEXT_HEADER)
+                    .and_then(|value| value.to_str().ok()),
+                Some(mock_acl_context().as_str()),
+                "`{}` did not forward the ACL context",
+                spec.id
+            );
+            assert_eq!(
+                request
+                    .headers
+                    .get(PRINCIPAL_ID_HEADER)
+                    .and_then(|value| value.to_str().ok()),
+                Some(MOCK_PRINCIPAL_ID),
+                "`{}` did not forward the principal id",
+                spec.id
+            );
+        }
+
+        exercised.push(spec.id);
+    }
+
+    let listed: Vec<&str> = OPERATIONS.iter().map(|spec| spec.id).collect();
+    assert_eq!(exercised, listed, "every listed operation is exercised");
+}
+
+/// Every `OperationSpec` this module declares is in [`OPERATIONS`]: a new one left out would be
+/// swept by nothing. Counted from the source, the one place a declaration cannot hide.
+#[rstest]
+fn test_every_declared_operation_is_listed() {
+    const DECLARATION: &str = ": OperationSpec = OperationSpec {";
+    let declared = include_str!("mod.rs").matches(DECLARATION).count();
+
     assert_eq!(
-        requests.len(),
-        8,
-        "every operation in `ops` must be exercised here; `OPERATIONS` lists {}",
+        declared,
+        OPERATIONS.len(),
+        "`ops/mod.rs` declares {declared} operations and `OPERATIONS` lists {}",
         OPERATIONS.len()
     );
-
-    for request in &requests {
-        assert_eq!(
-            request
-                .headers
-                .get(ACL_CONTEXT_HEADER)
-                .and_then(|value| value.to_str().ok()),
-            Some(mock_acl_context().as_str()),
-            "{} did not forward the ACL context",
-            request.url.path()
-        );
-        assert_eq!(
-            request
-                .headers
-                .get(PRINCIPAL_ID_HEADER)
-                .and_then(|value| value.to_str().ok()),
-            Some(MOCK_PRINCIPAL_ID),
-            "{} did not forward the principal id",
-            request.url.path()
-        );
-    }
 }
 
 /// The operation list and the exercised set must not drift apart: this is the assertion that
@@ -170,6 +219,8 @@ fn test_the_operation_list_matches_what_the_client_implements() {
         vec![
             "list_items",
             "get_item",
+            "put_item",
+            "list_tenants",
             "list_item_type_definitions",
             "list_family_items",
             "count_items",
@@ -301,7 +352,7 @@ async fn test_the_acl_filter_parameter_is_never_sent() {
     let engine = MockEngine::start().await;
     mount_catch_all(&engine).await;
 
-    let _ = record_every_operation(&engine.client(mock_identity())).await;
+    record_every_operation(&engine.client(mock_identity())).await;
 
     for request in engine
         .server()
@@ -832,5 +883,45 @@ async fn test_the_relationships_call_never_sends_group_by_or_rawq() {
             .get("accept")
             .and_then(|value| value.to_str().ok()),
         Some(crate::projection::Projection::PartialObjectMetadata.accept())
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// F-06 — a `502` is the authorization service's only where the operation proxies it.
+// ---------------------------------------------------------------------------------------------
+
+/// `list_tenants` is proxied to authz, so its `502` says so; on every catalog read a `502` comes
+/// from the gateway in front of the engine, and is the catalog being unavailable.
+#[rstest]
+#[case::list_tenants(&LIST_TENANTS, codes::UPSTREAM_UNAVAILABLE)]
+#[case::list_items(&LIST_ITEMS, codes::CATALOG_UNAVAILABLE)]
+#[case::get_item(&GET_ITEM, codes::CATALOG_UNAVAILABLE)]
+#[case::list_item_type_definitions(&LIST_ITEM_TYPE_DEFINITIONS, codes::CATALOG_UNAVAILABLE)]
+#[case::list_family_items(&LIST_FAMILY_ITEMS, codes::CATALOG_UNAVAILABLE)]
+#[case::count_items(&COUNT_ITEMS, codes::CATALOG_UNAVAILABLE)]
+#[case::count_family_items(&COUNT_FAMILY_ITEMS, codes::CATALOG_UNAVAILABLE)]
+#[case::get_relationships(&GET_RELATIONSHIPS, codes::CATALOG_UNAVAILABLE)]
+#[tokio::test]
+async fn test_a_502_is_mapped_per_operation(
+    #[case] spec: &'static OperationSpec,
+    #[case] expected: &str,
+) {
+    let engine = MockEngine::start().await;
+    Mock::given(wiremock::matchers::any())
+        .respond_with(ResponseTemplate::new(502).set_body_string("bad gateway"))
+        .mount(engine.server())
+        .await;
+
+    let error = exercise(&engine.client(mock_identity()), spec)
+        .await
+        .expect_err("a 502 is an error");
+
+    assert_eq!((error.code, error.remedy), (expected, Remedy::Retry));
+    // T11 §7: the two are told apart in wording as well as in code.
+    assert_eq!(
+        error.message.contains("authorization service"),
+        expected == codes::UPSTREAM_UNAVAILABLE,
+        "{}",
+        error.message
     );
 }

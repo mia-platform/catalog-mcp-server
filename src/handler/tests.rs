@@ -106,7 +106,7 @@ fn test_supported_versions_are_the_sdks_own(mock_handler: CatalogHandler) {
 fn test_get_tool_answers_for_registered_names_only(mock_handler: CatalogHandler) {
     assert!(
         mock_handler
-            .get_tool(crate::tools::hello::TOOL_NAME)
+            .get_tool(crate::tools::list_tenants::TOOL_NAME)
             .is_some()
     );
     assert!(mock_handler.get_tool("no-such-tool").is_none());

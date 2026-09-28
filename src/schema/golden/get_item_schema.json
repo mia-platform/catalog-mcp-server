@@ -6,17 +6,11 @@
       "items": {
         "type": "string"
       },
-      "type": [
-        "array",
-        "null"
-      ]
+      "type": "array"
     },
     "group": {
-      "description": "The kind's API group. Only needed when several types share the kind.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
     },
     "kind": {
       "description": "The type's kind, e.g. \"Service\".",
@@ -24,10 +18,7 @@
     },
     "version": {
       "description": "A specific version. Absent means the served one.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     }
   },
   "required": [

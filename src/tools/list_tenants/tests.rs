@@ -22,7 +22,7 @@ use crate::{
 use catalog_client::{
     CallerIdentity, Deadline, EngineClientFactory, Remedy, TenantKey, ToolError,
     error::codes,
-    testing::{MockEngine, mock_acl_context, mock_error_body},
+    testing::{MOCK_PRINCIPAL_ID, MockEngine, mock_acl_context, mock_error_body},
 };
 use rstest::rstest;
 use serde_json::{Value, json};
@@ -42,7 +42,7 @@ fn mock_tenant(slug: &str, title: &str) -> Value {
 fn mock_context(engine: &MockEngine, acl: Option<&str>) -> CallContext {
     let identity = Arc::new(CallerIdentity::new(
         acl,
-        None,
+        Some(MOCK_PRINCIPAL_ID),
         Some("Bearer test-token"),
         None,
     ));
@@ -280,15 +280,11 @@ async fn test_an_engine_warning_reaches_the_result_without_the_tool() {
 // §6 of the T11 plan — every row, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
-/// **T11-D3.** A `401` is an identity failure, never a catalog failure — and the message must
-/// not send the model hunting for a catalog problem that does not exist.
+/// **T11 §7:** a `401` is an identity failure, and the message does not contain "catalog".
 ///
-/// **T11 §7 asks for "a test asserts the string does not contain `catalog`". That literal test
-/// cannot pass, and should not.** Core §8.4 fixes the wording for this row as *"This is an
-/// authentication problem, not a catalog one"* — which contains the word precisely in order to
-/// rule the catalog out. Asserting its absence would force a weaker message. So the assertion
-/// here is on the intent the two documents share: the failure is attributed to identity, and
-/// **not** attributed to the catalog.
+/// An earlier version relaxed this to a blocklist of phrases on the premise that core §8.4 fixes
+/// a wording containing the word; it does not (§8.4 fixes only *"identity did not reach the
+/// service"*), so the plan's literal assertion stands (F-05).
 #[rstest]
 #[tokio::test]
 async fn test_a_401_is_an_identity_failure_and_says_so() {
@@ -299,23 +295,15 @@ async fn test_a_401_is_an_identity_failure_and_says_so() {
     assert_eq!(error.remedy, Remedy::Escalate);
 
     assert!(
-        message.contains("identity") && message.contains("authentication"),
+        message.contains("identity did not reach the service"),
         "the 401 must be attributed to identity: {}",
         error.message
     );
-
-    for blaming in [
-        "the catalog is",
-        "catalog is unavailable",
-        "catalog error",
-        "catalog problem.",
-    ] {
-        assert!(
-            !message.contains(blaming),
-            "the 401 message blames the catalog (`{blaming}`): {}",
-            error.message
-        );
-    }
+    assert!(
+        !message.contains("catalog"),
+        "the 401 message names the catalog: {}",
+        error.message
+    );
 }
 
 /// **T11-D4.** A `502` says *authz*, not *the catalog*: every other tool may be working, and a
@@ -420,6 +408,14 @@ async fn test_the_forwarded_identity_reaches_the_tenants_endpoint() {
             .get("x-mia-acl-context")
             .and_then(|value| value.to_str().ok()),
         Some(acl.as_str())
+    );
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("x-mia-principal-id")
+            .and_then(|value| value.to_str().ok()),
+        Some(MOCK_PRINCIPAL_ID),
+        "the principal id reaches the engine as well (F-07)"
     );
     assert!(requests[0].headers.get("authorization").is_some());
 }

@@ -25,6 +25,7 @@ use axum::{
 use catalog_client::identity::UNKNOWN_TENANT;
 use http_body_util::BodyExt;
 use std::time::Instant;
+use tracing::Instrument;
 
 /// The header the transport reads the negotiated revision from. An absent one is `2025-03-26`
 /// by the SDK's own rule, which is what the `era` label reports.
@@ -74,10 +75,11 @@ pub async fn http_request_span(request: Request, next: Next) -> Response {
         span.record("request_id", request_id);
     }
 
-    let response = {
-        let _entered = span.enter();
-        next.run(request).await
-    };
+    // Attached to the future, never entered across the await: an `Entered` guard alive while the
+    // future is suspended leaves this span current on the worker thread, so whatever else that
+    // thread polls — another request — would log into it and have its identity recorded on it
+    // (F-03). `Instrument` enters it only while this future is actually being polled.
+    let response = next.run(request).instrument(span.clone()).await;
 
     let status = response.status();
     span.record("http.status_code", status.as_u16());

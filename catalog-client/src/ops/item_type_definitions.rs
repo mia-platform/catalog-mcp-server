@@ -49,7 +49,7 @@ impl EngineClient {
 
         let response: EngineResponse<ListEnvelope<T>> = self
             .get_json(
-                LIST_ITEM_TYPE_DEFINITIONS.id,
+                &LIST_ITEM_TYPE_DEFINITIONS,
                 url,
                 Projection::Full.accept(),
                 query.bad_request_origin(),

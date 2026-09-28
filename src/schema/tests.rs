@@ -213,3 +213,56 @@ fn test_serialisation_is_deterministic() {
         r#"{"additionalProperties":false,"properties":{"a":{"type":"number"},"z":{"type":"string"}},"type":"object"}"#
     );
 }
+
+/// Rule 6 — an integer's storage format, and the bounds that only restate its range, are
+/// dropped; a bound the tool actually sets is kept.
+#[rstest]
+fn test_integer_format_noise_is_dropped() {
+    let minified = minify(json!({
+        "type": "object",
+        "properties": {
+            "limit": { "type": "integer", "format": "uint16", "minimum": 0, "maximum": 65535 },
+            "page": { "type": "integer", "format": "uint16", "minimum": 1, "maximum": 200 }
+        }
+    }));
+
+    assert_eq!(
+        minified["properties"]["limit"],
+        json!({ "type": "integer" })
+    );
+    assert_eq!(
+        minified["properties"]["page"],
+        json!({ "type": "integer", "minimum": 1, "maximum": 200 })
+    );
+}
+
+/// Rule 7 — an optional argument declares its type, not also `null`; a required one is left as
+/// it is.
+#[rstest]
+fn test_an_optional_argument_does_not_declare_null() {
+    let minified = minify(json!({
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+            "name": { "type": ["string", "null"] },
+            "kind": { "type": ["string", "null"], "description": "A kind." },
+            "direction": {
+                "anyOf": [{ "enum": ["inbound", "outbound"], "type": "string" }, { "type": "null" }],
+                "description": "One direction."
+            }
+        }
+    }));
+
+    assert_eq!(
+        minified["properties"]["name"],
+        json!({ "type": ["string", "null"] })
+    );
+    assert_eq!(
+        minified["properties"]["kind"],
+        json!({ "description": "A kind.", "type": "string" })
+    );
+    assert_eq!(
+        minified["properties"]["direction"],
+        json!({ "description": "One direction.", "enum": ["inbound", "outbound"], "type": "string" })
+    );
+}

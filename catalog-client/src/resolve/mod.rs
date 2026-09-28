@@ -18,7 +18,7 @@
 use crate::{
     address::FamilyAddress,
     client::EngineClient,
-    error::{Remedy, ToolError, codes},
+    error::{Remedy, ToolError, codes, unreadable_response},
     models::{ItdListEntry, ItdVersion, ItemTypeDefinition, TypeVersion},
     ops::ListQuery,
     warning::EngineWarning,
@@ -130,11 +130,7 @@ fn read_definition(raw: &Value) -> Result<ItemTypeDefinition, ToolError> {
             "the engine returned a type definition this client cannot read"
         );
 
-        ToolError::new(
-            codes::SERVER_DEFECT,
-            Remedy::Escalate,
-            "The catalog returned a type definition this server cannot read.",
-        )
+        unreadable_response(None)
     })
 }
 

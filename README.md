@@ -29,7 +29,6 @@ To try the server on your machine against a local Catalog, see [CONTRIBUTING.md]
 | `describe_item` | One item by name, with its relationships in the same answer. `kind`/`group` only when the name is ambiguous; relationships can be restricted, grouped and paged. |
 | `get_item_schema` | One type's whole definition, including the schema its items follow. With `fields` (e.g. `["spec.lifecycle"]`) it returns only those fields' schema. |
 | `list_tenants` | The tenants the caller can access, and the one it is working in. |
-| `hello` | A connectivity probe: reports the server's version, reads nothing from the catalog. |
 
 Every tool reads with the **caller's own identity**. The server forwards `x-mia-acl-context` and `x-mia-principal-id` to the engine; behind the Mia-Platform API gateway they are set for you, while a client talking to the server directly (a local setup, for instance) must send `x-mia-acl-context` itself.
 

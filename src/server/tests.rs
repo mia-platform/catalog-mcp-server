@@ -16,7 +16,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::{
-    context::AppState, handler::CatalogHandler, server::build_router, tools::hello::TOOL_NAME,
+    context::AppState, handler::CatalogHandler, server::build_router,
+    tools::echo_identity::TOOL_NAME,
 };
 use axum::{
     Router,
@@ -60,6 +61,9 @@ fn mock_config() -> Config {
     config.server.allowed_hosts = vec![TEST_HOST.to_string()];
     config.engine.base_url = "http://api-gateway:8080".to_string();
     config.auth.resource = "https://catalog-mcp.example.com/mcp".to_string();
+    // The fixture's engine does not exist, so readiness does not probe it; the D43 probe tests
+    // turn it on against a mock engine of their own.
+    config.health.readiness_checks_engine = false;
 
     config
         .validate()
@@ -81,6 +85,36 @@ fn mock_router(mock_config: Config) -> Router {
         &CancellationToken::new(),
     )
 }
+
+/// A router whose only tool is the test-only [`echo_identity`](crate::tools::echo_identity)
+/// probe, for the tests of the handler, both eras and the identity hook that need a tool with no
+/// catalog behind it. Production never registers it (F-10).
+#[fixture]
+fn mock_echo_router(mock_config: Config) -> Router {
+    use crate::registry::{Registry, route_for};
+    use rmcp::handler::server::router::tool::ToolRouter;
+
+    build_router(
+        AppState::build(
+            mock_config,
+            Registry::new(
+                ToolRouter::new().with_route(route_for(crate::tools::echo_identity::EchoIdentity)),
+            ),
+            None,
+        )
+        .expect("a valid state"),
+        &CancellationToken::new(),
+    )
+}
+
+/// The five tools this server ships, in `tools/list` order.
+const SHIPPED_TOOLS: [&str; 5] = [
+    "describe_item",
+    "get_item_schema",
+    "list_catalog_types",
+    "list_tenants",
+    "search_catalog",
+];
 
 /// One POST to the MCP endpoint, returning the status, the response headers and the body.
 ///
@@ -281,10 +315,15 @@ fn tool_payload(response: &Value) -> Value {
 // The §13.2 gate: both eras, one endpoint.
 // ---------------------------------------------------------------------------------------------
 
+/// The shipped tools, and a real one called, on the stateless era.
 #[rstest]
 #[tokio::test]
-async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
-    let listed = stateless_request(&mock_router, "tools/list", None, json!({}), &[]).await;
+async fn test_stateless_era_lists_and_calls_a_tool(mock_config: Config) {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine.get_ok("/bff/tenants", json!([])).await;
+    let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
+
+    let listed = stateless_request(&router, "tools/list", None, json!({}), &[]).await;
 
     let names: Vec<&str> = listed["result"]["tools"]
         .as_array()
@@ -293,29 +332,19 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(
-        names,
-        vec![
-            "describe_item",
-            "get_item_schema",
-            "hello",
-            "list_catalog_types",
-            "list_tenants",
-            "search_catalog"
-        ]
-    );
+    assert_eq!(names, SHIPPED_TOOLS);
 
     let called = stateless_request(
-        &mock_router,
+        &router,
         "tools/call",
-        Some(TOOL_NAME),
-        json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[],
+        Some("list_tenants"),
+        json!({ "name": "list_tenants", "arguments": {} }),
+        &[("x-mia-acl-context", &acl_for("era-stateless"))],
     )
     .await;
 
     assert_eq!(called["result"]["isError"], json!(false));
-    assert_eq!(tool_payload(&called)["server"], json!("catalog-mcp-server"));
+    assert_eq!(tool_payload(&called)["tenants"], json!([]));
 
     // D15 — a result is one text block of compact JSON, never the same thing twice.
     assert!(
@@ -324,12 +353,16 @@ async fn test_stateless_era_lists_and_calls_hello(mock_router: Router) {
     );
 }
 
+/// The same on the legacy era, through its handshake and session.
 #[rstest]
 #[tokio::test]
-async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
-    let session_id = legacy_handshake(&mock_router).await;
+async fn test_legacy_era_lists_and_calls_a_tool(mock_config: Config) {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine.get_ok("/bff/tenants", json!([])).await;
+    let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
+    let session_id = legacy_handshake(&router).await;
 
-    let listed = legacy_request(&mock_router, &session_id, "tools/list", json!({}), &[]).await;
+    let listed = legacy_request(&router, &session_id, "tools/list", json!({}), &[]).await;
 
     let names: Vec<&str> = listed["result"]["tools"]
         .as_array()
@@ -338,34 +371,40 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
         .map(|tool| tool["name"].as_str().expect("a tool name"))
         .collect();
 
-    assert_eq!(
-        names,
-        vec![
-            "describe_item",
-            "get_item_schema",
-            "hello",
-            "list_catalog_types",
-            "list_tenants",
-            "search_catalog"
-        ]
-    );
+    assert_eq!(names, SHIPPED_TOOLS);
 
     let called = legacy_request(
-        &mock_router,
+        &router,
         &session_id,
         "tools/call",
-        json!({ "name": TOOL_NAME, "arguments": {} }),
-        &[],
+        json!({ "name": "list_tenants", "arguments": {} }),
+        &[("x-mia-acl-context", &acl_for("era-legacy"))],
     )
     .await;
 
     assert_eq!(called["result"]["isError"], json!(false));
-    assert_eq!(tool_payload(&called)["server"], json!("catalog-mcp-server"));
+    assert_eq!(tool_payload(&called)["tenants"], json!([]));
 
     // D15 — a result is one text block of compact JSON, never the same thing twice.
     assert!(
         called["result"].get("structuredContent").is_none(),
         "a result carried structuredContent while the switch is off"
+    );
+}
+
+/// F-10 — the Step 1 probe does not ship: `tools/list` is the catalog tools and nothing else.
+#[rstest]
+#[tokio::test]
+async fn test_hello_is_not_in_tools_list(mock_router: Router) {
+    let listed = stateless_request(&mock_router, "tools/list", None, json!({}), &[]).await;
+
+    assert!(
+        !listed["result"]["tools"]
+            .as_array()
+            .expect("a tool array")
+            .iter()
+            .any(|tool| tool["name"] == json!("hello")),
+        "`hello` is listed"
     );
 }
 
@@ -380,9 +419,9 @@ async fn test_legacy_era_lists_and_calls_hello(mock_router: Router) {
 /// identity, and the tenant is the observable half of it.
 #[rstest]
 #[tokio::test]
-async fn test_forwarded_header_reaches_the_tool_on_the_stateless_era(mock_router: Router) {
+async fn test_forwarded_header_reaches_the_tool_on_the_stateless_era(mock_echo_router: Router) {
     let called = stateless_request(
-        &mock_router,
+        &mock_echo_router,
         "tools/call",
         Some(TOOL_NAME),
         json!({ "name": TOOL_NAME, "arguments": {} }),
@@ -408,11 +447,11 @@ fn acl_for(tenant: &str) -> String {
 
 #[rstest]
 #[tokio::test]
-async fn test_forwarded_header_reaches_the_tool_on_the_legacy_era(mock_router: Router) {
-    let session_id = legacy_handshake(&mock_router).await;
+async fn test_forwarded_header_reaches_the_tool_on_the_legacy_era(mock_echo_router: Router) {
+    let session_id = legacy_handshake(&mock_echo_router).await;
 
     let called = legacy_request(
-        &mock_router,
+        &mock_echo_router,
         &session_id,
         "tools/call",
         json!({ "name": TOOL_NAME, "arguments": {} }),
@@ -432,11 +471,11 @@ async fn test_forwarded_header_reaches_the_tool_on_the_legacy_era(mock_router: R
 /// than the first one's — which is the property that makes D4 safe.
 #[rstest]
 #[tokio::test]
-async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_router: Router) {
-    let session_id = legacy_handshake(&mock_router).await;
+async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_echo_router: Router) {
+    let session_id = legacy_handshake(&mock_echo_router).await;
 
     let first = legacy_request(
-        &mock_router,
+        &mock_echo_router,
         &session_id,
         "tools/call",
         json!({ "name": TOOL_NAME, "arguments": {} }),
@@ -445,7 +484,7 @@ async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_ro
     .await;
 
     let second = legacy_request(
-        &mock_router,
+        &mock_echo_router,
         &session_id,
         "tools/call",
         json!({ "name": TOOL_NAME, "arguments": {} }),
@@ -465,9 +504,9 @@ async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_ro
 /// recorded and carried, never rejected (D47).
 #[rstest]
 #[tokio::test]
-async fn test_a_call_without_an_identity_still_reaches_the_tool(mock_router: Router) {
+async fn test_a_call_without_an_identity_still_reaches_the_tool(mock_echo_router: Router) {
     let called = stateless_request(
-        &mock_router,
+        &mock_echo_router,
         "tools/call",
         Some(TOOL_NAME),
         json!({ "name": TOOL_NAME, "arguments": {} }),
@@ -690,6 +729,209 @@ async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
     assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
 }
 
+// ---------------------------------------------------------------------------------------------
+// F-04 / D43 — `/-/ready` probes the engine when `health.readinessChecksEngine` is on, at most
+// once every 5 s, and serves the cached result in between.
+// ---------------------------------------------------------------------------------------------
+
+/// What the readiness probe asks the engine for, with the fixture's `/` API prefix.
+const PROBE_ROUTE: &str = "/mia-platform.eu/v1/item-type-definitions";
+
+/// A started, ready server whose readiness probes `engine_url`.
+fn mock_probing_state(engine_url: &str, mock_config: Config, timeout_ms: u64) -> AppState {
+    let mut config = mock_config;
+    config.engine.base_url = engine_url.to_string();
+    config.engine.api_prefix = "/".to_string();
+    config.health.readiness_checks_engine = true;
+    config.health.engine_probe_timeout_ms = timeout_ms;
+    config
+        .validate()
+        .expect("the fixture is a valid configuration");
+
+    let state = AppState::build(
+        config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
+    state.readiness.mark_ready();
+    state
+}
+
+/// A mock engine answering the probe with `status`, after `delay`.
+async fn mock_probed_engine(
+    status: u16,
+    delay: std::time::Duration,
+) -> catalog_client::testing::MockEngine {
+    use wiremock::{
+        Mock, ResponseTemplate,
+        matchers::{method, path},
+    };
+
+    let engine = catalog_client::testing::MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path(PROBE_ROUTE))
+        .respond_with(
+            ResponseTemplate::new(status)
+                .set_body_json(
+                    json!({ "apiVersion": "v1", "kind": "List", "metadata": {}, "items": [] }),
+                )
+                .set_delay(delay),
+        )
+        .mount(engine.server())
+        .await;
+    engine
+}
+
+/// Flag off: readiness is the startup flag alone and nothing is probed.
+#[rstest]
+#[tokio::test]
+async fn test_ready_without_the_probe_does_not_call_the_engine(mock_config: Config) {
+    let engine = mock_probed_engine(500, std::time::Duration::ZERO).await;
+    let mut state = mock_probing_state(&engine.server().uri(), mock_config, 2_000);
+    state.engine_probe = None;
+
+    let (status, _) = get(&build_router(state, &CancellationToken::new()), "/-/ready").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        engine
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty()
+    );
+}
+
+/// Any answer that is not a `5XX` proves the engine reachable — a `401` included, since the
+/// probe carries no identity; a `5XX` does not.
+#[rstest]
+#[case::ok(200, StatusCode::OK)]
+#[case::unauthenticated(401, StatusCode::OK)]
+#[case::missing_acl_context(400, StatusCode::OK)]
+#[case::server_error(500, StatusCode::SERVICE_UNAVAILABLE)]
+#[case::bad_gateway(502, StatusCode::SERVICE_UNAVAILABLE)]
+#[tokio::test]
+async fn test_ready_follows_the_engine_probe(
+    mock_config: Config,
+    #[case] engine_status: u16,
+    #[case] expected: StatusCode,
+) {
+    let engine = mock_probed_engine(engine_status, std::time::Duration::ZERO).await;
+    let state = mock_probing_state(&engine.server().uri(), mock_config, 2_000);
+
+    let (status, _) = get(&build_router(state, &CancellationToken::new()), "/-/ready").await;
+
+    assert_eq!(status, expected);
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    assert_eq!(requests.len(), 1);
+    assert!(
+        requests[0].headers.get("x-mia-acl-context").is_none(),
+        "the probe carries no caller identity"
+    );
+}
+
+/// An engine that does not answer in time, or cannot be reached at all, is not ready.
+#[rstest]
+#[case::times_out(true)]
+#[case::unreachable(false)]
+#[tokio::test]
+async fn test_ready_fails_when_the_engine_does_not_answer(mock_config: Config, #[case] slow: bool) {
+    let engine = mock_probed_engine(200, std::time::Duration::from_millis(500)).await;
+    let url = if slow {
+        engine.server().uri()
+    } else {
+        // A port nothing listens on: the connection is refused.
+        "http://127.0.0.1:9".to_string()
+    };
+    let state = mock_probing_state(&url, mock_config, 100);
+
+    let (status, _) = get(&build_router(state, &CancellationToken::new()), "/-/ready").await;
+
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+}
+
+/// Two readiness checks inside the interval are one probe.
+#[rstest]
+#[tokio::test]
+async fn test_ready_serves_the_cached_probe_inside_the_interval(mock_config: Config) {
+    let engine = mock_probed_engine(200, std::time::Duration::ZERO).await;
+    let router = build_router(
+        mock_probing_state(&engine.server().uri(), mock_config, 2_000),
+        &CancellationToken::new(),
+    );
+
+    let (first, _) = get(&router, "/-/ready").await;
+    let (second, _) = get(&router, "/-/ready").await;
+
+    assert_eq!((first, second), (StatusCode::OK, StatusCode::OK));
+    assert_eq!(
+        engine
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .len(),
+        1
+    );
+}
+
+/// Shutdown answers `503` even with a cached success, without probing again (D42).
+#[rstest]
+#[tokio::test]
+async fn test_ready_is_503_once_draining_whatever_the_probe_said(mock_config: Config) {
+    let engine = mock_probed_engine(200, std::time::Duration::ZERO).await;
+    let state = mock_probing_state(&engine.server().uri(), mock_config, 2_000);
+    let readiness = state.readiness.clone();
+    let router = build_router(state, &CancellationToken::new());
+
+    let (before, _) = get(&router, "/-/ready").await;
+    readiness.mark_draining();
+    let (after, _) = get(&router, "/-/ready").await;
+
+    assert_eq!(
+        (before, after),
+        (StatusCode::OK, StatusCode::SERVICE_UNAVAILABLE)
+    );
+    assert_eq!(
+        engine
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .len(),
+        1
+    );
+}
+
+/// Liveness never calls the engine, probe or not.
+#[rstest]
+#[tokio::test]
+async fn test_healthz_never_probes_the_engine(mock_config: Config) {
+    let engine = mock_probed_engine(500, std::time::Duration::ZERO).await;
+    let router = build_router(
+        mock_probing_state(&engine.server().uri(), mock_config, 2_000),
+        &CancellationToken::new(),
+    );
+
+    let (status, _) = get(&router, "/-/healthz").await;
+
+    assert_eq!(status, StatusCode::OK);
+    assert!(
+        engine
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty()
+    );
+}
+
 /// §6.1 — a probe must never need a token, so the operational routes answer with no identity
 /// header of any kind and without the `Host` the MCP service insists on.
 #[rstest]
@@ -795,7 +1037,7 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
             .as_array()
             .expect("an array")
             .iter()
-            .any(|tool| tool["name"] == json!(TOOL_NAME)),
+            .any(|tool| tool["name"] == json!("list_tenants")),
         "the whole set is listed despite the cursor"
     );
     assert_eq!(
@@ -1281,8 +1523,8 @@ async fn test_a_tool_call_is_counted(mock_config: Config) {
     stateless_request(
         &router,
         "tools/call",
-        Some(TOOL_NAME),
-        json!({ "name": TOOL_NAME, "arguments": {} }),
+        Some("list_tenants"),
+        json!({ "name": "list_tenants", "arguments": {} }),
         &[],
     )
     .await;
@@ -1290,8 +1532,7 @@ async fn test_a_tool_call_is_counted(mock_config: Config) {
     let body = scrape(&router).await;
 
     assert!(
-        body.contains(r#"mcp_tool_calls_total{outcome="ok",remedy="none",tool="hello"}"#)
-            || body.contains(r#"tool="hello""#),
+        body.contains(r#"tool="list_tenants""#),
         "the call was not counted:\n{body}"
     );
 }
@@ -1430,10 +1671,21 @@ use tracing_subscriber::layer::{Context as LayerContext, Layer, SubscriberExt};
 /// *shape*; asserting on values is what checks the ones known up front.
 #[derive(Clone, Debug, Default)]
 struct CapturedSpan {
+    /// A number unique to this span for the whole process. The registry's own span ids are reused
+    /// once a span closes, so they cannot identify a parent after the fact.
+    seq: u64,
+    /// The parent's [`Self::seq`], when the span had one.
+    parent: Option<u64>,
     name: String,
     declared: Vec<String>,
     fields: std::collections::BTreeMap<String, String>,
 }
+
+/// The [`CapturedSpan::seq`] of a live span, kept in the registry's extensions.
+struct SpanSeq(u64);
+
+/// The next [`CapturedSpan::seq`].
+static NEXT_SPAN_SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// A `tracing` layer that records every span created while it is installed.
 #[derive(Clone, Default)]
@@ -1470,14 +1722,28 @@ fn install_span_capture() {
 /// The tenant only the span test uses, so its `mcp.request` can be told from everyone else's.
 const SPAN_PROBE_TENANT: &str = "span-probe";
 
-impl<S: tracing::Subscriber> Layer<S> for SpanCapture {
+impl<S> Layer<S> for SpanCapture
+where
+    S: tracing::Subscriber + for<'lookup> tracing_subscriber::registry::LookupSpan<'lookup>,
+{
     fn on_new_span(
         &self,
         attrs: &tracing::span::Attributes<'_>,
-        _id: &tracing::span::Id,
-        _ctx: LayerContext<'_, S>,
+        id: &tracing::span::Id,
+        ctx: LayerContext<'_, S>,
     ) {
+        let seq = NEXT_SPAN_SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let parent = ctx.span(id).and_then(|span| {
+            span.parent()
+                .and_then(|parent| parent.extensions().get::<SpanSeq>().map(|seq| seq.0))
+        });
+        if let Some(span) = ctx.span(id) {
+            span.extensions_mut().insert(SpanSeq(seq));
+        }
+
         let mut captured = CapturedSpan {
+            seq,
+            parent,
             name: attrs.metadata().name().to_string(),
             declared: attrs
                 .metadata()
@@ -1500,13 +1766,39 @@ impl<S: tracing::Subscriber> Layer<S> for SpanCapture {
             spans.push(captured);
         }
     }
+
+    fn on_record(
+        &self,
+        id: &tracing::span::Id,
+        values: &tracing::span::Record<'_>,
+        ctx: LayerContext<'_, S>,
+    ) {
+        let Some(seq) = ctx
+            .span(id)
+            .and_then(|span| span.extensions().get::<SpanSeq>().map(|seq| seq.0))
+        else {
+            return;
+        };
+
+        if let Ok(mut spans) = self.0.lock()
+            && let Some(captured) = spans.iter_mut().find(|span| span.seq == seq)
+        {
+            values.record(
+                &mut |field: &tracing::field::Field, value: &dyn std::fmt::Debug| {
+                    captured
+                        .fields
+                        .insert(field.name().to_string(), format!("{value:?}"));
+                },
+            );
+        }
+    }
 }
 
 #[rstest]
 #[tokio::test]
-async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Router) {
+async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_echo_router: Router) {
     stateless_request(
-        &mock_router,
+        &mock_echo_router,
         "tools/call",
         Some(TOOL_NAME),
         json!({ "name": TOOL_NAME, "arguments": {} }),
@@ -1542,6 +1834,7 @@ async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Rou
         "outcome",
         "error.code",
         "error.remedy",
+        "engine.calls",
         "bytes_out",
         "duration_ms",
     ] {
@@ -1559,7 +1852,7 @@ async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_router: Rou
     );
     assert_eq!(
         span.fields.get("mcp.tool").map(String::as_str),
-        Some("\"hello\"")
+        Some("\"echo_identity\"")
     );
     assert_eq!(
         span.fields.get("mcp.era").map(String::as_str),
@@ -1607,4 +1900,401 @@ async fn test_the_http_request_span_carries_transport_fields_only(mock_router: R
             "`{mcp_field}` belongs to the handler's span, not the layer's"
         );
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// F-02 / F-09 — a tool error is counted as one, the call's engine requests nest under its span
+// and are counted, and the W3C trace context from `_meta` reaches the engine.
+// ---------------------------------------------------------------------------------------------
+
+/// A W3C `traceparent`, fictional.
+const MOCK_TRACEPARENT: &str = "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01";
+
+/// A server over the shipped tools, pointed at `engine_url`, rendering from the shared recorder.
+fn mock_shipped_router_against(engine_url: &str, mock_config: Config) -> Router {
+    let mut config = mock_config;
+    config.engine.base_url = engine_url.to_string();
+    config.engine.api_prefix = "/".to_string();
+    config
+        .validate()
+        .expect("the fixture is a valid configuration");
+
+    let state = AppState::build(
+        config,
+        crate::registry::Registry::with_shipped_tools(),
+        Some(shared_metrics()),
+    )
+    .expect("a valid state");
+    state.readiness.mark_ready();
+
+    build_router(state, &CancellationToken::new())
+}
+
+/// A mock engine that knows no type definitions at all: any `kind` lookup is `not_found`.
+async fn mock_engine_without_types() -> catalog_client::testing::MockEngine {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
+    engine
+}
+
+/// One `tools/call` on the stateless era with `meta` merged into the required `_meta`.
+async fn call_with_meta(router: &Router, tool: &str, arguments: Value, meta: Value, tenant: &str) {
+    let mut full_meta = stateless_meta();
+    if let (Some(full), Some(extra)) = (full_meta.as_object_mut(), meta.as_object()) {
+        full.extend(extra.clone());
+    }
+
+    let (status, _, body) = post_mcp(
+        router,
+        &[
+            ("mcp-protocol-version", STATELESS_ERA),
+            ("mcp-method", "tools/call"),
+            ("mcp-name", tool),
+            ("x-mia-acl-context", &acl_for(tenant)),
+        ],
+        json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": { "name": tool, "arguments": arguments, "_meta": full_meta },
+        }),
+    )
+    .await;
+
+    assert_eq!(status, StatusCode::OK, "{body}");
+}
+
+/// The `mcp.request` span of the one call made by `tenant`.
+fn mcp_request_of(tenant: &str) -> CapturedSpan {
+    let tenant = format!("my-org/{tenant}");
+
+    SPANS
+        .snapshot()
+        .into_iter()
+        .find(|span| {
+            span.name == "mcp.request"
+                && span.fields.get("tenant").map(String::as_str) == Some(tenant.as_str())
+        })
+        .unwrap_or_else(|| panic!("no mcp.request span for {tenant}"))
+}
+
+/// A mapped engine error and an argument failure are each recorded as `tool_error`, with the
+/// code and remedy the model was given, on the span **and** on `mcp_tool_calls_total`.
+#[rstest]
+#[case::engine_error(json!({ "kind": "Nope" }), "f02-engine-error", "not_found", "retry_after_change")]
+#[case::argument_failure(json!({ "kind": 5 }), "f02-argument-failure", "invalid_arguments", "retry_after_change")]
+#[tokio::test]
+async fn test_a_tool_error_is_recorded_as_one(
+    mock_config: Config,
+    #[case] arguments: Value,
+    #[case] tenant: &str,
+    #[case] code: &str,
+    #[case] remedy: &str,
+) {
+    let engine = mock_engine_without_types().await;
+    let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
+
+    call_with_meta(&router, "get_item_schema", arguments, json!({}), tenant).await;
+
+    let span = mcp_request_of(tenant);
+    assert_eq!(
+        span.fields.get("outcome").map(String::as_str),
+        Some("\"tool_error\"")
+    );
+    assert_eq!(
+        span.fields.get("error.code").map(String::as_str),
+        Some(format!("\"{code}\"").as_str())
+    );
+    assert_eq!(
+        span.fields.get("error.remedy").map(String::as_str),
+        Some(format!("\"{remedy}\"").as_str())
+    );
+
+    let scraped = scrape(&router).await;
+    let series = format!(
+        "mcp_tool_calls_total{{tool=\"get_item_schema\",outcome=\"tool_error\",remedy=\"{remedy}\"}}"
+    );
+    assert!(
+        scraped.contains(&series),
+        "`{series}` is missing:\n{scraped}"
+    );
+}
+
+/// Every engine request the call makes is a child of its `mcp.request`, and they are counted.
+#[rstest]
+#[tokio::test]
+async fn test_engine_requests_nest_under_the_call_and_are_counted(mock_config: Config) {
+    let tenant = "f09-nesting";
+    let engine = mock_engine_without_types().await;
+    let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
+
+    call_with_meta(
+        &router,
+        "get_item_schema",
+        json!({ "kind": "Nope" }),
+        json!({}),
+        tenant,
+    )
+    .await;
+
+    let made = engine
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .len();
+    let span = mcp_request_of(tenant);
+    let children: Vec<CapturedSpan> = SPANS
+        .snapshot()
+        .into_iter()
+        .filter(|captured| captured.name == "engine.request" && captured.parent == Some(span.seq))
+        .collect();
+
+    assert!(made >= 2, "the lookup and the candidates listing: {made}");
+    assert_eq!(
+        children.len(),
+        made,
+        "every engine request is a child of mcp.request"
+    );
+    assert_eq!(
+        span.fields.get("engine.calls").map(String::as_str),
+        Some(made.to_string().as_str())
+    );
+}
+
+/// `_meta`'s W3C trace context goes out on **every** engine request, set by the server; without
+/// it, no such header is sent.
+#[rstest]
+#[case::present(json!({ "traceparent": MOCK_TRACEPARENT, "tracestate": "vendor=value", "baggage": "key=value" }), true)]
+#[case::absent(json!({}), false)]
+#[tokio::test]
+async fn test_the_trace_context_reaches_every_engine_request(
+    mock_config: Config,
+    #[case] meta: Value,
+    #[case] present: bool,
+) {
+    let engine = mock_engine_without_types().await;
+    let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
+
+    call_with_meta(
+        &router,
+        "get_item_schema",
+        json!({ "kind": "Nope" }),
+        meta,
+        "f09-trace",
+    )
+    .await;
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    assert!(requests.len() >= 2);
+    for request in &requests {
+        for (header, value) in [
+            ("traceparent", MOCK_TRACEPARENT),
+            ("tracestate", "vendor=value"),
+            ("baggage", "key=value"),
+        ] {
+            let sent = request
+                .headers
+                .get(header)
+                .and_then(|sent| sent.to_str().ok());
+            assert_eq!(
+                sent,
+                present.then_some(value),
+                "{header} on {}",
+                request.url
+            );
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// F-03 — the identity layer's fields land on the request's **own** `http.request` span, even
+// when requests interleave on one thread.
+// ---------------------------------------------------------------------------------------------
+
+/// A layer that yields once before handing on, so two requests polled together interleave
+/// between the span layer and the identity layer — the window a held span guard leaks through.
+async fn mock_yield_once(
+    request: axum::extract::Request,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    tokio::task::yield_now().await;
+    next.run(request).await
+}
+
+/// Two requests, interleaved deterministically in one task: each request's tenant must be on the
+/// span carrying its own request id. With the span entered across the await, the first request
+/// resumed while the second's span was current and wrote its tenant there.
+///
+/// What this proves: the identity fields cannot cross spans when futures interleave on a thread,
+/// which is the mechanism of F-03. What it does not: it drives one task, not concurrent load, so
+/// it says nothing about throughput or other layers' behaviour under it.
+#[rstest]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn test_identity_fields_land_on_the_requests_own_span(mock_config: Config) {
+    use std::future::Future as _;
+
+    let auth = mock_config.auth.clone();
+    let router = Router::new()
+        .route("/probe", axum::routing::get(|| async { "ok" }))
+        .layer(axum::middleware::from_fn(move |request, next| {
+            crate::server::identity::identity_middleware(auth.clone(), request, next)
+        }))
+        .layer(axum::middleware::from_fn(mock_yield_once))
+        .layer(axum::middleware::from_fn(
+            crate::server::span::http_request_span,
+        ));
+
+    let request = |request_id: &str, tenant: &str| {
+        Request::builder()
+            .uri("/probe")
+            .header("x-request-id", request_id)
+            .header("x-mia-acl-context", acl_for(tenant))
+            .body(Body::empty())
+            .expect("a well-formed test request")
+    };
+
+    // The order is forced by hand, because `tokio::join!` rotates which future it polls first
+    // and so resumes the second request first, hiding the leak. Here the first request is
+    // resumed while the second's span is still the thread's current one: exactly F-03's window.
+    let mut first = std::pin::pin!(
+        router
+            .clone()
+            .oneshot(request("f03-request-a", "f03-tenant-a"))
+    );
+    let mut second = std::pin::pin!(
+        router
+            .clone()
+            .oneshot(request("f03-request-b", "f03-tenant-b"))
+    );
+    std::future::poll_fn(|cx| {
+        let _ = first.as_mut().poll(cx);
+        let _ = second.as_mut().poll(cx);
+        std::task::Poll::Ready(())
+    })
+    .await;
+    let first = first.await;
+    let second = second.await;
+    assert!(first.is_ok() && second.is_ok());
+
+    let spans = SPANS.snapshot();
+    for (request_id, tenant) in [
+        ("f03-request-a", "f03-tenant-a"),
+        ("f03-request-b", "f03-tenant-b"),
+    ] {
+        let span = spans
+            .iter()
+            .find(|span| {
+                span.name == "http.request"
+                    && span.fields.get("request_id").map(String::as_str)
+                        == Some(format!("\"{request_id}\"").as_str())
+            })
+            .unwrap_or_else(|| panic!("no http.request span for {request_id}"));
+
+        assert_eq!(
+            span.fields.get("tenant").map(String::as_str),
+            Some(format!("\"{tenant}\"").as_str()),
+            "{request_id}'s span carries another request's tenant"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// F-08 — `response.structuredContent` reaches the result, and never an `outputSchema`.
+// ---------------------------------------------------------------------------------------------
+
+/// With the switch on, a real call carries `structuredContent` equal to its text block.
+#[rstest]
+#[tokio::test]
+async fn test_structured_content_follows_the_switch(mock_config: Config) {
+    let engine = catalog_client::testing::MockEngine::start().await;
+    engine.get_ok("/bff/tenants", json!([])).await;
+    let mut config = mock_config;
+    config.response.structured_content = true;
+    let router = mock_shipped_router_against(&engine.server().uri(), config);
+
+    let response = stateless_request(
+        &router,
+        "tools/call",
+        Some("list_tenants"),
+        json!({ "name": "list_tenants", "arguments": {} }),
+        &[("x-mia-acl-context", &acl_for("f08-structured"))],
+    )
+    .await;
+
+    let result = &response["result"];
+    let text: Value =
+        serde_json::from_str(result["content"][0]["text"].as_str().expect("a text block"))
+            .expect("the text is JSON");
+    assert_eq!(result["structuredContent"], text);
+}
+
+/// No tool declares an `outputSchema`, whatever the switch says (D15).
+#[rstest]
+fn test_no_tool_declares_an_output_schema_with_the_switch_on(mock_config: Config) {
+    let mut config = mock_config;
+    config.response.structured_content = true;
+    let state = AppState::build(
+        config,
+        crate::registry::Registry::with_shipped_tools(),
+        None,
+    )
+    .expect("a valid state");
+
+    for tool in state.registry.tools() {
+        assert!(
+            tool.output_schema.is_none(),
+            "`{}` declares an outputSchema",
+            tool.name
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// F-11, end to end — an unknown argument is `invalid_arguments` naming it, through the router.
+// ---------------------------------------------------------------------------------------------
+
+#[rstest]
+#[case::search_catalog("search_catalog", json!({ "type": "Service" }), "type")]
+#[case::list_catalog_types("list_catalog_types", json!({ "query": "agent" }), "query")]
+#[case::describe_item("describe_item", json!({ "name": "example-item", "includeSpec": false }), "includeSpec")]
+#[case::get_item_schema("get_item_schema", json!({ "kind": "Service", "field": ["spec.replicas"] }), "field")]
+#[case::list_tenants("list_tenants", json!({ "tenant": "other" }), "tenant")]
+#[tokio::test]
+async fn test_an_unknown_argument_is_invalid_arguments(
+    mock_router: Router,
+    #[case] tool: &str,
+    #[case] arguments: Value,
+    #[case] unknown: &str,
+) {
+    let response = stateless_request(
+        &mock_router,
+        "tools/call",
+        Some(tool),
+        json!({ "name": tool, "arguments": arguments }),
+        &[("x-mia-acl-context", &acl_for("f11-unknown"))],
+    )
+    .await;
+
+    let result = &response["result"];
+    assert_eq!(result["isError"], json!(true));
+    let error: Value =
+        serde_json::from_str(result["content"][0]["text"].as_str().expect("a text block"))
+            .expect("the error is JSON");
+    assert_eq!(error["error"]["code"], json!("invalid_arguments"));
+    assert!(
+        error["error"]["message"]
+            .as_str()
+            .is_some_and(|message| message.contains(unknown)),
+        "{error}"
+    );
 }

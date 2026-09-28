@@ -53,6 +53,7 @@ const SEARCH_FIELD: &str = "search";
 /// Arguments for `list_catalog_types`.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[serde(deny_unknown_fields)]
 pub struct ListCatalogTypesInput {
     /// Case-insensitive substring, matched over kind, family, display name and description.
     //

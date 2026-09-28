@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::error::{
-    ALL_CODES, BadRequestOrigin, Dispatched, Remedy, ToolError, codes, deadline_exceeded,
+    ALL_CODES, BadRequestOrigin, Dispatched, Remedy, ToolError, Upstream, codes, deadline_exceeded,
     map_status, transport_failure,
 };
 use rstest::rstest;
@@ -137,6 +137,12 @@ fn test_no_code_is_listed_twice() {
     codes::UPSTREAM_UNAVAILABLE,
     Remedy::Retry
 )]
+#[case::gateway_502_on_a_catalog_read(
+    502,
+    BadRequestOrigin::CallerInput,
+    codes::CATALOG_UNAVAILABLE,
+    Remedy::Retry
+)]
 #[case::read_500(
     500,
     BadRequestOrigin::CallerInput,
@@ -155,7 +161,14 @@ fn test_engine_status_maps_to_its_documented_row(
     #[case] expected_code: &str,
     #[case] expected_remedy: Remedy,
 ) {
-    let error = map_status(status, origin, Dispatched::No, None, None);
+    // A `502` is the authorization service's only where the operation proxies it (F-06); every
+    // other row is the same whatever the upstream.
+    let upstream = if expected_code == codes::UPSTREAM_UNAVAILABLE {
+        Upstream::Authz
+    } else {
+        Upstream::Catalog
+    };
+    let error = map_status(status, origin, upstream, Dispatched::No, None, None);
 
     assert_eq!(error.code, expected_code);
     assert_eq!(error.remedy, expected_remedy);
@@ -172,6 +185,7 @@ fn test_a_dispatched_write_that_fails_is_never_a_clean_failure(#[case] status: u
     let error = map_status(
         status,
         BadRequestOrigin::CallerInput,
+        Upstream::Catalog,
         Dispatched::Yes,
         None,
         None,
@@ -189,6 +203,7 @@ fn test_a_dispatched_write_rejected_with_4xx_is_a_clean_failure() {
     let error = map_status(
         409,
         BadRequestOrigin::CallerInput,
+        Upstream::Catalog,
         Dispatched::Yes,
         None,
         None,
@@ -239,6 +254,7 @@ fn test_the_engine_request_id_is_carried_into_details() {
     let error = map_status(
         500,
         BadRequestOrigin::CallerInput,
+        Upstream::Catalog,
         Dispatched::No,
         Some("Something went wrong"),
         Some("engine-request-0001"),
@@ -250,19 +266,20 @@ fn test_the_engine_request_id_is_carried_into_details() {
     );
 }
 
-/// A `401` is phrased as an identity problem, never as a catalog one (T11).
+/// A `401` is phrased as an identity problem and never names the catalog (T11 §7, F-05).
 #[rstest]
 fn test_unauthenticated_is_not_phrased_as_a_catalog_problem() {
     let error = map_status(
         401,
         BadRequestOrigin::CallerInput,
+        Upstream::Catalog,
         Dispatched::No,
         None,
         None,
     );
 
-    assert!(error.message.contains("authentication"));
-    assert!(!error.message.to_lowercase().contains("catalog problem"));
+    assert!(error.message.contains("identity did not reach the service"));
+    assert!(!error.message.to_lowercase().contains("catalog"));
 }
 
 /// A `502` says **authz**, not *the catalog* (T11).
@@ -271,6 +288,7 @@ fn test_upstream_unavailable_names_the_authorization_service() {
     let error = map_status(
         502,
         BadRequestOrigin::CallerInput,
+        Upstream::Authz,
         Dispatched::No,
         None,
         None,

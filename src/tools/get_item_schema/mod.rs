@@ -38,9 +38,9 @@ pub const TOOL_NAME: &str = "get_item_schema";
 
 /// What the tool does (DR-86). Full by default — creating an item and editing the type both need
 /// the whole thing — and `fields` for a change to an existing item.
-const TOOL_DESCRIPTION: &str = "Returns one catalog type's definition, including the schema its \
-     items follow. Call it before creating an item or editing the type. To change an existing \
-     item, pass `fields` to get only those fields' schema.";
+const TOOL_DESCRIPTION: &str = "Returns one catalog type's definition, including its items' \
+     schema. Call it before creating an item or editing the type; to change an item, pass \
+     `fields` for just those fields' schema.";
 
 /// The longest `kind`, in bytes (T6 §3).
 pub const MAX_KIND_BYTES: usize = 128;
@@ -71,12 +71,13 @@ const METADATA_NOISE: [&str; 6] = [
 /// Arguments for `get_item_schema` (T6 §3, DR-80, DR-86).
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[serde(deny_unknown_fields)]
 pub struct GetItemSchemaInput {
     /// The type's kind, e.g. "Service".
     #[serde(rename = "kind")]
     pub kind: String,
 
-    /// The kind's API group. Only needed when several types share the kind.
+    /// The kind's group, if several types share it.
     #[serde(rename = "group")]
     pub group: Option<String>,
 

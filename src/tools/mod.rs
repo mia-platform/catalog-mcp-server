@@ -18,9 +18,9 @@
 /// T6 — one type's schema, whole, for an agent about to write an item of it. Wave 1.a.
 pub mod get_item_schema;
 
-/// The Step 1 probe: proves the handler, the transport and the identity hook without any
-/// catalog logic behind them (§13.2), and the smallest worked example of the §5.5 contract.
-pub mod hello;
+/// A test-only probe reporting the identity that reached it; never registered in production.
+#[cfg(test)]
+pub mod echo_identity;
 
 /// Argument checks shared by more than one tool.
 mod arguments;

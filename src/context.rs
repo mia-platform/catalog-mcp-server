@@ -24,15 +24,16 @@ use std::{
         Arc,
         atomic::{AtomicBool, Ordering},
     },
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 /// Whether the process is ready to receive traffic, as `/-/ready` reports it (D43).
 ///
 /// It starts **not ready** and is raised once every startup condition holds: the validated
-/// configuration and the prebuilt `tools/list` payload today, plus the engine probe once
-/// `health.readinessChecksEngine` has something to probe. Shutdown lowers it *before* the drain
-/// begins, so the endpoint stops receiving traffic while in-flight calls finish (D42, D43).
+/// configuration and the prebuilt `tools/list` payload. The engine probe is the other half of
+/// `/-/ready` ([`EngineProbe`]), consulted on top of this flag. Shutdown lowers it *before* the
+/// drain begins, so the endpoint stops receiving traffic while in-flight calls finish, whatever
+/// the probe last said (D42, D43).
 #[derive(Debug, Default)]
 pub struct Readiness(AtomicBool);
 
@@ -50,6 +51,50 @@ impl Readiness {
     /// Records that the process is draining and must stop receiving traffic.
     pub fn mark_draining(&self) {
         self.0.store(false, Ordering::Release);
+    }
+}
+
+/// How long one readiness engine probe is trusted before the next is made (D43).
+pub const ENGINE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
+
+/// The cached engine probe `/-/ready` consults when `health.readinessChecksEngine` is on (D43).
+///
+/// The engine is probed **at most once per interval**, however often `/-/ready` is asked: every
+/// call in between is served from the last result, so the probe rate is independent of the
+/// kubelet's. The lock is held across the probe on purpose — concurrent readiness checks wait for
+/// the one in flight rather than each starting their own.
+#[derive(Debug)]
+pub struct EngineProbe {
+    timeout: Duration,
+    interval: Duration,
+    last: tokio::sync::Mutex<Option<(Instant, bool)>>,
+}
+
+impl EngineProbe {
+    /// A probe with `timeout` per attempt, trusted for `interval`.
+    pub fn new(timeout: Duration, interval: Duration) -> Self {
+        Self {
+            timeout,
+            interval,
+            last: tokio::sync::Mutex::new(None),
+        }
+    }
+
+    /// Whether the engine was reachable, probing through `engine` only when the cached result is
+    /// older than the interval.
+    pub async fn reachable(&self, engine: &EngineClientFactory) -> bool {
+        let mut last = self.last.lock().await;
+
+        if let Some((probed_at, reachable)) = *last
+            && probed_at.elapsed() < self.interval
+        {
+            return reachable;
+        }
+
+        let reachable = engine.probe(self.timeout).await;
+        *last = Some((Instant::now(), reachable));
+
+        reachable
     }
 }
 
@@ -80,6 +125,10 @@ pub struct AppState {
 
     /// Whether the process is ready to receive traffic.
     pub readiness: Arc<Readiness>,
+
+    /// The engine probe `/-/ready` consults, or `None` when `health.readinessChecksEngine` is
+    /// off (D43).
+    pub engine_probe: Option<Arc<EngineProbe>>,
 }
 
 impl AppState {
@@ -111,6 +160,12 @@ impl AppState {
         )?;
 
         let rate_limiter = RateLimiter::new(&config.tools.rate_limit);
+        let engine_probe = config.health.readiness_checks_engine.then(|| {
+            Arc::new(EngineProbe::new(
+                Duration::from_millis(config.health.engine_probe_timeout_ms),
+                ENGINE_PROBE_INTERVAL,
+            ))
+        });
 
         observability::record_tools_list_bytes(registry.serialised_bytes());
 
@@ -121,6 +176,7 @@ impl AppState {
             rate_limiter: Arc::new(rate_limiter),
             metrics: Arc::new(metrics),
             readiness: Arc::new(Readiness::default()),
+            engine_probe,
         })
     }
 

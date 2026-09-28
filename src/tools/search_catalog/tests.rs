@@ -285,6 +285,67 @@ fn test_query_text_is_escaped_not_interpreted() {
     );
 }
 
+/// `n` distinct entries, `prefix0 … prefix{n-1}`, each with a short value.
+fn mock_entries(prefix: &str, n: usize) -> BTreeMap<String, String> {
+    (0..n)
+        .map(|index| (format!("{prefix}{index}"), "v".to_string()))
+        .collect()
+}
+
+/// F-12 — the widest searches T2's own bounds accept build, validate and encode: no combinator
+/// is wider than the core's 20, however many labels and fields there are.
+#[rstest]
+#[case::query_and_twenty_labels(true, MAX_FILTER_ENTRIES, 0)]
+#[case::twenty_labels_and_twenty_fields(false, MAX_FILTER_ENTRIES, MAX_FILTER_ENTRIES)]
+#[case::query_and_twenty_labels_and_twenty_fields(true, MAX_FILTER_ENTRIES, MAX_FILTER_ENTRIES)]
+#[case::eleven_labels_and_ten_fields(false, 11, 10)]
+fn test_the_widest_accepted_search_is_not_refused_for_width(
+    #[case] with_query: bool,
+    #[case] labels: usize,
+    #[case] fields: usize,
+) {
+    let labels = mock_entries("label", labels);
+    let fields = mock_entries("spec.f", fields);
+
+    let predicate = ast::build(
+        with_query.then_some("gateway"),
+        Some(&labels),
+        Some(&fields),
+    )
+    .expect("a valid search")
+    .expect("a predicate");
+
+    predicate
+        .encode_rawq()
+        .expect("the widest accepted search encodes");
+    let top = predicate.to_json()["and"]
+        .as_array()
+        .cloned()
+        .expect("a top-level and");
+    assert!(
+        top.len() <= 20,
+        "the top-level and has {} children",
+        top.len()
+    );
+}
+
+/// A search narrow enough to fit keeps its flat shape: only searches refused before change.
+#[rstest]
+fn test_a_search_that_fits_keeps_its_flat_shape() {
+    let labels = mock_entries("label", 10);
+    let fields = mock_entries("spec.f", 9);
+
+    let predicate = ast::build(Some("gateway"), Some(&labels), Some(&fields))
+        .expect("a valid search")
+        .expect("a predicate");
+
+    let top = predicate.to_json()["and"]
+        .as_array()
+        .cloned()
+        .expect("a top-level and");
+    assert_eq!(top.len(), 20, "one or plus 19 eq, side by side as before");
+}
+
 /// **The golden base64** — the regression anchor for the whole pipeline.
 #[rstest]
 fn test_the_golden_search_encodes_to_its_recorded_rawq() {

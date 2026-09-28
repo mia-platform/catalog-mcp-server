@@ -34,7 +34,9 @@ SERVER_PID=$!
 # shellcheck disable=SC2064
 trap "kill ${SERVER_PID} 2>/dev/null || true" EXIT INT TERM
 
-# Wait for readiness rather than sleeping a guessed interval.
+# Wait for readiness rather than sleeping a guessed interval. `config.json` turns the readiness
+# engine probe off (`health.readinessChecksEngine: false`): the suite runs with no engine, and with
+# the probe on the server would never report ready.
 i=0
 while [ $i -lt 50 ]; do
     if curl -sf "http://127.0.0.1:${PORT}/-/ready" > /dev/null 2>&1; then break; fi

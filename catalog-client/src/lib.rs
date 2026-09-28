@@ -64,7 +64,10 @@ pub mod ops;
 pub mod testing;
 
 pub use address::{FamilyAddress, ItemAddress};
-pub use client::{CallWarnings, Deadline, EngineClient, EngineClientFactory, EngineResponse};
+pub use client::{
+    BAGGAGE_HEADER, CallWarnings, Deadline, EngineClient, EngineClientFactory, EngineResponse,
+    TRACEPARENT_HEADER, TRACESTATE_HEADER, TraceContext,
+};
 pub use error::{Remedy, ToolError};
 pub use identity::{AclContext, CallerIdentity, Sensitive, TenantKey};
 pub use models::Tenant;

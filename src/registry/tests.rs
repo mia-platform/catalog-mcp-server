@@ -188,3 +188,87 @@ fn test_byte_budget_scales_with_the_tool_count(mock_registry: Registry) {
         PER_TOOL_ALLOWANCE * mock_registry.tools().len()
     );
 }
+
+// ---------------------------------------------------------------------------------------------
+// F-11 — `additionalProperties: false` is enforced: every documented argument is accepted, and
+// nothing else is.
+// ---------------------------------------------------------------------------------------------
+
+/// Deserialises `arguments` as `T`, the way the adapter does.
+fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), String> {
+    serde_path_to_error::deserialize::<_, T>(arguments)
+        .map(|_| ())
+        .map_err(|err| err.inner().to_string())
+}
+
+/// Every argument each tool documents, together, still deserialises.
+#[rstest]
+#[case::list_catalog_types(
+    deserialise::<crate::tools::list_catalog_types::ListCatalogTypesInput> as fn(Value) -> Result<(), String>,
+    serde_json::json!({ "search": "agent" })
+)]
+#[case::search_catalog(
+    deserialise::<crate::tools::search_catalog::SearchCatalogInput>,
+    serde_json::json!({
+        "query": "catalog", "kind": "Service", "group": "example.com",
+        "labels": { "tier": "backend" }, "fields": { "spec.replicas": "2" },
+        "limit": 5, "cursor": "abc"
+    })
+)]
+#[case::describe_item(
+    deserialise::<crate::tools::describe_item::DescribeItemInput>,
+    serde_json::json!({
+        "name": "example-item", "kind": "Service", "group": "example.com",
+        "include_spec": false, "include_relationships": true, "direction": "inbound",
+        "group_by": "type", "relationship_limit": 5, "relationship_cursor": "abc"
+    })
+)]
+#[case::get_item_schema(
+    deserialise::<crate::tools::get_item_schema::GetItemSchemaInput>,
+    serde_json::json!({ "kind": "Service", "group": "example.com", "version": "v1", "fields": ["spec.replicas"] })
+)]
+#[case::list_tenants(deserialise::<crate::tools::list_tenants::ListTenantsInput>, serde_json::json!({}))]
+fn test_every_documented_argument_is_accepted(
+    #[case] deserialise: fn(Value) -> Result<(), String>,
+    #[case] arguments: Value,
+) {
+    assert_eq!(deserialise(arguments), Ok(()));
+}
+
+/// An unknown argument is refused, naming itself — never silently ignored into an unfiltered
+/// answer (`search_catalog {"type": …}` searching everything).
+#[rstest]
+#[case::list_catalog_types(
+    deserialise::<crate::tools::list_catalog_types::ListCatalogTypesInput> as fn(Value) -> Result<(), String>,
+    serde_json::json!({ "query": "agent" }),
+    "query"
+)]
+#[case::search_catalog(
+    deserialise::<crate::tools::search_catalog::SearchCatalogInput>,
+    serde_json::json!({ "type": "Service" }),
+    "type"
+)]
+#[case::describe_item(
+    deserialise::<crate::tools::describe_item::DescribeItemInput>,
+    serde_json::json!({ "name": "example-item", "includeSpec": false }),
+    "includeSpec"
+)]
+#[case::get_item_schema(
+    deserialise::<crate::tools::get_item_schema::GetItemSchemaInput>,
+    serde_json::json!({ "kind": "Service", "field": ["spec.replicas"] }),
+    "field"
+)]
+#[case::list_tenants(
+    deserialise::<crate::tools::list_tenants::ListTenantsInput>,
+    serde_json::json!({ "tenant": "other" }),
+    "tenant"
+)]
+fn test_an_unknown_argument_is_refused_by_name(
+    #[case] deserialise: fn(Value) -> Result<(), String>,
+    #[case] arguments: Value,
+    #[case] unknown: &str,
+) {
+    let error = deserialise(arguments).expect_err("an unknown argument is refused");
+
+    assert!(error.contains(&format!("`{unknown}`")), "{error}");
+}

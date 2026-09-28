@@ -80,7 +80,7 @@ impl EngineClient {
 
         let response: EngineResponse<ListEnvelope<ItemRelationshipEntry>> = self
             .get_json(
-                GET_RELATIONSHIPS.id,
+                &GET_RELATIONSHIPS,
                 url,
                 Projection::PartialObjectMetadata.accept(),
                 BadRequestOrigin::ServerBuilt,

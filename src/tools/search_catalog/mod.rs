@@ -78,6 +78,7 @@ const SPEC_PATH_PREFIX: &str = "spec.";
 /// is already `None`, and the attribute would put `"default": null` into the schema.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[serde(deny_unknown_fields)]
 pub struct SearchCatalogInput {
     /// Free text over names, titles and tags.
     #[serde(rename = "query")]
@@ -87,7 +88,7 @@ pub struct SearchCatalogInput {
     #[serde(rename = "kind")]
     pub kind: Option<String>,
 
-    /// The kind's API group. Only needed when several types share the kind.
+    /// The kind's group, if several types share it.
     #[serde(rename = "group")]
     pub group: Option<String>,
 

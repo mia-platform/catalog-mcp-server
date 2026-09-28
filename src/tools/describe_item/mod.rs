@@ -121,6 +121,7 @@ pub enum GroupBy {
 /// groups. The two enums are typed, so a bad value is `invalid_arguments` before the tool runs.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+#[serde(deny_unknown_fields)]
 pub struct DescribeItemInput {
     /// The item's name.
     #[serde(rename = "name")]
@@ -130,7 +131,7 @@ pub struct DescribeItemInput {
     #[serde(rename = "kind")]
     pub kind: Option<String>,
 
-    /// The kind's API group. Only needed when several types share the kind.
+    /// The kind's group, if several types share it.
     #[serde(rename = "group")]
     pub group: Option<String>,
 

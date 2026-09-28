@@ -554,6 +554,89 @@ async fn test_matches_on_tags_hits_one_element_of_the_array() {
     assert!(!found("gamma").await, "a pattern matching no tag does not");
 }
 
+/// **F-01, live: a link without a `title` is valid engine data, and every read path decodes it.**
+/// The engine's own model makes `title` optional and its schema example is a bare `{"url": …}`; no
+/// seeded item carries `links`, so the test writes one and reads it back through each path T2 and
+/// T3 use: the item read, the family listing and the global listing (both partial projections).
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_titleless_link_is_read_on_every_path() {
+    let client = client();
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", "catalog-agent")
+        .expect("a well-formed address");
+    let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", "e2e-links-probe")
+        .expect("a well-formed address");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds `catalog-agent`")
+        .value;
+    client
+        .put_item(
+            &probe,
+            &serde_json::json!({
+                "apiVersion": seeded.api_version,
+                "kind": seeded.kind,
+                "metadata": {
+                    "name": probe.name(),
+                    "links": [{ "url": "https://example.com/runbook" }],
+                },
+                "spec": seeded.spec,
+            }),
+            false,
+        )
+        .await
+        .expect("the engine accepts a title-less link");
+
+    let item = client
+        .get_item(&probe)
+        .await
+        .expect("the item read decodes a title-less link")
+        .value;
+    assert_eq!(item.metadata.links.len(), 1);
+    assert_eq!(item.metadata.links[0].title, None);
+
+    let agents = FamilyAddress::new("ai.mia-platform.eu", "v1", "agents").expect("a family");
+    let family = client
+        .list_family_items_partial(
+            &agents,
+            &ListQuery {
+                limit: Some(MAX_LIMIT),
+                ..ListQuery::default()
+            },
+        )
+        .await
+        .expect("the family listing decodes a title-less link")
+        .value
+        .items;
+    assert!(
+        family
+            .iter()
+            .any(|entry| entry.metadata.name == "e2e-links-probe")
+    );
+
+    let global = paginate_all(|cursor| {
+        let client = &client;
+        async move {
+            client
+                .list_items_partial(&ListQuery {
+                    limit: Some(MAX_LIMIT),
+                    cursor,
+                    ..ListQuery::default()
+                })
+                .await
+                .map(|response| response.value)
+        }
+    })
+    .await
+    .expect("the global listing decodes a title-less link");
+    assert!(
+        global
+            .iter()
+            .any(|entry| entry.metadata.name == "e2e-links-probe")
+    );
+}
+
 /// The seeded agent T3's e2e test describes, and the agent its relationship points at.
 const DESCRIBED_AGENT: &str = "catalog-agent";
 const RELATED_AGENT: &str = "assisted-ai-resource-generator";

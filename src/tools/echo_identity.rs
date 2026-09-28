@@ -24,32 +24,28 @@ use rmcp::model::ToolAnnotations;
 use serde::Deserialize;
 use serde_json::json;
 
-/// The tool name, as the model calls it.
-pub const TOOL_NAME: &str = "hello";
+/// The tool name.
+pub const TOOL_NAME: &str = "echo_identity";
 
-/// What the tool does. Kept to one line: it is paid for on every conversation.
-const TOOL_DESCRIPTION: &str = "Check that the Catalog MCP server is reachable and reporting its version. Takes no \
-     arguments and reads nothing from the catalog.";
+/// What the tool does.
+const TOOL_DESCRIPTION: &str = "Report the tenant this call reached the tool with. Tests only.";
 
-/// `hello` takes no arguments: the probe must not depend on anything a caller sends.
+/// The probe takes no arguments: what it reports must not depend on anything a caller sends.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
-pub struct HelloInput {}
+#[serde(deny_unknown_fields)]
+pub struct EchoIdentityInput {}
 
-/// The Step 1 probe: proves the handler, the transport and the identity hook with no catalog
-/// logic behind them (§13.2).
-///
-/// It is also the smallest possible worked example of the §5.5 contract — no engine call, no
-/// arguments, no warnings — which is why it is worth keeping beside `list_tenants`, the example
-/// that does exercise all three.
-pub struct Hello;
+/// **A test-only probe, never registered in production** (F-10). It is what `hello` was during
+/// Step 1 (§13.2): a tool with no catalog logic behind it, reporting the identity that reached
+/// it, so the handler, both transport eras and the identity hook can be tested without an
+/// engine. The shipped set is the catalog tools alone.
+pub struct EchoIdentity;
 
-impl Tool for Hello {
-    type Input = HelloInput;
+impl Tool for EchoIdentity {
+    type Input = EchoIdentityInput;
 
-    /// `readOnlyHint: true` is the one hint that differs from the specification's defaults
-    /// (D16): omitting annotations entirely would declare this probe destructive and open-world.
     fn descriptor() -> ToolDescriptor {
-        ToolDescriptor::new::<HelloInput>(
+        ToolDescriptor::new::<EchoIdentityInput>(
             TOOL_NAME,
             TOOL_DESCRIPTION,
             ToolAnnotations::new().read_only(true),
@@ -61,9 +57,7 @@ impl Tool for Hello {
         context: &CallContext,
         _input: Self::Input,
     ) -> Result<ToolOutput, ToolError> {
-        // The tenant is reported because it is the one thing a reachability probe can usefully
-        // confirm beyond "the process answered": that identity reached the tool at all. It comes
-        // from the `CallContext`, never from a header — rule 1.
+        // It comes from the `CallContext`, never from a header — rule 1.
         Ok(ToolOutput::new(json!({
             "server": env!("CARGO_PKG_NAME"),
             "version": env!("CARGO_PKG_VERSION"),
@@ -71,6 +65,3 @@ impl Tool for Hello {
         })))
     }
 }
-
-#[cfg(test)]
-mod tests;

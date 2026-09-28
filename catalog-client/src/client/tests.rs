@@ -460,6 +460,9 @@ async fn test_an_unreadable_body_is_reported_as_our_defect() {
 
     assert_eq!(error.code, codes::SERVER_DEFECT);
     assert_eq!(error.remedy, Remedy::Escalate);
+    // F-01: an unreadable body says nothing about our headers, so it is not the `406` row.
+    assert!(!error.message.contains("Accept"), "{}", error.message);
+    assert!(error.message.contains("cannot read"), "{}", error.message);
 }
 
 /// A deadline with no time left fails **without dialling**: the mock would otherwise record a

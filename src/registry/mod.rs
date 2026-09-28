@@ -16,13 +16,14 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::{
-    handler::{CatalogHandler, caller_identity},
+    handler::{CallRecord, CatalogHandler, caller_identity},
     registry::contract::{
         CallContext, ProgressSink, Tool as CatalogTool, invalid_arguments, success_result,
     },
     schema::minify_input_schema,
     tools,
 };
+use catalog_client::TraceContext;
 use rmcp::{
     handler::server::{
         common::schema_for_input,
@@ -151,7 +152,6 @@ impl Registry {
             ToolRouter::new()
                 .with_route(route_for(tools::describe_item::DescribeItem))
                 .with_route(route_for(tools::get_item_schema::GetItemSchema))
-                .with_route(route_for(tools::hello::Hello))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
                 .with_route(route_for(tools::list_tenants::ListTenants))
                 .with_route(route_for(tools::search_catalog::SearchCatalog)),
@@ -234,8 +234,14 @@ pub fn route_for<T: CatalogTool>(tool: T) -> ToolRoute<CatalogHandler> {
                 let request = context.request_context();
 
                 let identity = Arc::new(caller_identity(request));
+                let record = request.extensions.get::<CallRecord>().cloned();
+                let trace = TraceContext::new(
+                    request.meta.get_traceparent(),
+                    request.meta.get_tracestate(),
+                    request.meta.get_baggage(),
+                );
                 let call = CallContext::new(
-                    state.engine_for(identity.clone()),
+                    state.engine_for(identity.clone()).with_trace_context(trace),
                     state.deadline(),
                     request.ct.clone(),
                     request
@@ -251,20 +257,33 @@ pub fn route_for<T: CatalogTool>(tool: T) -> ToolRoute<CatalogHandler> {
                 let input = match serde_path_to_error::deserialize::<_, T::Input>(arguments) {
                     Ok(input) => input,
                     Err(err) => {
-                        return Ok(crate::handler::tool_error_result(&invalid_arguments(&err)));
+                        let error = invalid_arguments(&err);
+                        if let Some(record) = &record {
+                            record.tool_error(&error);
+                        }
+                        return Ok(crate::handler::tool_error_result(&error));
                     }
                 };
 
                 // Rule 2 — a tool cannot set `isError`; returning `Err` is how it fails. The
                 // engine warnings are read off the call's client **here**, after the tool, so
                 // what reaches the model does not depend on the tool remembering them (D28).
-                match tool.call(&call, input).await {
+                let outcome = tool.call(&call, input).await;
+                if let Some(record) = &record {
+                    record.engine_calls(call.engine().call_warnings().engine_calls());
+                    if let Err(error) = &outcome {
+                        record.tool_error(error);
+                    }
+                }
+
+                match outcome {
                     Ok(output) => {
                         let engine_warnings = call.engine().call_warnings().collected();
 
                         Ok(CallToolResponse::from(success_result(
                             &output,
                             engine_warnings.as_deref(),
+                            state.config.response.structured_content,
                         )))
                     }
                     Err(error) => Ok(crate::handler::tool_error_result(&error)),

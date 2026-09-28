@@ -254,13 +254,27 @@ impl ToolOutput {
 /// Renders a successful [`ToolOutput`] as the result the model reads, with the engine warnings
 /// the call collected.
 ///
-/// One `TextContent` block of compact JSON, and **no `structuredContent`** (D15): returning
-/// every result twice doubles the metric this project exists to reduce.
-pub fn success_result(output: &ToolOutput, engine: Option<&[EngineWarning]>) -> CallToolResult {
-    let text = serde_json::to_string(&output.render(engine))
+/// One `TextContent` block of compact JSON and, by default, **no `structuredContent`** (D15):
+/// returning every result twice doubles the metric this project exists to reduce.
+///
+/// `structured` is `response.structuredContent`, the switch D15 keeps for a client that needs
+/// it (the §13.5 P-C8 fallback). When on, the result also carries the **same** rendered object
+/// as `structuredContent` — the text block stays, and no `outputSchema` is ever declared for it.
+pub fn success_result(
+    output: &ToolOutput,
+    engine: Option<&[EngineWarning]>,
+    structured: bool,
+) -> CallToolResult {
+    let rendered = output.render(engine);
+    let text = serde_json::to_string(&rendered)
         .unwrap_or_else(|_| r#"{"error":"unserialisable result"}"#.to_string());
 
-    CallToolResult::success(vec![ContentBlock::text(text)])
+    let mut result = CallToolResult::success(vec![ContentBlock::text(text)]);
+    if structured {
+        result.structured_content = Some(rendered);
+    }
+
+    result
 }
 
 /// Turns a serde failure into rule 3's tool error, with the field path the model needs.

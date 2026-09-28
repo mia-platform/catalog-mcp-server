@@ -41,6 +41,7 @@ const TOOL_DESCRIPTION: &str =
 /// filter the model could usefully apply, and offering one would invite it to believe it can
 /// widen its own scope — the opposite of what NFR-01 wants a tool surface to suggest.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListTenantsInput {}
 
 /// The worked example of the §5.5 contract, and the cheapest end-to-end probe of the identity

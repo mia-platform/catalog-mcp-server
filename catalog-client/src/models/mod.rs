@@ -43,3 +43,6 @@ pub use item_type_definition::{
 pub use list::{Count, ListEnvelope, ListMetadata};
 pub use relationship::{ItemRelationshipEntry, RelationshipDirection};
 pub use tenant::Tenant;
+
+#[cfg(test)]
+mod tests;

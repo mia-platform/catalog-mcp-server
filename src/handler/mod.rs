@@ -36,6 +36,7 @@ use rmcp::{
     service::{RequestContext, RoleServer},
 };
 use std::{borrow::Cow, time::Instant};
+use tracing::Instrument;
 
 /// What the server tells the model that no tool description can (D14).
 ///
@@ -152,6 +153,7 @@ pub(crate) fn mcp_request_span(
         outcome = tracing::field::Empty,
         error.code = tracing::field::Empty,
         error.remedy = tracing::field::Empty,
+        engine.calls = tracing::field::Empty,
         bytes_out = tracing::field::Empty,
         duration_ms = tracing::field::Empty,
     );
@@ -169,6 +171,57 @@ pub fn tool_error_result(error: &ToolError) -> CallToolResponse {
     });
 
     CallToolResult::error(vec![ContentBlock::text(text)]).into()
+}
+
+/// What one tool call did, as the runtime needs to report it (§10).
+///
+/// Put into the request's extensions by [`CatalogHandler::call_tool`] before dispatch, and filled
+/// in by the tool's route — which is the only place that knows which [`ToolError`] it rendered and
+/// how many engine requests the call's client made. The rendered result carries neither in a form
+/// worth parsing back, so the route says so here instead; the result itself is unchanged.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CallRecord {
+    inner: std::sync::Arc<std::sync::Mutex<CallRecordState>>,
+}
+
+/// The mutable half of [`CallRecord`].
+#[derive(Debug, Default)]
+struct CallRecordState {
+    error: Option<(&'static str, Remedy)>,
+    engine_calls: u32,
+}
+
+impl CallRecord {
+    /// Runs `f` on the state. A poisoned lock is recovered: losing a metric label is better than
+    /// failing a call that has already been answered.
+    fn with_state<R>(&self, f: impl FnOnce(&mut CallRecordState) -> R) -> R {
+        let mut state = match self.inner.lock() {
+            Ok(state) => state,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+
+        f(&mut state)
+    }
+
+    /// Records the tool error the call was answered with.
+    pub(crate) fn tool_error(&self, error: &ToolError) {
+        self.with_state(|state| state.error = Some((error.code, error.remedy)));
+    }
+
+    /// Records how many engine requests the call made.
+    pub(crate) fn engine_calls(&self, count: u32) {
+        self.with_state(|state| state.engine_calls = count);
+    }
+
+    /// The tool error recorded, if any.
+    fn error(&self) -> Option<(&'static str, Remedy)> {
+        self.with_state(|state| state.error)
+    }
+
+    /// The engine requests recorded.
+    fn recorded_engine_calls(&self) -> u32 {
+        self.with_state(|state| state.engine_calls)
+    }
 }
 
 /// How many bytes a result serialises to, for `mcp_response_bytes` (§10, D34).
@@ -359,6 +412,9 @@ impl ServerHandler for CatalogHandler {
             RateLimitDecision::Limited { retry_after_ms } => Some(rate_limited(retry_after_ms)),
         };
 
+        let record = CallRecord::default();
+        let mut context = context;
+        context.extensions.insert(record.clone());
         let context = ToolCallContext::new(self, request, context);
 
         async move {
@@ -374,14 +430,29 @@ impl ServerHandler for CatalogHandler {
                 None => {
                     let cancellation = context.request_context().ct.clone();
 
-                    match self.state.registry.router().call(context).await {
+                    // The tool runs **inside** `mcp.request`, so every `engine.request` span its
+                    // client opens is a child of this call's span (§10).
+                    let dispatched = self
+                        .state
+                        .registry
+                        .router()
+                        .call(context)
+                        .instrument(span.clone())
+                        .await;
+
+                    match dispatched {
                         // §5.5 rule 5 — the client going away is recorded, never surfaced to a
                         // peer that is gone. A tool that loops or polls also `select!`s on its
                         // own clone of this token; this is the runtime's half of the rule.
                         Ok(response) if cancellation.is_cancelled() => {
                             (response, Outcome::Cancelled, Remedy::Retry, None)
                         }
-                        Ok(response) => (response, Outcome::Ok, Remedy::Retry, None),
+                        Ok(response) => match record.error() {
+                            Some((code, remedy)) => {
+                                (response, Outcome::ToolError, remedy, Some(code))
+                            }
+                            None => (response, Outcome::Ok, Remedy::Retry, None),
+                        },
                         Err(error) => return Err(error),
                     }
                 }
@@ -390,6 +461,7 @@ impl ServerHandler for CatalogHandler {
             let bytes = response_bytes(&response);
 
             span.record("outcome", outcome.as_str());
+            span.record("engine.calls", record.recorded_engine_calls());
             span.record("bytes_out", bytes);
             span.record("duration_ms", started.elapsed().as_millis() as u64);
 

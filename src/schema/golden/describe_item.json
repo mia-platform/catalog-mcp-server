@@ -2,41 +2,24 @@
   "additionalProperties": false,
   "properties": {
     "direction": {
-      "anyOf": [
-        {
-          "enum": [
-            "inbound",
-            "outbound"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
+      "description": "Restrict relationships to one direction.",
+      "enum": [
+        "inbound",
+        "outbound"
       ],
-      "description": "Restrict relationships to one direction."
+      "type": "string"
     },
     "group": {
-      "description": "The kind's API group. Only needed when several types share the kind.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
     },
     "group_by": {
-      "anyOf": [
-        {
-          "enum": [
-            "direction",
-            "type"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
+      "description": "Group relationships by direction (default) or by relationship type.",
+      "enum": [
+        "direction",
+        "type"
       ],
-      "description": "Group relationships by direction (default) or by relationship type."
+      "type": "string"
     },
     "include_relationships": {
       "default": true,
@@ -50,10 +33,7 @@
     },
     "kind": {
       "description": "Only needed when the name is ambiguous.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "name": {
       "description": "The item's name.",
@@ -61,20 +41,11 @@
     },
     "relationship_cursor": {
       "description": "Opaque continuation for relationships only.",
-      "type": [
-        "string",
-        "null"
-      ]
+      "type": "string"
     },
     "relationship_limit": {
       "description": "Maximum relationships returned. Default 50, clamped to 200.",
-      "format": "uint16",
-      "maximum": 65535,
-      "minimum": 0,
-      "type": [
-        "integer",
-        "null"
-      ]
+      "type": "integer"
     }
   },
   "required": [

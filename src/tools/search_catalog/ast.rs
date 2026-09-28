@@ -18,7 +18,9 @@
 // T2 §4 — the parameters → `Predicate` mapping, which is T2's **entire** contribution to the
 // query translator. Encoding, limits, splitting and base64 are the core's (§8.8).
 
-use catalog_client::{FieldPath, Predicate, QueryValue, RegexLiteral, ToolError};
+use catalog_client::{
+    FieldPath, Predicate, QueryValue, RegexLiteral, ToolError, query::MAX_BRANCH_CHILDREN,
+};
 use std::collections::BTreeMap;
 
 /// The fields free text is matched against, in the order they are emitted.
@@ -38,6 +40,12 @@ pub const LABEL_PATH_PREFIX: &str = "metadata.labels.";
 /// - each label → `eq` on `metadata.labels.<key>`; each field → `eq` on its path.
 /// - everything is `and`-ed at the top level, which is also the only shape the core may split
 ///   across several `rawq` parameters.
+/// - **when that `and` would be wider than the core's [`MAX_BRANCH_CHILDREN`]**, the `eq`s are
+///   grouped into nested `and`s of at most that many, after the query's `or`. `query` plus 20
+///   labels plus 20 fields — all within T2's own bounds — would otherwise be refused for width
+///   (F-12). A conjunction of conjunctions is the same search, and the top-level `and` stays
+///   splittable. A search that fits keeps exactly the shape it always had, so its `rawq` and its
+///   cursor fingerprint do not change.
 ///
 /// **Nothing supplied is not an error**: it yields `None`, and no `rawq` is sent at all — *"what
 /// is in the catalog?"* is a legitimate first question. `kind` is never a predicate: it selects
@@ -51,6 +59,7 @@ pub fn build(
     fields: Option<&BTreeMap<String, String>>,
 ) -> Result<Option<Predicate>, ToolError> {
     let mut clauses = Vec::new();
+    let mut equalities = Vec::new();
 
     if let Some(query) = query {
         let pattern = RegexLiteral::containing(query)?;
@@ -68,17 +77,30 @@ pub fn build(
     }
 
     for (key, value) in labels.into_iter().flatten() {
-        clauses.push(Predicate::Eq {
+        equalities.push(Predicate::Eq {
             field: FieldPath::new(&format!("{LABEL_PATH_PREFIX}{key}"))?,
             value: QueryValue::string(value)?,
         });
     }
 
     for (path, value) in fields.into_iter().flatten() {
-        clauses.push(Predicate::Eq {
+        equalities.push(Predicate::Eq {
             field: FieldPath::new(path)?,
             value: QueryValue::string(value)?,
         });
+    }
+
+    if clauses.len() + equalities.len() <= MAX_BRANCH_CHILDREN {
+        clauses.extend(equalities);
+    } else {
+        clauses.extend(
+            equalities
+                .chunks(MAX_BRANCH_CHILDREN)
+                .map(|group| match group {
+                    [only] => only.clone(),
+                    _ => Predicate::And(group.to_vec()),
+                }),
+        );
     }
 
     Ok((!clauses.is_empty()).then_some(Predicate::And(clauses)))

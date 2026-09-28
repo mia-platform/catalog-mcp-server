@@ -190,6 +190,7 @@ pub enum BadRequestOrigin {
 pub fn map_status(
     status: u16,
     origin: BadRequestOrigin,
+    upstream: Upstream,
     dispatched: Dispatched,
     engine_message: Option<&str>,
     request_id: Option<&str>,
@@ -224,11 +225,13 @@ pub fn map_status(
                 ),
             ),
         },
+        // T11 §7: never phrased as a problem of the data behind it — the wording names neither
+        // it nor anything else the model could mistake for the cause.
         401 => ToolError::new(
             codes::UNAUTHENTICATED,
             Remedy::Escalate,
-            "The caller's identity did not reach the service. This is an authentication \
-             problem, not a catalog one.",
+            "The caller's identity did not reach the service, so the request was not \
+             authenticated. The deployment's authentication needs attention.",
         ),
         403 => ToolError::new(
             codes::FORBIDDEN,
@@ -272,7 +275,9 @@ pub fn map_status(
                 .unwrap_or("The catalog does not implement this operation.")
                 .to_string(),
         ),
-        502 => ToolError::new(
+        // Only where the engine proxies authz is a `502` the authorization service's; anywhere
+        // else it is the gateway's, and falls through to the catalog being unavailable.
+        502 if upstream == Upstream::Authz => ToolError::new(
             codes::UPSTREAM_UNAVAILABLE,
             Remedy::Retry,
             "The authorization service is unreachable. The catalog itself may be fine.",
@@ -291,6 +296,37 @@ pub fn map_status(
     };
 
     attach_request_id(error, request_id)
+}
+
+/// What an operation's request ultimately reaches, which decides what a `502` means (§8.4).
+///
+/// The engine answers `502` only from its authz/identity client, which only the BFF routes proxying
+/// authz use. On any other route a `502` comes from the gateway in front of the engine — and is the
+/// catalog being unavailable, not the authorization service.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Upstream {
+    /// A catalog read or write, served by the engine itself.
+    Catalog,
+
+    /// A route the engine proxies to the authz/identity service (`list_tenants` today).
+    Authz,
+}
+
+/// A successful response whose body this server cannot read.
+///
+/// The engine's shape and ours have diverged, which is a defect of this deployment rather than
+/// anything the model can change — and says nothing about the request's headers, which is why it
+/// is not the `406` row. Both the item reads and the type-definition lookup report it with this one
+/// wording.
+pub fn unreadable_response(request_id: Option<&str>) -> ToolError {
+    attach_request_id(
+        ToolError::new(
+            codes::SERVER_DEFECT,
+            Remedy::Escalate,
+            "The catalog returned a response this server cannot read.",
+        ),
+        request_id,
+    )
 }
 
 /// D20 — a transport failure on a request that had already been dispatched.

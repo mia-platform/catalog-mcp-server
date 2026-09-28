@@ -18,7 +18,7 @@
 use crate::{
     address::ItemAddress,
     client::{EngineClient, EngineResponse},
-    error::{BadRequestOrigin, ToolError},
+    error::{BadRequestOrigin, ToolError, Upstream},
     models::Item,
     pagination::EngineCursor,
     projection::Projection,
@@ -44,6 +44,9 @@ pub struct OperationSpec {
 
     /// Every query parameter this client may send on the operation.
     pub query: &'static [&'static str],
+
+    /// What the request reaches, which decides what a `502` means (§8.4).
+    pub upstream: Upstream,
 }
 
 /// The global item listing.
@@ -52,6 +55,7 @@ pub const LIST_ITEMS: OperationSpec = OperationSpec {
     method: "get",
     path: "/items",
     query: &["limit", "continue", "rawq", "sort"],
+    upstream: Upstream::Catalog,
 };
 
 /// One item, by address.
@@ -60,6 +64,7 @@ pub const GET_ITEM: OperationSpec = OperationSpec {
     method: "get",
     path: "/{group}/{version}/items/{family}/{name}",
     query: &[],
+    upstream: Upstream::Catalog,
 };
 
 /// One item, written whole.
@@ -68,6 +73,7 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     method: "put",
     path: "/{group}/{version}/items/{family}/{name}",
     query: &[],
+    upstream: Upstream::Catalog,
 };
 
 /// The tenants the caller can see. **Not a catalog read** — the engine proxies it to authz.
@@ -76,6 +82,7 @@ pub const LIST_TENANTS: OperationSpec = OperationSpec {
     method: "get",
     path: "/bff/tenants",
     query: &[],
+    upstream: Upstream::Authz,
 };
 
 /// The Item Type Definition listing.
@@ -84,6 +91,7 @@ pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
     method: "get",
     path: "/mia-platform.eu/v1/item-type-definitions",
     query: &["limit", "continue", "field", "label", "rawq", "sort"],
+    upstream: Upstream::Catalog,
 };
 
 /// One family's items. Unlike the global listing it also takes `label` and `field`, which this
@@ -93,6 +101,7 @@ pub const LIST_FAMILY_ITEMS: OperationSpec = OperationSpec {
     method: "get",
     path: "/{group}/{version}/items/{family}",
     query: &["limit", "continue", "rawq", "sort"],
+    upstream: Upstream::Catalog,
 };
 
 /// How many items match across every type.
@@ -101,6 +110,7 @@ pub const COUNT_ITEMS: OperationSpec = OperationSpec {
     method: "get",
     path: "/items/count",
     query: &["rawq"],
+    upstream: Upstream::Catalog,
 };
 
 /// How many of one family's items match.
@@ -109,6 +119,7 @@ pub const COUNT_FAMILY_ITEMS: OperationSpec = OperationSpec {
     method: "get",
     path: "/{group}/{version}/items/{family}/count",
     query: &["rawq"],
+    upstream: Upstream::Catalog,
 };
 
 /// One item's relationships (T3). **Never** `groupBy` — grouping is done in the server, so the
@@ -119,6 +130,7 @@ pub const GET_RELATIONSHIPS: OperationSpec = OperationSpec {
     method: "get",
     path: "/bff/{group}/{version}/items/{family}/{name}/relationships",
     query: &["limit", "continue", "direction"],
+    upstream: Upstream::Catalog,
 };
 
 /// Every operation this client wraps today.
@@ -127,6 +139,8 @@ pub const GET_RELATIONSHIPS: OperationSpec = OperationSpec {
 pub const OPERATIONS: &[OperationSpec] = &[
     LIST_ITEMS,
     GET_ITEM,
+    PUT_ITEM,
+    LIST_TENANTS,
     LIST_ITEM_TYPE_DEFINITIONS,
     LIST_FAMILY_ITEMS,
     COUNT_ITEMS,
@@ -226,7 +240,7 @@ impl EngineClient {
 
         // The address is the caller's, validated but still theirs.
         self.get_json(
-            GET_ITEM.id,
+            &GET_ITEM,
             url,
             Projection::Full.accept(),
             BadRequestOrigin::CallerInput,
@@ -249,7 +263,7 @@ impl EngineClient {
 
         // The manifest is the caller's: a `400` is a schema failure it can correct (§8.4).
         self.put_json(
-            PUT_ITEM.id,
+            &PUT_ITEM,
             url,
             manifest,
             retryable,

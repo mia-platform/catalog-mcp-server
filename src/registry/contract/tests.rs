@@ -18,7 +18,7 @@
 use crate::registry::contract::{ToolOutput, WARNINGS_KEY, invalid_arguments, success_result};
 use catalog_client::{EngineWarning, error::codes};
 use rstest::rstest;
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// One engine warning, as the parser produces them.
 fn mock_warning(text: &str) -> EngineWarning {
@@ -107,7 +107,7 @@ fn test_a_bare_value_is_wrapped() {
 /// way to fail (rule 2).
 #[rstest]
 fn test_a_successful_result_is_one_text_block_and_no_structured_content() {
-    let result = success_result(&ToolOutput::new(json!({ "ok": true })), None);
+    let result = success_result(&ToolOutput::new(json!({ "ok": true })), None, false);
 
     assert_eq!(result.content.len(), 1);
     assert_eq!(result.is_error, Some(false));
@@ -118,6 +118,30 @@ fn test_a_successful_result_is_one_text_block_and_no_structured_content() {
 
     let serialised = serde_json::to_value(&result).expect("a serialisable result");
     assert_eq!(serialised["content"][0]["text"], json!(r#"{"ok":true}"#));
+}
+
+/// D15's switch on: the result also carries `structuredContent` — the very object the text block
+/// holds, `warnings` included — and keeps the text block (F-08).
+#[rstest]
+fn test_structured_content_is_present_while_the_switch_is_on() {
+    let warnings = [];
+    let result = success_result(
+        &ToolOutput::new(json!({ "ok": true })),
+        Some(&warnings),
+        true,
+    );
+
+    assert_eq!(result.content.len(), 1, "the text block stays");
+    let serialised = serde_json::to_value(&result).expect("a serialisable result");
+    let text: Value = serde_json::from_str(
+        serialised["content"][0]["text"]
+            .as_str()
+            .expect("a text block"),
+    )
+    .expect("the text is JSON");
+
+    assert_eq!(result.structured_content, Some(text.clone()));
+    assert_eq!(text, json!({ "ok": true, "warnings": [] }));
 }
 
 // ---------------------------------------------------------------------------------------------
