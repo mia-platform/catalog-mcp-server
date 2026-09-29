@@ -1,6 +1,7 @@
 name: Nightly
 
-# One image per commit pushed or merged to `nightly`, published to ghcr.io and nexus only.
+# The `nightly` image, rebuilt for every commit pushed or merged to `nightly` and published to
+# ghcr.io and nexus only. It is one moving tag: it is always the latest nightly build.
 on:
   push:
     branches:
@@ -11,7 +12,8 @@ on:
     branches:
       - nightly
 
-# Every commit gets its own image, so pushes queue rather than cancel each other.
+# Pushes queue rather than cancel, so every commit is checked and the last one to finish is the
+# image `nightly` points at.
 concurrency:
   group: nightly-${{ github.ref }}
   cancel-in-progress: false

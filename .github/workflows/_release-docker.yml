@@ -3,8 +3,9 @@ name: Build & release Docker container
 on:
   workflow_call:
     inputs:
-      # A nightly image: tagged `nightly` and `nightly-<date>-<sha>`, stamped `<version>-nightly.<sha>`,
-      # published to ghcr.io and nexus only, and neither signed nor given an SBOM.
+      # A nightly image: one moving `nightly` tag, always the latest nightly build; the binary is
+      # stamped `<version>-nightly.<sha>` so the commit stays traceable. Published to ghcr.io and nexus
+      # only, and neither signed nor given an SBOM.
       nightly:
         type: boolean
         required: false
@@ -73,7 +74,7 @@ jobs:
         platforms: amd64
         # platforms: amd64,arm64
 
-    # The short commit id, shared by the per-commit tag and the version stamped into the binary.
+    # The short commit id, stamped into the binary's version.
     - name: Short commit id
       id: commit
       run: echo "short=${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
@@ -91,8 +92,7 @@ jobs:
         tags: |
           type=raw,value=latest,enable={{is_default_branch}}
           type=semver,pattern={{version}}
-          type=raw,value=nightly,enable=${{ inputs.nightly && github.ref == 'refs/heads/nightly' }}
-          type=raw,value=nightly-{{date 'YYYYMMDD'}}-${{ steps.commit.outputs.short }},enable=${{ inputs.nightly }},priority=1100
+          type=raw,value=nightly,enable=${{ inputs.nightly }},priority=1100
         labels: |
           org.opencontainers.image.authors=Mia Platform Core Team<core@mia-platform.eu>
           org.opencontainers.image.documentation=https://docs.mia-platform.eu/
