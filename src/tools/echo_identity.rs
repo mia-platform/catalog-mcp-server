@@ -60,7 +60,7 @@ impl Tool for EchoIdentity {
         // It comes from the `CallContext`, never from a header — rule 1.
         Ok(ToolOutput::new(json!({
             "server": env!("CARGO_PKG_NAME"),
-            "version": env!("CARGO_PKG_VERSION"),
+            "version": crate::VERSION,
             "tenant": context.tenant().to_string(),
         })))
     }

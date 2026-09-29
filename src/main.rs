@@ -30,6 +30,12 @@ mod signal;
 mod tools;
 mod tracing;
 
+/// The version this binary reports — `/-/healthz`, the MCP server info and `--version`.
+///
+/// The package version, with the build's pre-release suffix when there is one: a nightly image
+/// reports `0.2.3-nightly.<sha>`, a release exactly `0.2.3` (`build.rs`).
+pub const VERSION: &str = env!("CATALOG_MCP_SERVER_VERSION");
+
 fn run() -> Result<(), Box<dyn std::error::Error>> {
     logger::try_init(env!("CARGO_BIN_NAME"))?;
     tracing::try_init()?;

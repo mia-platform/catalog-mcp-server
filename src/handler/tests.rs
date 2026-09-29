@@ -69,7 +69,7 @@ fn test_server_identity_comes_from_the_build_environment(mock_handler: CatalogHa
     let info = mock_handler.get_info();
 
     assert_eq!(info.server_info.name, env!("CARGO_PKG_NAME"));
-    assert_eq!(info.server_info.version, env!("CARGO_PKG_VERSION"));
+    assert_eq!(info.server_info.version, crate::VERSION);
 }
 
 /// D14 — `instructions` says only what no tool description can, and is capped at 400 bytes.

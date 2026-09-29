@@ -48,7 +48,7 @@ impl HealthPayload {
         let response = Json(Self {
             name: env!("CARGO_BIN_NAME"),
             status: healthy.into(),
-            version: env!("CARGO_PKG_VERSION"),
+            version: crate::VERSION,
         });
 
         if healthy {

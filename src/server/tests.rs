@@ -657,7 +657,7 @@ async fn test_healthz_answers_ok(mock_router: Router) {
     assert_eq!(status, StatusCode::OK);
     assert_eq!(body["name"], "catalog-mcp-server");
     assert_eq!(body["status"], "OK");
-    assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(body["version"], crate::VERSION);
 }
 
 /// D43 — liveness does **not** depend on readiness: a pod draining cleanly must not be

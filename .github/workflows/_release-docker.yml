@@ -2,6 +2,13 @@ name: Build & release Docker container
 
 on:
   workflow_call:
+    inputs:
+      # A nightly image: tagged `nightly` and `nightly-<date>-<sha>`, stamped `<version>-nightly.<sha>`,
+      # published to ghcr.io and nexus only, and neither signed nor given an SBOM.
+      nightly:
+        type: boolean
+        required: false
+        default: false
     secrets:
       docker_username:
         required: true
@@ -44,6 +51,7 @@ jobs:
         password: ${{ secrets.GITHUB_TOKEN }}
   
     - name: Login to DockerHub
+      if: ${{ !inputs.nightly }}
       uses: docker/login-action@5e57cd118135c172c3672efd75eb46360885c0ef # v3.6.0
       with:
         username: ${{ secrets.docker_username }}
@@ -65,6 +73,11 @@ jobs:
         platforms: amd64
         # platforms: amd64,arm64
 
+    # The short commit id, shared by the per-commit tag and the version stamped into the binary.
+    - name: Short commit id
+      id: commit
+      run: echo "short=${GITHUB_SHA::7}" >> "${GITHUB_OUTPUT}"
+
     - name: Configure Docker metadata
       id: meta
       uses: docker/metadata-action@c299e40c65443455700f0fdfc63efafe5b349051 # v5.10.0
@@ -73,11 +86,13 @@ jobs:
       with:
         images: |
           ghcr.io/mia-platform/catalog-mcp-server
-          docker.io/miaplatform/catalog-mcp-server
+          name=docker.io/miaplatform/catalog-mcp-server,enable=${{ !inputs.nightly }}
           nexus.mia-platform.eu/catalog/catalog-mcp-server
         tags: |
           type=raw,value=latest,enable={{is_default_branch}}
           type=semver,pattern={{version}}
+          type=raw,value=nightly,enable=${{ inputs.nightly && github.ref == 'refs/heads/nightly' }}
+          type=raw,value=nightly-{{date 'YYYYMMDD'}}-${{ steps.commit.outputs.short }},enable=${{ inputs.nightly }},priority=1100
         labels: |
           org.opencontainers.image.authors=Mia Platform Core Team<core@mia-platform.eu>
           org.opencontainers.image.documentation=https://docs.mia-platform.eu/
@@ -104,6 +119,8 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         annotations: ${{ steps.meta.outputs.annotations }}
         platforms: ${{ steps.buildx.outputs.platforms }}
+        build-args: |
+          VERSION_SUFFIX=${{ inputs.nightly && format('nightly.{0}', steps.commit.outputs.short) || '' }}
         cache-from: type=gha
         cache-to: type=gha,mode=max
 

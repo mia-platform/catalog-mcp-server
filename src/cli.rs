@@ -33,7 +33,7 @@ static DEFAULT_CONFIG_FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
 /// `--spec` and `--base-url` are gone with the OpenAPI generator they existed to feed: the
 /// server is configured by a JSON file, so a deployment change is not a release.
 #[derive(Parser, Debug)]
-#[command(version, about, long_about = None)]
+#[command(version = crate::VERSION, about, long_about = None)]
 #[command(name = "catalog-mcp-server")]
 pub struct Cli {
     /// Folder holding `config.json`

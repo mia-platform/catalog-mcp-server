@@ -4,12 +4,15 @@ ARG GIT_CONFIG_PARAMETERS=""
 ARG CARGO_HOME=/usr/src/.cargo/
 ARG CARGO_BUILD_FLAGS=""
 ARG RUSTFLAGS=""
+# A SemVer pre-release appended to the reported version, e.g. `nightly.1a2b3c4`; empty for a release.
+ARG VERSION_SUFFIX=""
 
 RUN apk add --no-cache --upgrade build-base openssl-dev openssl-libs-static pkgconf;
 
 WORKDIR /usr/src
 
 COPY ./src ./src
+COPY ./catalog-client ./catalog-client
 COPY ./configuration ./configuration
 COPY ./build.rs ./build.rs
 COPY ./Cargo.lock ./Cargo.lock

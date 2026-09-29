@@ -40,8 +40,49 @@ fn build_configuration_schema() -> std::io::Result<()> {
     Ok(())
 }
 
+/// The optional build-time suffix a nightly image is stamped with, e.g. `nightly.1a2b3c4`.
+const VERSION_SUFFIX_ENV: &str = "VERSION_SUFFIX";
+
+/// The variable the binary reads its reported version from (`crate::VERSION`).
+const VERSION_ENV: &str = "CATALOG_MCP_SERVER_VERSION";
+
+/// Exposes the version the binary reports: the package version, plus `-<suffix>` when the build
+/// sets [`VERSION_SUFFIX_ENV`] — so a nightly says `0.2.3-nightly.1a2b3c4` rather than claiming to
+/// be the `0.2.3` release.
+///
+/// The suffix must be a SemVer pre-release: dot-separated identifiers of ASCII alphanumerics and
+/// hyphens. Anything else fails the build rather than producing a version nobody can parse.
+fn expose_version() -> Result<(), Box<dyn std::error::Error>> {
+    println!("cargo:rerun-if-env-changed={VERSION_SUFFIX_ENV}");
+
+    let package = std::env::var("CARGO_PKG_VERSION")?;
+    let version = match std::env::var(VERSION_SUFFIX_ENV) {
+        Ok(suffix) if !suffix.is_empty() => {
+            let valid = suffix.split('.').all(|identifier| {
+                !identifier.is_empty()
+                    && identifier
+                        .chars()
+                        .all(|character| character.is_ascii_alphanumeric() || character == '-')
+            });
+            if !valid {
+                return Err(
+                    format!("`{VERSION_SUFFIX_ENV}={suffix}` is not a SemVer pre-release").into(),
+                );
+            }
+
+            format!("{package}-{suffix}")
+        }
+        _ => package,
+    };
+
+    println!("cargo:rustc-env={VERSION_ENV}={version}");
+
+    Ok(())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     build_configuration_schema()?;
+    expose_version()?;
 
     Ok(())
 }

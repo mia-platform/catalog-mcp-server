@@ -269,7 +269,7 @@ impl ServerHandler for CatalogHandler {
             .with_instructions(INSTRUCTIONS)
             .with_server_info(rmcp::model::Implementation::new(
                 env!("CARGO_PKG_NAME"),
-                env!("CARGO_PKG_VERSION"),
+                crate::VERSION,
             ))
     }
 

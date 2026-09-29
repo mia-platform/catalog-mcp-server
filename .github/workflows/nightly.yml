@@ -1,0 +1,39 @@
+name: Nightly
+
+# One image per commit pushed or merged to `nightly`, published to ghcr.io and nexus only.
+on:
+  push:
+    branches:
+      - nightly
+      # Temporary: nightly images from the rewrite branch until it is merged. Remove this line then.
+      - feat/full-mcp-rewrite
+  pull_request:
+    branches:
+      - nightly
+
+# Every commit gets its own image, so pushes queue rather than cancel each other.
+concurrency:
+  group: nightly-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  checks:
+    uses: ./.github/workflows/_checks.yml
+
+  build:
+    uses: ./.github/workflows/_build.yml
+
+  docker-build:
+    if: github.event_name == 'push'
+    needs:
+      - checks
+      - build
+    uses: ./.github/workflows/_release-docker.yml
+    with:
+      nightly: true
+    secrets:
+      docker_username: ${{ secrets.BOT_DOCKER_USERNAME }}
+      docker_token: ${{ secrets.BOT_DOCKER_TOKEN }}
+      nexus_username: ${{ secrets.NEXUS_USER }}
+      nexus_token: ${{ secrets.NEXUS_TOKEN }}
+      sysdig_token: ${{ secrets.SYSDIG_SECURE_TOKEN }}
