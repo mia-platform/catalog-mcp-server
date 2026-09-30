@@ -63,7 +63,7 @@ pub mod ops;
 #[cfg(feature = "testing")]
 pub mod testing;
 
-pub use address::{FamilyAddress, ItemAddress, is_valid_name};
+pub use address::{FamilyAddress, ItemAddress, ItemTypeAddress, is_valid_name};
 pub use client::{
     BAGGAGE_HEADER, CallWarnings, Deadline, EngineClient, EngineClientFactory, EngineResponse,
     TRACEPARENT_HEADER, TRACESTATE_HEADER, TraceContext,
@@ -76,8 +76,11 @@ pub use projection::{Grouping, Projection};
 pub use query::{FieldPath, Predicate, QueryValue, RegexLiteral};
 pub use resolve::{
     ItemTypeDocument, ServedVersion, TypeCoordinates, coordinates_of, find_item_type,
-    find_item_type_document, find_item_type_document_or_suggest, find_item_type_or_suggest,
-    is_valid_kind, resolve_kind, resolve_kind_or_suggest, select_served_version,
+    find_item_type_document, find_item_type_document_if_any, find_item_type_document_or_suggest,
+    find_item_type_or_suggest, is_valid_kind, resolve_kind, resolve_kind_or_suggest,
+    select_served_version,
 };
 pub use warning::EngineWarning;
-pub use write::{ConflictPolicy, ResourceVersionIn, WriteCycle, WriteOutcome, merge_patch};
+pub use write::{
+    ConflictPolicy, Existence, ResourceVersionIn, WriteCycle, WriteOutcome, merge_patch,
+};

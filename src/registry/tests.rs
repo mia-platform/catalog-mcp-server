@@ -243,6 +243,13 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
     deserialise::<crate::tools::delete_item::DeleteItemInput>,
     serde_json::json!({ "name": "example-item", "kind": "Service", "group": "example.com" })
 )]
+#[case::apply_item_type(
+    deserialise::<crate::tools::apply_item_type::ApplyItemTypeInput>,
+    serde_json::json!({
+        "kind": "Service", "group": "example.com",
+        "spec": { "llmDescription": "Use for services." }, "metadata": { "description": null }
+    })
+)]
 fn test_every_documented_argument_is_accepted(
     #[case] deserialise: fn(Value) -> Result<(), String>,
     #[case] arguments: Value,
@@ -297,6 +304,11 @@ fn test_every_documented_argument_is_accepted(
     deserialise::<crate::tools::delete_item::DeleteItemInput>,
     serde_json::json!({ "name": "example-item", "confirm": true }),
     "confirm"
+)]
+#[case::apply_item_type_resource_version(
+    deserialise::<crate::tools::apply_item_type::ApplyItemTypeInput>,
+    serde_json::json!({ "kind": "Service", "resourceVersion": "1" }),
+    "resourceVersion"
 )]
 fn test_an_unknown_argument_is_refused_by_name(
     #[case] deserialise: fn(Value) -> Result<(), String>,

@@ -237,6 +237,32 @@ pub async fn find_item_type_document(
     }
 }
 
+/// [`find_item_type_document`] for a caller to whom **no such type** is an answer, not an error —
+/// T12, for which it means *create*.
+///
+/// `Ok(None)` when no type has this kind (in `group`, when given). With a `group`, a kind that
+/// exists only in *other* groups is still `None`: a kind is unique per group (DR-80), so creating it
+/// in a new one is legitimate. A shared kind without a `group`, and a broken invariant, are the
+/// same errors as [`find_item_type_document`]'s.
+///
+/// # Errors
+///
+/// A failed lookup, a shared kind without `group`, or two rows for one `(group, kind)`.
+pub async fn find_item_type_document_if_any(
+    engine: &EngineClient,
+    kind: &str,
+    group: Option<&str>,
+) -> Result<Option<ItemTypeDocument>, ToolError> {
+    match lookup(engine, kind, group).await? {
+        Lookup::One(document, _) => Ok(Some(*document)),
+        Lookup::Nothing => Ok(None),
+        Lookup::Several(definitions) => Err(match group {
+            None => shared_kind(kind, &definitions),
+            Some(group) => broken_invariant(kind, group, &definitions),
+        }),
+    }
+}
+
 /// A type as a candidate the caller can pick with `group`.
 fn candidates_of(definitions: &[ItemTypeDefinition]) -> Vec<serde_json::Value> {
     definitions

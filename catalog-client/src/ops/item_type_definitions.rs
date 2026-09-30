@@ -16,14 +16,18 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::{
+    address::ItemTypeAddress,
     client::{EngineClient, EngineResponse},
-    error::ToolError,
+    error::{BadRequestOrigin, ToolError},
     models::ListEnvelope,
-    ops::{LIST_ITEM_TYPE_DEFINITIONS, ListQuery},
+    ops::{
+        GET_ITEM_TYPE_DEFINITION, LIST_ITEM_TYPE_DEFINITIONS, ListQuery, PUT_ITEM_TYPE_DEFINITION,
+    },
     pagination::{ListPage, MAX_LIMIT, paginate_all},
     projection::Projection,
 };
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 
 /// Path segments of the Item Type Definition collection.
 const ITEM_TYPE_DEFINITION_SEGMENTS: [&str; 3] = ["mia-platform.eu", "v1", "item-type-definitions"];
@@ -60,6 +64,51 @@ impl EngineClient {
             value: ListPage::from_envelope(response.value),
             warnings: response.warnings,
         })
+    }
+
+    /// `GET /mia-platform.eu/v1/item-type-definitions/{name}` — one definition, **as the engine sent
+    /// it**.
+    ///
+    /// Raw by design: a write built from a re-serialised typed copy would erase every field the
+    /// model does not declare — a version's `deprecationWarning`, say — because `spec.versions` is
+    /// replaced whole (DR-86).
+    pub async fn get_item_type_definition(
+        &self,
+        address: &ItemTypeAddress,
+    ) -> Result<EngineResponse<Value>, ToolError> {
+        let url = self.url(address.segments())?;
+
+        // The name is derived from the caller's `group` and `plural`.
+        self.get_json(
+            &GET_ITEM_TYPE_DEFINITION,
+            url,
+            Projection::Full.accept(),
+            BadRequestOrigin::CallerInput,
+        )
+        .await
+    }
+
+    /// `PUT /mia-platform.eu/v1/item-type-definitions/{name}` — write one definition whole, and read
+    /// back what the engine stored, raw.
+    ///
+    /// `retryable` comes from the write cycle's conflict policy, never from the call site (D23).
+    pub async fn put_item_type_definition(
+        &self,
+        address: &ItemTypeAddress,
+        manifest: &Value,
+        retryable: bool,
+    ) -> Result<EngineResponse<Value>, ToolError> {
+        let url = self.url(address.segments())?;
+
+        // The manifest is the caller's: a `400` is a definition it can correct (§8.4).
+        self.put_json(
+            &PUT_ITEM_TYPE_DEFINITION,
+            url,
+            manifest,
+            retryable,
+            BadRequestOrigin::CallerInput,
+        )
+        .await
     }
 
     /// **Every** type the caller can see, walked to exhaustion under

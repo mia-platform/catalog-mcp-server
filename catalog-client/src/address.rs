@@ -233,6 +233,87 @@ impl std::fmt::Display for FamilyAddress {
     }
 }
 
+/// Where an Item Type Definition lives: `/mia-platform.eu/v1/item-type-definitions/<plural>.<group>`.
+///
+/// The name is **derived**, never taken as given: the engine requires `metadata.name` to equal
+/// `<spec.names.plural>.<spec.group>` (`upsert_itd`), so an address built from the two parts cannot
+/// disagree with the body it is written with. Both parts are validated against the engine's own
+/// patterns, as every other address is.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ItemTypeAddress {
+    group: String,
+    plural: String,
+    name: String,
+}
+
+impl ItemTypeAddress {
+    /// The core API group every Item Type Definition is served under.
+    pub const API_GROUP: &str = "mia-platform.eu";
+
+    /// The core API version every Item Type Definition is served under.
+    pub const API_VERSION: &str = "v1";
+
+    /// The collection every Item Type Definition belongs to.
+    pub const FAMILY: &str = "item-type-definitions";
+
+    /// The `kind` of an Item Type Definition document itself.
+    pub const KIND: &str = "ItemTypeDefinition";
+
+    /// Validates and builds the address of the type whose items are `plural` in `group`.
+    pub fn new(group: impl Into<String>, plural: impl Into<String>) -> Result<Self, ToolError> {
+        let (group, plural) = (group.into(), plural.into());
+
+        validate("group", &group, &GROUP_RE)?;
+        validate("plural", &plural, &FAMILY_RE)?;
+
+        let name = format!("{plural}.{group}");
+
+        Ok(Self {
+            group,
+            plural,
+            name,
+        })
+    }
+
+    /// The type's API group, `spec.group`.
+    pub fn group(&self) -> &str {
+        &self.group
+    }
+
+    /// The type's family, `spec.names.plural`.
+    pub fn plural(&self) -> &str {
+        &self.plural
+    }
+
+    /// The definition's own name, `<plural>.<group>`.
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    /// `mia-platform.eu/v1`, the definition document's own `apiVersion`.
+    pub fn api_version() -> String {
+        format!("{}/{}", Self::API_GROUP, Self::API_VERSION)
+    }
+
+    /// The URL path segments of the definition.
+    pub fn segments(&self) -> [&str; 4] {
+        [Self::API_GROUP, Self::API_VERSION, Self::FAMILY, &self.name]
+    }
+}
+
+impl std::fmt::Display for ItemTypeAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "/{}/{}/{}/{}",
+            Self::API_GROUP,
+            Self::API_VERSION,
+            Self::FAMILY,
+            self.name
+        )
+    }
+}
+
 /// Whether `group` is an API group the engine accepts (its `spec.group` pattern) — for a tool
 /// narrowing a shared `kind` to one type (DR-80).
 pub fn is_valid_group(group: &str) -> bool {
@@ -295,6 +376,29 @@ mod tests {
     #[case::empty("", false)]
     fn test_a_name_is_checked_against_the_engine_pattern(#[case] name: &str, #[case] valid: bool) {
         assert_eq!(is_valid_name(name), valid);
+    }
+
+    #[rstest]
+    fn test_an_item_type_address_derives_its_name() {
+        let address = ItemTypeAddress::new("stable.example.com", "services")
+            .expect("a well-formed type address");
+
+        assert_eq!(address.name(), "services.stable.example.com");
+        assert_eq!(
+            address.to_string(),
+            "/mia-platform.eu/v1/item-type-definitions/services.stable.example.com"
+        );
+    }
+
+    #[rstest]
+    #[case::bad_group("Not A Group", "services")]
+    #[case::bad_plural("stable.example.com", "Services")]
+    #[case::dotted_plural("stable.example.com", "my.services")]
+    fn test_an_item_type_address_is_validated(#[case] group: &str, #[case] plural: &str) {
+        assert_eq!(
+            ItemTypeAddress::new(group, plural).map_err(|error| error.code),
+            Err(codes::INVALID_INPUT)
+        );
     }
 
     #[rstest]

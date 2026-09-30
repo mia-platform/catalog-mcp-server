@@ -26,8 +26,9 @@
 // of D26's propagation rather than of the policy layer's regeneration of it.
 
 use catalog_client::{
-    CallerIdentity, ConflictPolicy, Deadline, EngineClient, EngineClientFactory, FamilyAddress,
-    FieldPath, ItemAddress, Predicate, RegexLiteral, ResourceVersionIn, WriteCycle, coordinates_of,
+    CallerIdentity, ConflictPolicy, Deadline, EngineClient, EngineClientFactory, Existence,
+    FamilyAddress, FieldPath, ItemAddress, ItemTypeAddress, Predicate, QueryValue, RegexLiteral,
+    ResourceVersionIn, WriteCycle, coordinates_of,
     error::codes,
     find_item_type, find_item_type_document,
     models::{ItdListEntry, ItemTypeDefinition, RelationshipDirection},
@@ -850,6 +851,123 @@ async fn test_a_guarded_delete_takes_the_relationships_with_it() {
         .await
         .expect_err("there is nothing left to delete");
     assert_eq!(again.code, codes::NOT_FOUND);
+}
+
+/// The type T12's live test creates: its own group, so no other test sees it.
+const PROBE_TYPE_GROUP: &str = "e2e.example.com";
+const PROBE_TYPE_KIND: &str = "Probe";
+const PROBE_TYPE_PLURAL: &str = "probes";
+const PROBE_TYPE_PROSE: &str = "Use a Probe only in end-to-end tests.";
+
+/// **T12 §9, live: an `llmDescription` survives a `metadata`-only update**, through the same
+/// cycle `apply_item_type` runs — raw definitions, `Report` on a conflict. It also pins what T12's
+/// report reads off the engine: the read-only warning's wording (for `spec.names.kind` and
+/// `spec.history`, as the core's parser expects it), that nothing is warned about a field sent back
+/// unchanged, and that the global count filters on `kind` and `apiVersion`.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_type_update_keeps_its_llm_description() {
+    let client = client();
+    let address = ItemTypeAddress::new(PROBE_TYPE_GROUP, PROBE_TYPE_PLURAL)
+        .expect("a well-formed type address");
+    let cycle = WriteCycle::new(&client, ConflictPolicy::Report, ResourceVersionIn::Body);
+
+    let created = cycle
+        .apply_item_type(
+            &address,
+            &serde_json::json!({
+                "apiVersion": ItemTypeAddress::api_version(),
+                "kind": ItemTypeAddress::KIND,
+                "metadata": { "name": address.name(), "description": "Probes." },
+                "spec": {
+                    "group": PROBE_TYPE_GROUP,
+                    "names": {
+                        "kind": PROBE_TYPE_KIND,
+                        "plural": PROBE_TYPE_PLURAL,
+                        "singular": "probe",
+                    },
+                    "scope": "Tenant",
+                    "llmDescription": PROBE_TYPE_PROSE,
+                    "versions": [{
+                        "name": "v1",
+                        "served": true,
+                        "schema": { "openAPIV31Schema": {
+                            "type": "object",
+                            "properties": { "spec": { "type": "object", "properties": {} } },
+                        } },
+                    }],
+                },
+            }),
+            Existence::Absent,
+        )
+        .await
+        .expect("the engine creates the probe type");
+    assert!(created.created);
+
+    let updated = cycle
+        .apply_item_type(
+            &address,
+            &serde_json::json!({ "metadata": { "description": "Probes, described again." } }),
+            Existence::Present,
+        )
+        .await
+        .expect("the metadata-only update lands");
+    assert_eq!(updated.changed, vec!["metadata.description"]);
+    assert!(updated.warnings.is_empty(), "{:?}", updated.warnings);
+
+    let stored = client
+        .get_item_type_definition(&address)
+        .await
+        .expect("the type reads back")
+        .value;
+    assert_eq!(
+        stored["spec"]["llmDescription"],
+        serde_json::json!(PROBE_TYPE_PROSE)
+    );
+
+    let refused = cycle
+        .apply_item_type(
+            &address,
+            &serde_json::json!({ "spec": {
+                "names": { "kind": "Renamed" },
+                "history": { "enabled": true },
+            } }),
+            Existence::Present,
+        )
+        .await
+        .expect("an update of read-only fields still lands, without them");
+    let ignored: Vec<&str> = refused
+        .warnings
+        .iter()
+        .filter_map(|warning| warning.read_only_field())
+        .collect();
+    assert!(
+        ignored.contains(&"spec.names.kind"),
+        "{:?}",
+        refused.warnings
+    );
+    assert!(ignored.contains(&"spec.history"), "{:?}", refused.warnings);
+    assert!(refused.changed.is_empty(), "{:?}", refused.changed);
+
+    let predicate = Predicate::And(vec![
+        Predicate::Eq {
+            field: FieldPath::new("kind").expect("a field"),
+            value: QueryValue::string(PROBE_TYPE_KIND).expect("a value"),
+        },
+        Predicate::Or(vec![Predicate::Eq {
+            field: FieldPath::new("apiVersion").expect("a field"),
+            value: QueryValue::string(&format!("{PROBE_TYPE_GROUP}/v1")).expect("a value"),
+        }]),
+    ]);
+    let count = client
+        .count_items(&ListQuery {
+            raw_query: predicate.encode_rawq().expect("the count's rawq encodes"),
+            ..ListQuery::default()
+        })
+        .await
+        .expect("the engine counts by kind and apiVersion")
+        .value;
+    assert_eq!(count.count, 0);
 }
 
 /// The seeded agent T3's e2e test describes, and the agent its relationship points at.

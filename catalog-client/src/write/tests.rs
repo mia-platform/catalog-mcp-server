@@ -16,11 +16,11 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::{
-    address::ItemAddress,
+    address::{ItemAddress, ItemTypeAddress},
     error::codes,
-    testing::{MOCK_ITEM_NAME, MockEngine, mock_identity, mock_item},
+    testing::{MOCK_ITEM_NAME, MockEngine, mock_identity, mock_item, mock_item_type_definition},
     write::{
-        ConflictPolicy, ResourceVersionIn, WriteCycle, changed_paths, merge_patch,
+        ConflictPolicy, Existence, ResourceVersionIn, WriteCycle, changed_paths, merge_patch,
         strip_server_owned,
     },
 };
@@ -555,6 +555,116 @@ async fn test_write_warnings_reach_the_outcome() {
         Some("spec.group"),
         "T12 derives its `ignored` list from exactly this"
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// Item Type Definitions (T12): raw both ways, and the create/update expectation.
+// ---------------------------------------------------------------------------------------------
+
+/// The definition's path in the fixtures.
+const TYPE_PATH: &str = "/mia-platform.eu/v1/item-type-definitions/services.stable.example.com";
+
+fn mock_type_address() -> ItemTypeAddress {
+    ItemTypeAddress::new("stable.example.com", "services").expect("a well-formed type address")
+}
+
+/// A stored definition carrying a field this client's typed model does not declare.
+fn mock_stored_type() -> Value {
+    let mut itd = mock_item_type_definition("Service", "services", "stable.example.com");
+    itd["spec"]["versions"][0]["deprecationWarning"] = json!("Prefer v2.");
+    itd
+}
+
+/// DR-86 — a field the typed model does not know survives the round trip into the write.
+#[rstest]
+#[tokio::test]
+async fn test_a_definition_is_written_back_raw() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path_regex(TYPE_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_stored_type()))
+        .mount(engine.server())
+        .await;
+    let mut written = mock_stored_type();
+    written["spec"]["llmDescription"] = json!("Use for services.");
+    Mock::given(method("PUT"))
+        .and(path_regex(TYPE_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(written.clone()))
+        .mount(engine.server())
+        .await;
+
+    let client = engine.client(mock_identity());
+    let outcome = WriteCycle::new(&client, ConflictPolicy::Report, ResourceVersionIn::Body)
+        .apply_item_type(
+            &mock_type_address(),
+            &json!({ "spec": { "llmDescription": "Use for services." } }),
+            Existence::Present,
+        )
+        .await
+        .expect("the write succeeds");
+
+    let sent = sent_body(&engine).await;
+    assert_eq!(
+        sent["spec"]["versions"][0]["deprecationWarning"],
+        json!("Prefer v2.")
+    );
+    assert_eq!(sent["resourceVersion"], json!("1"));
+    assert_eq!(outcome.changed, vec!["spec.llmDescription"]);
+    assert_eq!(outcome.before, Some(mock_stored_type()));
+    assert_eq!(outcome.after, written);
+}
+
+/// A create that finds the definition already there writes nothing.
+#[rstest]
+#[tokio::test]
+async fn test_an_expected_create_does_not_overwrite() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path_regex(TYPE_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_stored_type()))
+        .mount(engine.server())
+        .await;
+    Mock::given(method("PUT"))
+        .respond_with(ResponseTemplate::new(200))
+        .expect(0)
+        .mount(engine.server())
+        .await;
+
+    let client = engine.client(mock_identity());
+    let error = WriteCycle::new(&client, ConflictPolicy::Report, ResourceVersionIn::Body)
+        .apply_item_type(&mock_type_address(), &json!({}), Existence::Absent)
+        .await
+        .expect_err("the definition exists");
+
+    assert_eq!(error.code, codes::CONFLICT);
+}
+
+/// An update whose definition has gone writes nothing — it would otherwise become a create.
+#[rstest]
+#[tokio::test]
+async fn test_an_expected_update_does_not_create() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path_regex(TYPE_PATH))
+        .respond_with(
+            ResponseTemplate::new(404)
+                .set_body_json(crate::testing::mock_error_body(404, "not found")),
+        )
+        .mount(engine.server())
+        .await;
+    Mock::given(method("PUT"))
+        .respond_with(ResponseTemplate::new(201))
+        .expect(0)
+        .mount(engine.server())
+        .await;
+
+    let client = engine.client(mock_identity());
+    let error = WriteCycle::new(&client, ConflictPolicy::Report, ResourceVersionIn::Body)
+        .apply_item_type(&mock_type_address(), &json!({}), Existence::Present)
+        .await
+        .expect_err("the definition is gone");
+
+    assert_eq!(error.code, codes::NOT_FOUND);
 }
 
 /// The body of the last `PUT` the mock received.

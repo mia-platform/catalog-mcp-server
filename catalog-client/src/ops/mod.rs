@@ -142,6 +142,25 @@ pub const GET_RELATIONSHIPS: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
+/// One Item Type Definition, by name — read **raw**, so nothing the typed model does not declare is
+/// lost on its way into a write (DR-86).
+pub const GET_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
+    id: "get_item_type_definition",
+    method: "get",
+    path: "/mia-platform.eu/v1/item-type-definitions/{name}",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
+/// One Item Type Definition, written whole (T12).
+pub const PUT_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
+    id: "put_item_type_definition",
+    method: "put",
+    path: "/mia-platform.eu/v1/item-type-definitions/{name}",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
 /// Every operation this client wraps today.
 ///
 /// Tool waves add to it; nothing else does.
@@ -152,6 +171,8 @@ pub const OPERATIONS: &[OperationSpec] = &[
     DELETE_ITEM,
     LIST_TENANTS,
     LIST_ITEM_TYPE_DEFINITIONS,
+    GET_ITEM_TYPE_DEFINITION,
+    PUT_ITEM_TYPE_DEFINITION,
     LIST_FAMILY_ITEMS,
     COUNT_ITEMS,
     COUNT_FAMILY_ITEMS,

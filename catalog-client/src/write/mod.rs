@@ -16,8 +16,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use crate::{
-    address::ItemAddress,
-    client::EngineClient,
+    address::{ItemAddress, ItemTypeAddress},
+    client::{EngineClient, EngineResponse},
     error::{Remedy, ToolError, codes},
     warning::EngineWarning,
 };
@@ -69,6 +69,20 @@ pub enum ConflictPolicy {
     Report,
 }
 
+/// What the caller expects to find before it writes — so a create cannot quietly become an update
+/// of something else, nor an update of a definition deleted a moment ago quietly become a create.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Existence {
+    /// Create or update, whichever the read finds (`apply_item`).
+    Any,
+
+    /// The object must exist: a `404` on the read is returned as it is, and nothing is written.
+    Present,
+
+    /// The object must not exist: finding one is a `conflict`, and nothing is written.
+    Absent,
+}
+
 /// A field path inside a manifest, as `changed` reports it.
 pub type FieldPath = String;
 
@@ -89,6 +103,13 @@ pub struct WriteOutcome {
 
     /// Whatever the engine warned about.
     pub warnings: Vec<EngineWarning>,
+
+    /// The object as the last read found it; `None` on a create. For a tool whose report compares
+    /// before and after (T12).
+    pub before: Option<Value>,
+
+    /// The object as the engine stored it.
+    pub after: Value,
 }
 
 impl WriteOutcome {
@@ -233,7 +254,7 @@ impl<'a> WriteCycle<'a> {
         }
     }
 
-    /// Reads, merges, writes — and reports honestly what changed.
+    /// Reads, merges, writes an **item** — and reports honestly what changed.
     ///
     /// # Errors
     ///
@@ -244,16 +265,49 @@ impl<'a> WriteCycle<'a> {
         address: &ItemAddress,
         patch: &Value,
     ) -> Result<WriteOutcome, ToolError> {
-        let (before, created) = match self.engine.get_item(address).await {
-            Ok(response) => (
-                serde_json::to_value(&response.value).map_err(unserialisable)?,
-                false,
-            ),
-            Err(error) if error.code == codes::NOT_FOUND => (Value::Object(Map::new()), true),
+        self.run(address, patch, Existence::Any).await
+    }
+
+    /// The same cycle for an **Item Type Definition** (T12), read and written raw (DR-86), with the
+    /// caller's expectation of whether it exists checked before anything is sent.
+    ///
+    /// # Errors
+    ///
+    /// Those of [`Self::apply`]; and, before any write, the read's `not_found` under
+    /// [`Existence::Present`], or a `conflict` under [`Existence::Absent`] when the definition
+    /// already exists.
+    pub async fn apply_item_type(
+        &self,
+        address: &ItemTypeAddress,
+        patch: &Value,
+        existence: Existence,
+    ) -> Result<WriteOutcome, ToolError> {
+        self.run(address, patch, existence).await
+    }
+
+    /// The cycle itself, for any resource.
+    async fn run<R: Resource>(
+        &self,
+        resource: &R,
+        patch: &Value,
+        existence: Existence,
+    ) -> Result<WriteOutcome, ToolError> {
+        let (before, created) = match resource.read(self.engine).await {
+            Ok(_) if existence == Existence::Absent => {
+                return Err(ToolError::new(
+                    codes::CONFLICT,
+                    Remedy::RetryAfterChange,
+                    format!("`{resource}` already exists, so nothing was created."),
+                ));
+            }
+            Ok(current) => (current, false),
+            Err(error) if error.code == codes::NOT_FOUND && existence != Existence::Present => {
+                (Value::Object(Map::new()), true)
+            }
             Err(error) => return Err(error),
         };
 
-        let outcome = self.write_once(address, &before, patch, created).await;
+        let outcome = self.write_once(resource, &before, patch, created).await;
 
         match outcome {
             Err(error)
@@ -261,12 +315,11 @@ impl<'a> WriteCycle<'a> {
             {
                 // Re-read and re-apply **once**: a merge-patch intent means the same thing
                 // whatever else moved underneath, which is exactly when a retry is honest.
-                tracing::info!(%address, "re-applying a merge patch after a conflict");
+                tracing::info!(%resource, "re-applying a merge patch after a conflict");
 
-                let current = self.engine.get_item(address).await?;
-                let before = serde_json::to_value(&current.value).map_err(unserialisable)?;
+                let before = resource.read(self.engine).await?;
 
-                let mut outcome = self.write_once(address, &before, patch, false).await?;
+                let mut outcome = self.write_once(resource, &before, patch, false).await?;
                 outcome.retried = true;
 
                 Ok(outcome)
@@ -276,9 +329,9 @@ impl<'a> WriteCycle<'a> {
     }
 
     /// One read-merge-write pass, with no conflict handling of its own.
-    async fn write_once(
+    async fn write_once<R: Resource>(
         &self,
-        address: &ItemAddress,
+        resource: &R,
         before: &Value,
         patch: &Value,
         created: bool,
@@ -294,18 +347,21 @@ impl<'a> WriteCycle<'a> {
         strip_server_owned(&mut manifest);
         self.place_resource_version(&mut manifest, resource_version.as_deref());
 
-        let written = self
-            .engine
-            .put_item(address, &manifest, self.policy == ConflictPolicy::RetryOnce)
+        let written = resource
+            .write(
+                self.engine,
+                &manifest,
+                self.policy == ConflictPolicy::RetryOnce,
+            )
             .await?;
-
-        let after = serde_json::to_value(&written.value).map_err(unserialisable)?;
 
         Ok(WriteOutcome {
             created,
-            changed: changed_paths(&comparable(before), &comparable(&after)),
+            changed: changed_paths(&comparable(before), &comparable(&written.value)),
             retried: false,
             warnings: written.warnings,
+            before: (!created).then(|| before.clone()),
+            after: written.value,
         })
     }
 
@@ -326,6 +382,65 @@ impl<'a> WriteCycle<'a> {
                 object.remove("resourceVersion");
             }
         }
+    }
+}
+
+/// Something the write cycle can read and write whole: an item, or an Item Type Definition.
+///
+/// Private: the cycle is the only caller, and the two implementations are the only resources a
+/// `PUT` replaces in this tool set.
+trait Resource: std::fmt::Display + Sync {
+    /// The current state, as JSON.
+    fn read(&self, engine: &EngineClient) -> impl Future<Output = Result<Value, ToolError>> + Send;
+
+    /// Writes `manifest` whole, returning what the engine stored.
+    fn write(
+        &self,
+        engine: &EngineClient,
+        manifest: &Value,
+        retryable: bool,
+    ) -> impl Future<Output = Result<EngineResponse<Value>, ToolError>> + Send;
+}
+
+/// An item is read through the typed model, which carries every column a `PUT` writes.
+impl Resource for ItemAddress {
+    async fn read(&self, engine: &EngineClient) -> Result<Value, ToolError> {
+        let response = engine.get_item(self).await?;
+
+        serde_json::to_value(&response.value).map_err(unserialisable)
+    }
+
+    async fn write(
+        &self,
+        engine: &EngineClient,
+        manifest: &Value,
+        retryable: bool,
+    ) -> Result<EngineResponse<Value>, ToolError> {
+        let written = engine.put_item(self, manifest, retryable).await?;
+
+        Ok(EngineResponse {
+            value: serde_json::to_value(&written.value).map_err(unserialisable)?,
+            warnings: written.warnings,
+        })
+    }
+}
+
+/// A definition is read and written **raw**: the typed model does not declare every field a
+/// version may carry, and `spec.versions` is replaced whole (DR-86).
+impl Resource for ItemTypeAddress {
+    async fn read(&self, engine: &EngineClient) -> Result<Value, ToolError> {
+        Ok(engine.get_item_type_definition(self).await?.value)
+    }
+
+    async fn write(
+        &self,
+        engine: &EngineClient,
+        manifest: &Value,
+        retryable: bool,
+    ) -> Result<EngineResponse<Value>, ToolError> {
+        engine
+            .put_item_type_definition(self, manifest, retryable)
+            .await
     }
 }
 

@@ -35,6 +35,9 @@ use std::sync::LazyLock;
 /// T8's input → merge-patch document, and the `customFields` check (T8-D2, T8-D4).
 mod patch;
 
+/// The `null`-keeping deserializer, shared with T12 (DR-92).
+pub(crate) use patch::present;
+
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "apply_item";
 

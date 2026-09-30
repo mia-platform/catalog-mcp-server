@@ -32,7 +32,7 @@ pub(super) const CUSTOM_FIELDS_KEY: &str = "customFields";
 /// `Some(Value::Null)`. Serde's own `Option` handling maps `null` to `None`, which would turn
 /// *"remove the title"* into *"do not mention the title"* — the one distinction RFC 7396 exists to
 /// make (T8 §3).
-pub(super) fn present<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
+pub(crate) fn present<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
 where
     D: Deserializer<'de>,
 {

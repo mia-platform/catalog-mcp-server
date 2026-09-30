@@ -45,6 +45,12 @@ fn mock_address() -> ItemAddress {
         .expect("a well-formed fixture address")
 }
 
+/// The type address the fixtures use.
+fn mock_type_address() -> crate::address::ItemTypeAddress {
+    crate::address::ItemTypeAddress::new("stable.example.com", "services")
+        .expect("a well-formed fixture type address")
+}
+
 /// Calls the operation `spec` declares, once — both projections for the global listing — and
 /// returns the first error it met.
 ///
@@ -71,6 +77,18 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
         "list_tenants" => client.list_tenants().await.map(|_| ()),
         "list_item_type_definitions" => client
             .list_item_type_definitions::<ItemTypeDefinition>(&query)
+            .await
+            .map(|_| ()),
+        "get_item_type_definition" => client
+            .get_item_type_definition(&mock_type_address())
+            .await
+            .map(|_| ()),
+        "put_item_type_definition" => client
+            .put_item_type_definition(
+                &mock_type_address(),
+                &mock_item_type_definition("Service", "services", "stable.example.com"),
+                false,
+            )
             .await
             .map(|_| ()),
         "list_family_items" => client
@@ -227,6 +245,8 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "delete_item",
             "list_tenants",
             "list_item_type_definitions",
+            "get_item_type_definition",
+            "put_item_type_definition",
             "list_family_items",
             "count_items",
             "count_family_items",

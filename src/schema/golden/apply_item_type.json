@@ -1,0 +1,19 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The type's kind, e.g. \"Service\".",
+      "type": "string"
+    },
+    "metadata": {},
+    "spec": {}
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}
