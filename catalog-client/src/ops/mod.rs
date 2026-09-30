@@ -76,6 +76,15 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
+/// One item, deleted — with its relationships, both directions, and its revisions (T9-D6).
+pub const DELETE_ITEM: OperationSpec = OperationSpec {
+    id: "delete_item",
+    method: "delete",
+    path: "/{group}/{version}/items/{family}/{name}",
+    query: &["resourceVersion"],
+    upstream: Upstream::Catalog,
+};
+
 /// The tenants the caller can see. **Not a catalog read** — the engine proxies it to authz.
 pub const LIST_TENANTS: OperationSpec = OperationSpec {
     id: "list_tenants",
@@ -140,6 +149,7 @@ pub const OPERATIONS: &[OperationSpec] = &[
     LIST_ITEMS,
     GET_ITEM,
     PUT_ITEM,
+    DELETE_ITEM,
     LIST_TENANTS,
     LIST_ITEM_TYPE_DEFINITIONS,
     LIST_FAMILY_ITEMS,
@@ -246,6 +256,27 @@ impl EngineClient {
             BadRequestOrigin::CallerInput,
         )
         .await
+    }
+
+    /// `DELETE /{group}/{version}/items/{family}/{name}?resourceVersion=…` — delete one item.
+    ///
+    /// `resource_version` is always sent by T9 (T9-D2): without it the engine deletes whatever is
+    /// there now. A `204` has no body; the engine's cascade warning, when cleanup failed, rides on
+    /// the response's warnings (T9-D4).
+    pub async fn delete_item(
+        &self,
+        address: &ItemAddress,
+        resource_version: Option<&str>,
+    ) -> Result<EngineResponse<()>, ToolError> {
+        let mut url = self.url(address.segments())?;
+        if let Some(version) = resource_version {
+            url.query_pairs_mut()
+                .append_pair(DELETE_ITEM.query[0], version);
+        }
+
+        // The address is the caller's; the token is ours, read a moment ago.
+        self.delete_empty(&DELETE_ITEM, url, BadRequestOrigin::CallerInput)
+            .await
     }
 
     /// `PUT /{group}/{version}/items/{family}/{name}` — write one item whole.

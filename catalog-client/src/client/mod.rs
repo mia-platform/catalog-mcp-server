@@ -516,6 +516,31 @@ impl EngineClient {
         self.decode(raw)
     }
 
+    /// Issues one `DELETE`, whose success carries no body — only the warnings the engine attached.
+    ///
+    /// Never retried: a delete that may have landed is `unknown_outcome` (D20), and whether a
+    /// repeat is safe is not a property of the request (D23).
+    pub async fn delete_empty(
+        &self,
+        operation: &'static OperationSpec,
+        url: Url,
+        origin: BadRequestOrigin,
+    ) -> Result<EngineResponse<()>, ToolError> {
+        let raw = self
+            .send(
+                operation,
+                Request::delete(url),
+                Intent::Write { retryable: false },
+                origin,
+            )
+            .await?;
+
+        Ok(EngineResponse {
+            value: (),
+            warnings: raw.warnings,
+        })
+    }
+
     /// Deserialises a successful response, reporting a shape mismatch as ours.
     fn decode<T: DeserializeOwned>(
         &self,
@@ -770,6 +795,7 @@ impl EngineClient {
 enum Request {
     Get { url: Url, accept: String },
     Put { url: Url, body: Value },
+    Delete { url: Url },
 }
 
 impl Request {
@@ -778,6 +804,7 @@ impl Request {
         match self {
             Self::Get { .. } => "GET",
             Self::Put { .. } => "PUT",
+            Self::Delete { .. } => "DELETE",
         }
     }
 
@@ -794,6 +821,11 @@ impl Request {
         Self::Put { url, body }
     }
 
+    /// A `DELETE`, which carries no body either way.
+    fn delete(url: Url) -> Self {
+        Self::Delete { url }
+    }
+
     /// Builds the attempt.
     fn build(&self, http: &reqwest::Client) -> reqwest::RequestBuilder {
         match self {
@@ -807,6 +839,11 @@ impl Request {
                     crate::projection::Projection::Full.accept(),
                 )
                 .json(body),
+            // The engine answers a delete with `204` and no body; an error is its usual JSON.
+            Self::Delete { url } => http.delete(url.clone()).header(
+                http::header::ACCEPT,
+                crate::projection::Projection::Full.accept(),
+            ),
         }
     }
 }

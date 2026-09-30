@@ -747,6 +747,111 @@ async fn test_a_schema_violation_names_its_location() {
     );
 }
 
+/// The item T9's live test deletes, and the item on the other end of its one relationship. Both are
+/// its own, so no other test's relationship listing sees them.
+const DELETE_PROBE: &str = "e2e-delete-probe";
+const DELETE_PROBE_PEER: &str = "e2e-delete-peer";
+
+/// **T9, live: the delete T9 issues, against the engine.** A stale `resourceVersion` is a `409` and
+/// deletes nothing; the current one deletes the item; the relationship T9 counted beforehand — one
+/// page, both directions — is gone with it; and a second delete is a `404`.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_guarded_delete_takes_the_relationships_with_it() {
+    let client = client();
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds the described agent")
+        .value;
+    for name in [DELETE_PROBE, DELETE_PROBE_PEER] {
+        let address = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", name)
+            .expect("a well-formed address");
+        client
+            .put_item(
+                &address,
+                &serde_json::json!({
+                    "apiVersion": seeded.api_version,
+                    "kind": seeded.kind,
+                    "metadata": { "name": name },
+                    "spec": seeded.spec,
+                }),
+                false,
+            )
+            .await
+            .expect("the engine accepts the probe");
+    }
+    let link = ItemAddress::new("mia-platform.eu", "v1", "relationships", "e2e-delete-link")
+        .expect("a well-formed relationship address");
+    client
+        .put_item(
+            &link,
+            &serde_json::json!({
+                "apiVersion": "mia-platform.eu/v1",
+                "kind": "Relationship",
+                "metadata": { "name": "e2e-delete-link" },
+                "spec": {
+                    "sourceRef": agent_urn(DELETE_PROBE_PEER),
+                    "targetRef": agent_urn(DELETE_PROBE),
+                    "typeRef": DEPENDENCY_TYPE,
+                },
+            }),
+            false,
+        )
+        .await
+        .expect("the engine accepts the relationship");
+
+    let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DELETE_PROBE)
+        .expect("a well-formed address");
+    let current = client
+        .get_item(&probe)
+        .await
+        .expect("the probe reads back")
+        .value;
+    let relationships = client
+        .get_relationships(
+            &probe,
+            &RelationshipQuery {
+                limit: Some(MAX_LIMIT),
+                ..RelationshipQuery::default()
+            },
+        )
+        .await
+        .expect("the probe's relationships list")
+        .value;
+    assert_eq!(relationships.items.len(), 1, "the inbound link is counted");
+    assert!(relationships.next.is_none());
+
+    let stale = client
+        .delete_item(&probe, Some("0"))
+        .await
+        .expect_err("a stale resourceVersion is refused");
+    assert_eq!(stale.code, codes::CONFLICT);
+    assert!(client.get_item(&probe).await.is_ok(), "nothing was deleted");
+
+    let deleted = client
+        .delete_item(&probe, current.resource_version.as_deref())
+        .await
+        .expect("the current resourceVersion deletes the item");
+    assert!(deleted.warnings.is_empty(), "{:?}", deleted.warnings);
+
+    let gone = client.get_item(&probe).await.expect_err("the item is gone");
+    assert_eq!(gone.code, codes::NOT_FOUND);
+    let link_gone = client
+        .get_item(&link)
+        .await
+        .expect_err("the cascade removed the link");
+    assert_eq!(link_gone.code, codes::NOT_FOUND);
+
+    let again = client
+        .delete_item(&probe, current.resource_version.as_deref())
+        .await
+        .expect_err("there is nothing left to delete");
+    assert_eq!(again.code, codes::NOT_FOUND);
+}
+
 /// The seeded agent T3's e2e test describes, and the agent its relationship points at.
 const DESCRIBED_AGENT: &str = "catalog-agent";
 const RELATED_AGENT: &str = "assisted-ai-resource-generator";

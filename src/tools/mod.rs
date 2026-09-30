@@ -25,9 +25,15 @@ pub mod echo_identity;
 /// Argument checks shared by more than one tool.
 mod arguments;
 
+/// Finding one item from its name, and `kind` when given (T3-D6, T9-D7).
+mod lookup;
+
 /// T8 — create or merge-patch one item, through the core's read-merge-write cycle. The first
 /// tool of wave 1.b.
 pub mod apply_item;
+
+/// T9 — delete one item, reporting what went with it and a cascade that failed. Wave 1.b.
+pub mod delete_item;
 
 /// T3 — one item, what it is and what it is connected to, in one call. Wave 1.a.
 pub mod describe_item;

@@ -64,6 +64,10 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             .put_item(&mock_address(), &mock_item(MOCK_ITEM_NAME), false)
             .await
             .map(|_| ()),
+        "delete_item" => client
+            .delete_item(&mock_address(), Some("1"))
+            .await
+            .map(|_| ()),
         "list_tenants" => client.list_tenants().await.map(|_| ()),
         "list_item_type_definitions" => client
             .list_item_type_definitions::<ItemTypeDefinition>(&query)
@@ -220,6 +224,7 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_items",
             "get_item",
             "put_item",
+            "delete_item",
             "list_tenants",
             "list_item_type_definitions",
             "list_family_items",
@@ -421,6 +426,86 @@ async fn test_get_item_addresses_the_right_path() {
         requests[0].url.path(),
         "/stable.example.com/v1/items/services/example-item"
     );
+}
+
+/// T9-D2 — the delete goes to the item's path, as a `DELETE`, carrying the token it was given.
+#[rstest]
+#[tokio::test]
+async fn test_delete_item_sends_the_resource_version() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("DELETE"))
+        .and(path("/stable.example.com/v1/items/services/example-item"))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(engine.server())
+        .await;
+
+    let response = engine
+        .client(mock_identity())
+        .delete_item(&mock_address(), Some("42"))
+        .await
+        .expect("a 204 is a success, with no body to read");
+
+    assert!(response.warnings.is_empty());
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    assert_eq!(requests[0].url.query(), Some("resourceVersion=42"));
+}
+
+/// T9-D4 — a `204` can still carry the cascade warning, and it must reach the caller.
+#[rstest]
+#[tokio::test]
+async fn test_a_delete_keeps_the_engines_warning() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("DELETE"))
+        .respond_with(ResponseTemplate::new(204).append_header(
+            "Warning",
+            r#"299 - "An error occurred while cleaning up after deleting item 'example-item'. The system may still contain orphaned relationships.""#,
+        ))
+        .mount(engine.server())
+        .await;
+
+    let response = engine
+        .client(mock_identity())
+        .delete_item(&mock_address(), Some("1"))
+        .await
+        .expect("the delete itself succeeded");
+
+    assert_eq!(response.warnings.len(), 1);
+    assert!(response.warnings[0].text.contains("orphaned relationships"));
+}
+
+/// D20, D23 — a delete is never retried, and a failure after dispatch may have landed.
+#[rstest]
+#[case::internal_error(500)]
+#[case::unavailable(503)]
+#[tokio::test]
+async fn test_a_failed_delete_is_not_retried_and_has_an_unknown_outcome(#[case] status: u16) {
+    let engine = MockEngine::start().await;
+    Mock::given(method("DELETE"))
+        .respond_with(
+            ResponseTemplate::new(status).set_body_json(crate::testing::mock_error_body(
+                status,
+                "Something went wrong",
+            )),
+        )
+        .expect(1)
+        .mount(engine.server())
+        .await;
+
+    // `client` allows one retry, so a second attempt would be seen by `expect(1)`.
+    let error = engine
+        .client(mock_identity())
+        .delete_item(&mock_address(), Some("1"))
+        .await
+        .expect_err("a failed delete is an error");
+
+    assert_eq!(error.code, codes::UNKNOWN_OUTCOME);
+    assert_eq!(error.remedy, Remedy::Unknown);
 }
 
 #[rstest]

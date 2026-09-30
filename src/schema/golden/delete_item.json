@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "Only needed when the name is ambiguous across types.",
+      "type": "string"
+    },
+    "name": {
+      "description": "The item's name.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name"
+  ],
+  "type": "object"
+}

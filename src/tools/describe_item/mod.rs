@@ -20,16 +20,15 @@ use crate::{
         ToolDescriptor,
         contract::{CallContext, Tool, ToolOutput},
     },
-    tools::arguments::validate_group,
+    tools::{arguments::validate_group, lookup::resolve},
 };
 use catalog_client::{
-    EngineClient, FieldPath, ItemAddress, Predicate, QueryValue, RegexLiteral, Remedy, ToolError,
+    ItemAddress, Remedy, ToolError,
     error::{cancelled, codes},
     is_valid_kind,
-    models::{PartialObjectMetadata, RelationshipDirection},
-    ops::{ListQuery, relationships::RelationshipQuery},
+    models::RelationshipDirection,
+    ops::relationships::RelationshipQuery,
     pagination::{DEFAULT_LIMIT, EngineCursor, MAX_LIMIT, ToolCursor, fingerprint},
-    resolve_kind_or_suggest,
 };
 use rmcp::model::ToolAnnotations;
 use serde::{Deserialize, Serialize};
@@ -57,19 +56,6 @@ pub const MAX_KIND_BYTES: usize = 128;
 
 /// The smallest relationship page. The engine's own minimum.
 const MIN_RELATIONSHIP_LIMIT: u32 = 1;
-
-/// The kindless name probe's page (T3 §4): **two**, because one row cannot tell *"unique"* from
-/// *"the first of several"*, and two is all it takes to know which.
-const NAME_PROBE_LIMIT: u32 = 2;
-
-/// How many candidates an ambiguous name is answered with, fetched only on that branch (T3-D6).
-pub const MAX_AMBIGUOUS_CANDIDATES: u32 = 10;
-
-/// How many near matches a name that matches nothing is answered with (T3 §7).
-pub const MAX_NEAR_MATCHES: u32 = 5;
-
-/// The field the kindless lookup matches on.
-const NAME_FIELD: &str = "metadata.name";
 
 /// Default for the two `include_*` flags (T3-D8): the one-round-trip answer is the point.
 fn default_true() -> bool {
@@ -214,25 +200,6 @@ struct DescribeItemOutput {
     relationship_limit: Option<u32>,
 }
 
-/// One candidate for an ambiguous or unknown name (T3-D6).
-#[derive(Serialize)]
-struct Candidate {
-    #[serde(rename = "name")]
-    name: String,
-
-    #[serde(rename = "kind")]
-    kind: String,
-
-    #[serde(rename = "group")]
-    group: String,
-
-    #[serde(rename = "version", skip_serializing_if = "Option::is_none")]
-    version: Option<String>,
-
-    #[serde(rename = "family", skip_serializing_if = "Option::is_none")]
-    family: Option<String>,
-}
-
 /// What a relationship cursor pins: where the item lives, so a later page resolves nothing again.
 #[derive(Serialize, Deserialize)]
 struct RelationshipsPinned {
@@ -291,6 +258,7 @@ impl Tool for DescribeItem {
             None => (
                 resolve(
                     engine,
+                    TOOL_NAME,
                     &input.name,
                     input.kind.as_deref(),
                     input.group.as_deref(),
@@ -452,130 +420,6 @@ fn effective_limit(requested: Option<u16>) -> (u32, Option<u32>) {
 /// Whether a `customFields` value is worth returning — present and not an empty map.
 fn has_entries(value: &Value) -> bool {
     !matches!(value, Value::Null) && value.as_object().is_none_or(|map| !map.is_empty())
-}
-
-/// Where the item lives: from `kind` through the core's point lookup, or from the name alone.
-async fn resolve(
-    engine: &EngineClient,
-    name: &str,
-    kind: Option<&str>,
-    group: Option<&str>,
-) -> Result<ItemAddress, ToolError> {
-    match kind {
-        // An unknown `kind` is answered with near matches, and a shared one with its candidates,
-        // by the core (T2-D9, DR-80).
-        Some(kind) => {
-            let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
-
-            ItemAddress::new(
-                &coordinates.group,
-                &coordinates.version,
-                &coordinates.family,
-                name,
-            )
-        }
-        None => resolve_by_name(engine, name).await,
-    }
-}
-
-/// The kindless path (T3 §4, T3-D6): a two-row probe on `metadata.name`.
-///
-/// One row is the item. Two are an ambiguity, **never** a guess — silently picking one would have
-/// the model act confidently against the wrong item — so a wider fetch collects the candidates, on
-/// that branch only. None is `not_found`, with near matches when a substring search finds any.
-async fn resolve_by_name(engine: &EngineClient, name: &str) -> Result<ItemAddress, ToolError> {
-    let exact = Predicate::Eq {
-        field: FieldPath::new(NAME_FIELD)?,
-        value: QueryValue::string(name)?,
-    };
-    let rows = list_by(engine, &exact, NAME_PROBE_LIMIT).await?;
-
-    match rows.as_slice() {
-        [only] => ItemAddress::from_manifest(
-            &only.api_version,
-            only.metadata.family.as_deref(),
-            &only.metadata.name,
-        ),
-        [] => {
-            let near = Predicate::Matches {
-                field: FieldPath::new(NAME_FIELD)?,
-                pattern: RegexLiteral::containing(name)?,
-            };
-            // The error path's extra call: if it fails, the plain `not_found` still stands.
-            let candidates = list_by(engine, &near, MAX_NEAR_MATCHES)
-                .await
-                .unwrap_or_default();
-
-            let error = ToolError::new(
-                codes::NOT_FOUND,
-                Remedy::RetryAfterChange,
-                format!("No item named `{name}` exists in this tenant."),
-            )
-            .with_next_step("call search_catalog to find the item by a partial name or its type");
-
-            Err(if candidates.is_empty() {
-                error.with_details(json!({ "name": name }))
-            } else {
-                error.with_details(json!({
-                    "name": name,
-                    "candidates": candidates.into_iter().map(candidate).collect::<Vec<_>>(),
-                }))
-            })
-        }
-        _ => {
-            let candidates = match list_by(engine, &exact, MAX_AMBIGUOUS_CANDIDATES).await {
-                Ok(wider) if wider.len() >= rows.len() => wider,
-                _ => rows,
-            };
-
-            Err(ToolError::new(
-                codes::NOT_FOUND,
-                Remedy::RetryAfterChange,
-                format!(
-                    "`{name}` names more than one item. Say which with `kind`; the candidates are \
-                     listed."
-                ),
-            )
-            .with_details(json!({
-                "name": name,
-                "candidates": candidates.into_iter().map(candidate).collect::<Vec<_>>(),
-            }))
-            .with_next_step("call describe_item again with `kind` set to the intended candidate's"))
-        }
-    }
-}
-
-/// One global, metadata-only listing filtered by `predicate`.
-async fn list_by(
-    engine: &EngineClient,
-    predicate: &Predicate,
-    limit: u32,
-) -> Result<Vec<PartialObjectMetadata>, ToolError> {
-    let page = engine
-        .list_items_partial(&ListQuery {
-            limit: Some(limit),
-            raw_query: predicate.encode_rawq()?,
-            ..ListQuery::default()
-        })
-        .await?;
-
-    Ok(page.value.items)
-}
-
-/// A listed item as a candidate.
-fn candidate(item: PartialObjectMetadata) -> Candidate {
-    let (group, version) = match item.api_version.split_once('/') {
-        Some((group, version)) => (group.to_string(), Some(version.to_string())),
-        None => (item.api_version, None),
-    };
-
-    Candidate {
-        name: item.metadata.name,
-        kind: item.kind,
-        group,
-        version,
-        family: item.metadata.family,
-    }
 }
 
 /// The fingerprint a relationship cursor is minted and checked against: the item it belongs to

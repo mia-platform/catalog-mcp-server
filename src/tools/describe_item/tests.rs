@@ -17,10 +17,12 @@
  */
 use crate::{
     registry::contract::{CallContext, Tool, ToolOutput},
-    tools::describe_item::{
-        DescribeItem, DescribeItemInput, Direction, GroupBy, MAX_AMBIGUOUS_CANDIDATES,
-        MAX_NAME_BYTES,
-        shape::{self, Grouping},
+    tools::{
+        describe_item::{
+            DescribeItem, DescribeItemInput, Direction, GroupBy, MAX_NAME_BYTES,
+            shape::{self, Grouping},
+        },
+        lookup::MAX_AMBIGUOUS_CANDIDATES,
     },
 };
 use catalog_client::{

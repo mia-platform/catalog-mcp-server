@@ -164,16 +164,13 @@ pub struct ApplyItem;
 impl Tool for ApplyItem {
     type Input = ApplyItemInput;
 
-    /// Not read-only, not destructive, idempotent (T8 §3, D16): applying the same patch twice
-    /// reaches the same state.
+    /// Not destructive, idempotent (T8 §3, D16): applying the same patch twice reaches the same
+    /// state. `readOnlyHint: false` is the default, so it is not emitted.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<ApplyItemInput>(
             TOOL_NAME,
             TOOL_DESCRIPTION,
-            ToolAnnotations::new()
-                .read_only(false)
-                .destructive(false)
-                .idempotent(true),
+            ToolAnnotations::new().destructive(false).idempotent(true),
         )
     }
 
