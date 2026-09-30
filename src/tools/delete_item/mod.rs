@@ -38,10 +38,15 @@ pub const TOOL_NAME: &str = "delete_item";
 
 /// What the tool does (T9 §3). The consequences are here because they are not guessable from the
 /// name, and the model's summary to the user needs to carry them.
+///
+/// The last sentence is DR-99's: on the gateway path the engine lists only some of the
+/// relationships a delete removes, so the count is stated as what it is — the ones `describe_item`
+/// lists — and never as the total.
 const TOOL_DESCRIPTION: &str = "Deletes a catalog item permanently. This also removes every \
      relationship connected to it, in both directions, and its revision history — other items will \
      lose their links to it. There is no undo. Use `describe_item` first if you need to see what \
-     will be affected.";
+     will be affected. `relationshipsRemoved` counts the ones `describe_item` lists; the delete \
+     removes all of them.";
 
 /// The longest `name`, in bytes (T9 §3, as T3).
 pub const MAX_NAME_BYTES: usize = 256;
@@ -107,7 +112,9 @@ struct Deleted {
     #[serde(rename = "title", skip_serializing_if = "Option::is_none")]
     title: Option<String>,
 
-    /// Both directions, counted before the delete (T9-D6). `null` when the count failed.
+    /// Both directions, counted before the delete (T9-D6) — the relationships the listing shows
+    /// this caller, which on the gateway path can be fewer than the delete removes (DR-99). `null`
+    /// when the count failed.
     #[serde(rename = "relationshipsRemoved")]
     relationships_removed: Option<RelationshipCount>,
 }
