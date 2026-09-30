@@ -283,6 +283,38 @@ async fn test_a_no_op_write_is_reported_as_one() {
     assert!(outcome.changed.is_empty());
 }
 
+/// The engine's `UPDATE` runs even when nothing differs, so a no-op `PUT` still comes back with a
+/// new `resourceVersion` and `updateTimestamp`. Neither is a change the caller made.
+#[rstest]
+#[tokio::test]
+async fn test_a_no_op_is_one_even_when_the_engine_bumps_its_own_fields() {
+    let engine = MockEngine::start().await;
+
+    Mock::given(method("GET"))
+        .and(path_regex(ITEM_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_item(MOCK_ITEM_NAME)))
+        .mount(engine.server())
+        .await;
+
+    let mut written = mock_item(MOCK_ITEM_NAME);
+    written["resourceVersion"] = json!("2");
+    written["metadata"]["updateTimestamp"] = json!("2026-09-30T08:00:00Z");
+    Mock::given(method("PUT"))
+        .and(path_regex(ITEM_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(written))
+        .mount(engine.server())
+        .await;
+
+    let client = engine.client(mock_identity());
+    let outcome = WriteCycle::new(&client, ConflictPolicy::RetryOnce, ResourceVersionIn::Body)
+        .apply(&mock_address(), &json!({ "spec": { "replicas": 2 } }))
+        .await
+        .expect("the write succeeds");
+
+    assert!(outcome.changed.is_empty(), "{:?}", outcome.changed);
+    assert!(outcome.is_noop());
+}
+
 /// A `404` on the read means create, not fail.
 #[rstest]
 #[tokio::test]

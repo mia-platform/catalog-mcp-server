@@ -69,6 +69,78 @@ fn test_nested_titles_are_dropped() {
     );
 }
 
+/// A property **named** `title` is an argument, not a schema's title: it must survive, at the root
+/// and nested. `apply_item`'s `metadata.title` vanished from `tools/list` before this held.
+#[rstest]
+fn test_a_property_named_title_is_kept() {
+    let minified = minify(json!({
+        "type": "object",
+        "properties": {
+            "title": { "title": "Title", "type": "string" },
+            "metadata": {
+                "type": "object",
+                "properties": { "title": { "description": "The item's title." } }
+            }
+        },
+        "$defs": { "title": { "title": "Shared", "type": "string" } }
+    }));
+
+    assert_eq!(minified["properties"]["title"], json!({ "type": "string" }));
+    assert_eq!(
+        minified["properties"]["metadata"]["properties"]["title"],
+        json!({ "description": "The item's title." })
+    );
+}
+
+/// The contents of a value keyword are data, and are never rewritten as if they were a schema.
+#[rstest]
+fn test_titles_inside_data_are_kept() {
+    let minified = minify(json!({
+        "type": "object",
+        "properties": {
+            "link": {
+                "type": "object",
+                "default": { "title": "Home", "url": "https://example.com" },
+                "examples": [{ "title": "Docs", "url": "https://example.com/docs" }],
+                "enum": [{ "title": "A" }],
+                "const": { "title": "B" }
+            }
+        }
+    }));
+
+    let link = &minified["properties"]["link"];
+    assert_eq!(link["default"]["title"], json!("Home"));
+    assert_eq!(link["examples"][0]["title"], json!("Docs"));
+    assert_eq!(link["enum"][0]["title"], json!("A"));
+    assert_eq!(link["const"]["title"], json!("B"));
+}
+
+/// Rule 8 — `"default": null` says nothing an optional argument does not; any other default stays.
+#[rstest]
+fn test_a_null_default_is_dropped() {
+    let minified = minify(json!({
+        "type": "object",
+        "properties": {
+            "spec": { "default": null, "description": "Spec fields." },
+            "limit": { "default": 20, "type": "integer" },
+            "metadata": {
+                "type": "object",
+                "properties": { "tags": { "default": null } }
+            }
+        }
+    }));
+
+    assert_eq!(
+        minified["properties"]["spec"],
+        json!({ "description": "Spec fields." })
+    );
+    assert_eq!(minified["properties"]["limit"]["default"], json!(20));
+    assert_eq!(
+        minified["properties"]["metadata"]["properties"]["tags"],
+        json!({})
+    );
+}
+
 /// Descriptions are **not** touched: they are what the model reads to use the tool correctly.
 #[rstest]
 fn test_nested_descriptions_are_kept() {

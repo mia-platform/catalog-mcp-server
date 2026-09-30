@@ -65,6 +65,21 @@ const MINIMUM_KEY: &str = "minimum";
 /// The `maximum` keyword.
 const MAXIMUM_KEY: &str = "maximum";
 
+/// The `default` keyword.
+const DEFAULT_KEY: &str = "default";
+
+/// Keywords whose value maps **names** to schemas: its keys are never keywords.
+const NAME_MAP_KEYWORDS: [&str; 5] = [
+    PROPERTIES_KEY,
+    DEFS_KEY,
+    "definitions",
+    "patternProperties",
+    "dependentSchemas",
+];
+
+/// Keywords whose value is **data**, not a schema.
+const VALUE_KEYWORDS: [&str; 4] = ["enum", "const", DEFAULT_KEY, "examples"];
+
 /// The integer formats `schemars` emits for Rust's integer types, with each type's own range —
 /// which is all a `minimum`/`maximum` beside them restates.
 const INTEGER_FORMATS: [(&str, i128, i128); 8] = [
@@ -97,6 +112,9 @@ const INTEGER_FORMATS: [(&str, i128, i128); 8] = [
 ///    `"string"`, and `anyOf: [X, {"type":"null"}]` becomes `X`. Being absent from `required`
 ///    already says the argument may be left out, which is what `Option` means here; serde still
 ///    accepts an explicit `null`, so no call that worked stops working (F-10).
+/// 8. A `"default": null` is dropped. `schemars` emits it for every `#[serde(default)]` field
+///    whose type serialises to `null`; an absent field defaulting to "nothing" is what optional
+///    already means.
 ///
 /// A parameterless tool therefore minifies to `{"additionalProperties":false,"type":"object"}`.
 ///
@@ -113,6 +131,7 @@ pub fn minify_input_schema(schema: &Map<String, Value>) -> Map<String, Value> {
     strip_nested_titles(&mut schema);
     strip_integer_formats(&mut schema);
     strip_optional_nulls(&mut schema);
+    strip_null_defaults(&mut schema);
 
     schema.insert(TYPE_KEY.to_string(), Value::String(OBJECT_TYPE.to_string()));
     schema.insert(ADDITIONAL_PROPERTIES_KEY.to_string(), Value::Bool(false));
@@ -355,19 +374,63 @@ fn inline_refs(node: &mut Value, bodies: &std::collections::BTreeMap<String, Val
 
 /// Removes every `title` below the root.
 fn strip_nested_titles(schema: &mut Map<String, Value>) {
-    for value in schema.values_mut() {
-        strip_titles(value);
+    for_each_nested_schema(schema, &mut |node| {
+        node.remove(TITLE_KEY);
+    });
+}
+
+/// Rule 8 — drops every `"default": null`.
+fn strip_null_defaults(schema: &mut Map<String, Value>) {
+    for_each_nested_schema(schema, &mut |node| {
+        if node.get(DEFAULT_KEY).is_some_and(Value::is_null) {
+            node.remove(DEFAULT_KEY);
+        }
+    });
+}
+
+/// Calls `visit` on every schema object below `root`.
+///
+/// Only **schemas** are visited. The keys of a name map (`properties`, `$defs`, …) are names, not
+/// keywords — a property called `title` is an argument, not a schema's title — and the contents of
+/// a value keyword (`enum`, `const`, `default`, `examples`) are data. Treating either as a schema
+/// would delete what the model needs to see.
+fn for_each_nested_schema(
+    root: &mut Map<String, Value>,
+    visit: &mut impl FnMut(&mut Map<String, Value>),
+) {
+    for (key, value) in root.iter_mut() {
+        visit_member(key, value, visit);
     }
 }
 
-/// Removes every `title` in the subtree.
-fn strip_titles(node: &mut Value) {
+/// Visits one member of a schema object according to what its keyword holds.
+fn visit_member(key: &str, value: &mut Value, visit: &mut impl FnMut(&mut Map<String, Value>)) {
+    if VALUE_KEYWORDS.contains(&key) {
+        return;
+    }
+
+    if NAME_MAP_KEYWORDS.contains(&key)
+        && let Some(named) = value.as_object_mut()
+    {
+        named
+            .values_mut()
+            .for_each(|schema| visit_schema(schema, visit));
+        return;
+    }
+
+    visit_schema(value, visit);
+}
+
+/// Visits a schema, or every schema in an array of them, and then its members.
+fn visit_schema(node: &mut Value, visit: &mut impl FnMut(&mut Map<String, Value>)) {
     match node {
         Value::Object(object) => {
-            object.remove(TITLE_KEY);
-            object.values_mut().for_each(strip_titles);
+            visit(object);
+            for (key, value) in object.iter_mut() {
+                visit_member(key, value, visit);
+            }
         }
-        Value::Array(items) => items.iter_mut().for_each(strip_titles),
+        Value::Array(items) => items.iter_mut().for_each(|item| visit_schema(item, visit)),
         _ => {}
     }
 }

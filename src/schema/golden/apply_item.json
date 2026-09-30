@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The item's type.",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": false,
+      "properties": {
+        "annotations": {},
+        "description": {},
+        "labels": {},
+        "links": {},
+        "tags": {},
+        "title": {}
+      },
+      "type": "object"
+    },
+    "name": {
+      "description": "The item's name.",
+      "type": "string"
+    },
+    "spec": {}
+  },
+  "required": [
+    "name",
+    "kind"
+  ],
+  "type": "object"
+}

@@ -303,7 +303,7 @@ impl<'a> WriteCycle<'a> {
 
         Ok(WriteOutcome {
             created,
-            changed: changed_paths(before, &after),
+            changed: changed_paths(&comparable(before), &comparable(&after)),
             retried: false,
             warnings: written.warnings,
         })
@@ -327,6 +327,20 @@ impl<'a> WriteCycle<'a> {
             }
         }
     }
+}
+
+/// A manifest as `changed` compares it: without the fields the server rewrites on every write.
+///
+/// The engine's `UPDATE` runs even when nothing differs, so `resourceVersion` (Postgres `xmin`)
+/// and `metadata.updateTimestamp` move on **every** `PUT`. Diffing them would make a no-op write
+/// indistinguishable from a real one, which is the one thing `changed` exists to tell apart
+/// (T8-D7). What is stripped is exactly what a write cannot set, so nothing the caller could have
+/// changed is hidden.
+fn comparable(manifest: &Value) -> Value {
+    let mut manifest = manifest.clone();
+    strip_server_owned(&mut manifest);
+
+    manifest
 }
 
 /// A manifest we built and cannot serialise is a defect of ours.

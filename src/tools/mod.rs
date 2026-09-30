@@ -25,6 +25,10 @@ pub mod echo_identity;
 /// Argument checks shared by more than one tool.
 mod arguments;
 
+/// T8 — create or merge-patch one item, through the core's read-merge-write cycle. The first
+/// tool of wave 1.b.
+pub mod apply_item;
+
 /// T3 — one item, what it is and what it is connected to, in one call. Wave 1.a.
 pub mod describe_item;
 

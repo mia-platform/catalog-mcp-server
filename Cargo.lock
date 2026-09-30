@@ -224,6 +224,7 @@ dependencies = [
  "http-body-util",
  "metrics",
  "metrics-exporter-prometheus",
+ "regex",
  "rmcp",
  "rstest",
  "schemars",

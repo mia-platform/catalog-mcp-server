@@ -26,8 +26,8 @@
 // of D26's propagation rather than of the policy layer's regeneration of it.
 
 use catalog_client::{
-    CallerIdentity, Deadline, EngineClient, EngineClientFactory, FamilyAddress, FieldPath,
-    ItemAddress, Predicate, RegexLiteral, coordinates_of,
+    CallerIdentity, ConflictPolicy, Deadline, EngineClient, EngineClientFactory, FamilyAddress,
+    FieldPath, ItemAddress, Predicate, RegexLiteral, ResourceVersionIn, WriteCycle, coordinates_of,
     error::codes,
     find_item_type, find_item_type_document,
     models::{ItdListEntry, ItemTypeDefinition, RelationshipDirection},
@@ -634,6 +634,116 @@ async fn test_a_titleless_link_is_read_on_every_path() {
         global
             .iter()
             .any(|entry| entry.metadata.name == "e2e-links-probe")
+    );
+}
+
+/// The item T8's live test creates and patches.
+const APPLY_PROBE: &str = "e2e-apply-probe";
+
+/// A value no seeded agent uses for `spec.model`, so the patch is a real change.
+const PATCHED_MODEL: &str = "e2e-model";
+
+/// **T8 §9, live: a merge-patch write keeps what it did not mention.** The cycle `apply_item` runs
+/// — read, RFC 7396 merge, `PUT` — creates an item, then patches one spec field, and a re-read
+/// shows the labels, tags and every other spec field untouched. It also pins the premise of the
+/// `changed` diff: a no-op `PUT` still moves `resourceVersion`, and is still reported as a no-op.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_merge_patch_write_keeps_what_it_did_not_mention() {
+    let client = client();
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", APPLY_PROBE)
+        .expect("a well-formed address");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds the described agent")
+        .value;
+    let identity = serde_json::json!({
+        "apiVersion": seeded.api_version,
+        "kind": seeded.kind,
+        "metadata": { "name": APPLY_PROBE },
+    });
+    let cycle = WriteCycle::new(&client, ConflictPolicy::RetryOnce, ResourceVersionIn::Body);
+
+    let mut create = identity.clone();
+    create["metadata"]["labels"] = serde_json::json!({ "team": "platform" });
+    create["metadata"]["tags"] = serde_json::json!(["e2e"]);
+    create["spec"] = seeded.spec.clone();
+    let created = cycle
+        .apply(&probe, &create)
+        .await
+        .expect("the create lands");
+    assert!(created.created, "a fresh stack has no `{APPLY_PROBE}`");
+
+    let mut patch = identity.clone();
+    patch["spec"] = serde_json::json!({ "model": PATCHED_MODEL });
+    let patched = cycle.apply(&probe, &patch).await.expect("the patch lands");
+    assert!(!patched.created);
+    assert_eq!(patched.changed, vec!["spec.model"]);
+
+    let stored = client
+        .get_item(&probe)
+        .await
+        .expect("the item reads back")
+        .value;
+    assert_eq!(
+        stored.metadata.labels.get("team").map(String::as_str),
+        Some("platform")
+    );
+    assert_eq!(stored.metadata.tags, vec!["e2e"]);
+    let mut expected_spec = seeded.spec;
+    expected_spec["model"] = serde_json::json!(PATCHED_MODEL);
+    assert_eq!(stored.spec, expected_spec, "only `spec.model` moved");
+
+    let again = cycle.apply(&probe, &patch).await.expect("the no-op lands");
+    let after = client
+        .get_item(&probe)
+        .await
+        .expect("the item reads back")
+        .value;
+    assert_ne!(
+        after.resource_version, stored.resource_version,
+        "the engine moves `resourceVersion` on every PUT"
+    );
+    assert!(again.changed.is_empty(), "{:?}", again.changed);
+    assert!(again.is_noop());
+}
+
+/// **T8 §6, live: a schema violation names its location** in the form `apply_item` reads into
+/// `details.path` — `path "/spec/model": <reason>`. Nothing is written: the engine rejects the
+/// body before it stores anything.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_schema_violation_names_its_location() {
+    let client = client();
+    let agent = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let seeded = client
+        .get_item(&agent)
+        .await
+        .expect("the engine seeds the described agent")
+        .value;
+
+    let error = WriteCycle::new(&client, ConflictPolicy::RetryOnce, ResourceVersionIn::Body)
+        .apply(
+            &agent,
+            &serde_json::json!({
+                "apiVersion": seeded.api_version,
+                "kind": seeded.kind,
+                "metadata": { "name": DESCRIBED_AGENT },
+                "spec": { "model": 42 },
+            }),
+        )
+        .await
+        .expect_err("a number is not a model name");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(
+        error.message.contains(r#"path "/spec/model": "#),
+        "{}",
+        error.message
     );
 }
 

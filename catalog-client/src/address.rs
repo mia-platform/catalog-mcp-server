@@ -239,6 +239,12 @@ pub fn is_valid_group(group: &str) -> bool {
     group.len() <= MAX_SEGMENT_LENGTH && GROUP_RE.is_match(group)
 }
 
+/// Whether `name` is an object name the engine accepts (its `metadata.name` pattern) — for a tool
+/// that must refuse a malformed name before spending a `kind` lookup on it (T8 §3).
+pub fn is_valid_name(name: &str) -> bool {
+    name.len() <= MAX_SEGMENT_LENGTH && NAME_RE.is_match(name)
+}
+
 /// Validates one path segment against the engine's own pattern for it.
 fn validate(field: &'static str, value: &str, pattern: &Regex) -> Result<(), ToolError> {
     if value.is_empty() {
@@ -279,6 +285,17 @@ fn segment_error(field: &'static str, value: &str, reason: &str) -> ToolError {
 mod tests {
     use super::*;
     use rstest::rstest;
+
+    #[rstest]
+    #[case::plain("example-item", true)]
+    #[case::dotted("example.item-2", true)]
+    #[case::uppercase("Example-Item", false)]
+    #[case::leading_dash("-example", false)]
+    #[case::trailing_dot("example.", false)]
+    #[case::empty("", false)]
+    fn test_a_name_is_checked_against_the_engine_pattern(#[case] name: &str, #[case] valid: bool) {
+        assert_eq!(is_valid_name(name), valid);
+    }
 
     #[rstest]
     fn test_a_well_formed_address_is_accepted() {

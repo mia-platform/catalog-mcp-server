@@ -64,6 +64,7 @@ http.workspace = true
 http-body-util = "0.1.3"
 metrics.workspace = true
 metrics-exporter-prometheus = { version = "0.17.2", default-features = false }
+regex.workspace = true
 rmcp = { version = "3.4.0", features = ["transport-streamable-http-server"] }
 schemars.workspace = true
 serde.workspace = true

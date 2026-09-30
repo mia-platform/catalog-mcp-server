@@ -63,7 +63,7 @@ pub mod ops;
 #[cfg(feature = "testing")]
 pub mod testing;
 
-pub use address::{FamilyAddress, ItemAddress};
+pub use address::{FamilyAddress, ItemAddress, is_valid_name};
 pub use client::{
     BAGGAGE_HEADER, CallWarnings, Deadline, EngineClient, EngineClientFactory, EngineResponse,
     TRACEPARENT_HEADER, TRACESTATE_HEADER, TraceContext,

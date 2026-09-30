@@ -28,9 +28,10 @@ To try the server on your machine against a local Catalog, see [CONTRIBUTING.md]
 | `search_catalog` | Searches items: free text (`query`), one type (`kind`, plus `group` when several types share the kind), exact `labels` and `fields` filters. Paginated with an opaque `cursor`. |
 | `describe_item` | One item by name, with its relationships in the same answer. `kind`/`group` only when the name is ambiguous; relationships can be restricted, grouped and paged. |
 | `get_item_schema` | One type's whole definition, including the schema its items follow. With `fields` (e.g. `["spec.lifecycle"]`) it returns only those fields' schema. |
+| `apply_item` | Creates or updates one item. Send only what changes: the server reads the item, merge-patches it (RFC 7396: `null` removes a field, lists are replaced whole) and writes it back, so nothing else is lost. Answers with `created`, the `changed` field paths and whether a conflict was `retried`. Custom fields are not written here. |
 | `list_tenants` | The tenants the caller can access, and the one it is working in. |
 
-Every tool reads with the **caller's own identity**. The server forwards `x-mia-acl-context` and `x-mia-principal-id` to the engine; behind the Mia-Platform API gateway they are set for you, while a client talking to the server directly (a local setup, for instance) must send `x-mia-acl-context` itself.
+Every tool reads and writes with the **caller's own identity**. The server forwards `x-mia-acl-context` and `x-mia-principal-id` to the engine; behind the Mia-Platform API gateway they are set for you, while a client talking to the server directly (a local setup, for instance) must send `x-mia-acl-context` itself.
 
 ## Configuration
 
