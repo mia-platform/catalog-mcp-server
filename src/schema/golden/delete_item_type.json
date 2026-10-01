@@ -1,0 +1,21 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "expected_items": {
+      "description": "The number of items you expect to be destroyed. Required when the type has any items.",
+      "type": "integer"
+    },
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The type's kind, e.g. \"Service\".",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind"
+  ],
+  "type": "object"
+}

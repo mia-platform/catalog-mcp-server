@@ -21,7 +21,8 @@ use crate::{
     error::{BadRequestOrigin, ToolError},
     models::ListEnvelope,
     ops::{
-        GET_ITEM_TYPE_DEFINITION, LIST_ITEM_TYPE_DEFINITIONS, ListQuery, PUT_ITEM_TYPE_DEFINITION,
+        DELETE_ITEM_TYPE_DEFINITION, GET_ITEM_TYPE_DEFINITION, LIST_ITEM_TYPE_DEFINITIONS,
+        ListQuery, PUT_ITEM_TYPE_DEFINITION,
     },
     pagination::{ListPage, MAX_LIMIT, paginate_all},
     projection::Projection,
@@ -106,6 +107,31 @@ impl EngineClient {
             url,
             manifest,
             retryable,
+            BadRequestOrigin::CallerInput,
+        )
+        .await
+    }
+
+    /// `DELETE /mia-platform.eu/v1/item-type-definitions/{name}?resourceVersion=…` — delete one
+    /// definition, and with it everything T13-D1 lists.
+    ///
+    /// `resource_version` is always sent by T13: without it the engine deletes whatever is there
+    /// now. A `204` has no body; when the cascade failed, the engine's warning rides on the
+    /// response's warnings (T13-D5). Never retried (D20, D23).
+    pub async fn delete_item_type_definition(
+        &self,
+        address: &ItemTypeAddress,
+        resource_version: Option<&str>,
+    ) -> Result<EngineResponse<()>, ToolError> {
+        let mut url = self.url(address.segments())?;
+        if let Some(version) = resource_version {
+            url.query_pairs_mut()
+                .append_pair(DELETE_ITEM_TYPE_DEFINITION.query[0], version);
+        }
+
+        self.delete_empty(
+            &DELETE_ITEM_TYPE_DEFINITION,
+            url,
             BadRequestOrigin::CallerInput,
         )
         .await

@@ -36,6 +36,9 @@ pub mod apply_item;
 /// the change means for the items already stored. Wave 1.b.
 pub mod apply_item_type;
 
+/// T13 — delete one type and every item of it, guarded by the item count. Closes wave 1.b.
+pub mod delete_item_type;
+
 /// T9 — delete one item, reporting what went with it and a cascade that failed. Wave 1.b.
 pub mod delete_item;
 

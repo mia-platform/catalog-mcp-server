@@ -153,6 +153,7 @@ impl Registry {
                 .with_route(route_for(tools::apply_item::ApplyItem))
                 .with_route(route_for(tools::apply_item_type::ApplyItemType))
                 .with_route(route_for(tools::delete_item::DeleteItem))
+                .with_route(route_for(tools::delete_item_type::DeleteItemType))
                 .with_route(route_for(tools::describe_item::DescribeItem))
                 .with_route(route_for(tools::get_item_schema::GetItemSchema))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))

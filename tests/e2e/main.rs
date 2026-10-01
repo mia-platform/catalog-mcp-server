@@ -970,6 +970,122 @@ async fn test_a_type_update_keeps_its_llm_description() {
     assert_eq!(count.count, 0);
 }
 
+/// The groups of the types the write tests create, which the seeded-type walk leaves out.
+const E2E_TYPE_GROUPS: [&str; 2] = [PROBE_TYPE_GROUP, DOOMED_TYPE_GROUP];
+
+/// The throwaway type T13's live test creates, with two items, and deletes: its own group.
+const DOOMED_TYPE_GROUP: &str = "e2e-doomed.example.com";
+const DOOMED_TYPE_KIND: &str = "Doomed";
+const DOOMED_TYPE_PLURAL: &str = "dooms";
+const DOOMED_ITEMS: [&str; 2] = ["doomed-one", "doomed-two"];
+
+/// **T13 §9, live: a throwaway type with two items.** The family count T13's guard relies on sees
+/// exactly two; a stale `resourceVersion` is a `409` and deletes nothing; the current one deletes
+/// the type, and the cascade takes both items with it; a second delete is a `404`.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_type_delete_is_guarded_and_takes_its_items() {
+    let client = client();
+    let address = ItemTypeAddress::new(DOOMED_TYPE_GROUP, DOOMED_TYPE_PLURAL)
+        .expect("a well-formed type address");
+    client
+        .put_item_type_definition(
+            &address,
+            &serde_json::json!({
+                "apiVersion": ItemTypeAddress::api_version(),
+                "kind": ItemTypeAddress::KIND,
+                "metadata": { "name": address.name() },
+                "spec": {
+                    "group": DOOMED_TYPE_GROUP,
+                    "names": {
+                        "kind": DOOMED_TYPE_KIND,
+                        "plural": DOOMED_TYPE_PLURAL,
+                        "singular": "doom",
+                    },
+                    "scope": "Tenant",
+                    "versions": [{
+                        "name": "v1",
+                        "served": true,
+                        "schema": { "openAPIV31Schema": {
+                            "type": "object",
+                            "properties": { "spec": { "type": "object", "properties": {} } },
+                        } },
+                    }],
+                },
+            }),
+            false,
+        )
+        .await
+        .expect("the engine creates the throwaway type");
+
+    for name in DOOMED_ITEMS {
+        let item = ItemAddress::new(DOOMED_TYPE_GROUP, "v1", DOOMED_TYPE_PLURAL, name)
+            .expect("a well-formed address");
+        client
+            .put_item(
+                &item,
+                &serde_json::json!({
+                    "apiVersion": format!("{DOOMED_TYPE_GROUP}/v1"),
+                    "kind": DOOMED_TYPE_KIND,
+                    "metadata": { "name": name },
+                    "spec": {},
+                }),
+                false,
+            )
+            .await
+            .expect("the engine accepts the item");
+    }
+
+    let family = FamilyAddress::new(DOOMED_TYPE_GROUP, "v1", DOOMED_TYPE_PLURAL).expect("a family");
+    let count = client
+        .count_family_items(&family, &ListQuery::default())
+        .await
+        .expect("the family count answers")
+        .value;
+    assert_eq!(count.count, 2, "the guard sees both items");
+
+    let stored = client
+        .get_item_type_definition(&address)
+        .await
+        .expect("the type reads back")
+        .value;
+    let resource_version = stored["resourceVersion"].as_str().map(str::to_string);
+
+    let stale = client
+        .delete_item_type_definition(&address, Some("0"))
+        .await
+        .expect_err("a stale resourceVersion is refused");
+    assert_eq!(stale.code, codes::CONFLICT);
+    assert!(client.get_item_type_definition(&address).await.is_ok());
+
+    let deleted = client
+        .delete_item_type_definition(&address, resource_version.as_deref())
+        .await
+        .expect("the current resourceVersion deletes the type");
+    assert!(deleted.warnings.is_empty(), "{:?}", deleted.warnings);
+
+    let items = client
+        .count_items(&ListQuery {
+            raw_query: Predicate::Eq {
+                field: FieldPath::new("kind").expect("a field"),
+                value: QueryValue::string(DOOMED_TYPE_KIND).expect("a value"),
+            }
+            .encode_rawq()
+            .expect("the rawq encodes"),
+            ..ListQuery::default()
+        })
+        .await
+        .expect("the global count answers")
+        .value;
+    assert_eq!(items.count, 0, "the cascade took both items");
+
+    let again = client
+        .delete_item_type_definition(&address, resource_version.as_deref())
+        .await
+        .expect_err("there is nothing left to delete");
+    assert_eq!(again.code, codes::NOT_FOUND);
+}
+
 /// The seeded agent T3's e2e test describes, and the agent its relationship points at.
 const DESCRIBED_AGENT: &str = "catalog-agent";
 const RELATED_AGENT: &str = "assisted-ai-resource-generator";
@@ -1102,6 +1218,10 @@ async fn test_every_seeded_type_returns_its_definition_whole() {
             expected["spec"]["names"]["kind"].as_str().expect("a kind"),
             expected["spec"]["group"].as_str().expect("a group"),
         );
+        // Types other tests create — and T13's deletes — while this one runs are not seeded.
+        if E2E_TYPE_GROUPS.contains(&group) {
+            continue;
+        }
         // The exact `(group, kind)` lookup: a kind is unique per group only (DR-80).
         let (found, _) = find_item_type_document(&client, kind, Some(group))
             .await

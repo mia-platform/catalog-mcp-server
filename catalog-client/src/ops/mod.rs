@@ -161,6 +161,16 @@ pub const PUT_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
+/// One Item Type Definition, deleted — with every item of the type, under every version it declares,
+/// their relationships in both directions, and the constraints naming it (T13-D1).
+pub const DELETE_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
+    id: "delete_item_type_definition",
+    method: "delete",
+    path: "/mia-platform.eu/v1/item-type-definitions/{name}",
+    query: &["resourceVersion"],
+    upstream: Upstream::Catalog,
+};
+
 /// Every operation this client wraps today.
 ///
 /// Tool waves add to it; nothing else does.
@@ -173,6 +183,7 @@ pub const OPERATIONS: &[OperationSpec] = &[
     LIST_ITEM_TYPE_DEFINITIONS,
     GET_ITEM_TYPE_DEFINITION,
     PUT_ITEM_TYPE_DEFINITION,
+    DELETE_ITEM_TYPE_DEFINITION,
     LIST_FAMILY_ITEMS,
     COUNT_ITEMS,
     COUNT_FAMILY_ITEMS,

@@ -107,11 +107,12 @@ fn mock_echo_router(mock_config: Config) -> Router {
     )
 }
 
-/// The eight tools this server ships, in `tools/list` order.
-const SHIPPED_TOOLS: [&str; 8] = [
+/// The nine tools this server ships, in `tools/list` order.
+const SHIPPED_TOOLS: [&str; 9] = [
     "apply_item",
     "apply_item_type",
     "delete_item",
+    "delete_item_type",
     "describe_item",
     "get_item_schema",
     "list_catalog_types",

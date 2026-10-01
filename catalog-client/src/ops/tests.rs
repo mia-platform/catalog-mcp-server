@@ -91,6 +91,10 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             )
             .await
             .map(|_| ()),
+        "delete_item_type_definition" => client
+            .delete_item_type_definition(&mock_type_address(), Some("1"))
+            .await
+            .map(|_| ()),
         "list_family_items" => client
             .list_family_items_partial(&family, &query)
             .await
@@ -247,6 +251,7 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_item_type_definitions",
             "get_item_type_definition",
             "put_item_type_definition",
+            "delete_item_type_definition",
             "list_family_items",
             "count_items",
             "count_family_items",
