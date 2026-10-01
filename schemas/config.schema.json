@@ -257,7 +257,7 @@
       }
     },
     "ToolDefaults": {
-      "description": "Every tunable the tool analyses marked as a guess. They live here, not in the code,\nbecause the measurement exercise will change them and a config change is not a release.\n\n**No response ceilings are among them** — there are none.",
+      "description": "Every tunable whose value is an estimate rather than a measurement. They live here, not in\nthe code, because measuring real usage will change them and a config change is not a release.\n\n**No response ceilings are among them** — there are none.",
       "type": "object",
       "properties": {
         "searchLimit": {

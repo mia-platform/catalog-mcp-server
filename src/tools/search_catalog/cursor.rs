@@ -16,7 +16,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 // What a search cursor pins, and the fingerprint that stops it being replayed against a
-// different search. The wrapper, its versioning and its encoding are the core's `ToolCursor`.
+// different search. The wrapper, its versioning and its encoding are `catalog-client`'s
+// `ToolCursor`.
 
 use catalog_client::{
     FamilyAddress, Predicate, Remedy, ToolError,

@@ -40,7 +40,7 @@ use wiremock::{
 /// Where the type listing lives, relative to the mock engine's root.
 const LISTING_PATH: &str = "/mia-platform.eu/v1/item-type-definitions";
 
-/// A port nothing listens on, for the unreachable-engine row.
+/// A port nothing listens on, for the unreachable-engine case.
 const UNREACHABLE_ENGINE: &str = "http://127.0.0.1:9";
 
 /// The per-call budget the fixtures run under, matching the shipped default.
@@ -395,7 +395,7 @@ async fn test_an_over_long_search_is_rejected_before_the_engine() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Version selection, delegated to the core.
+// Version selection, delegated to `catalog-client`.
 // ---------------------------------------------------------------------------------------------
 
 /// A type with no served version is omitted: nothing about it is addressable.
@@ -421,7 +421,7 @@ async fn test_a_type_with_no_served_version_is_omitted() {
     assert_eq!(payload["total"], json!(1));
 }
 
-/// The version the core's rule selects is the one that reaches the row.
+/// The version `catalog-client`'s rule selects is the one that reaches the row.
 #[rstest]
 #[tokio::test]
 async fn test_the_selected_version_reaches_the_row() {
@@ -528,7 +528,7 @@ async fn test_rows_are_ordered_by_kind_then_group() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Every error row, asserting `code` **and** `remedy`.
+// Every error case, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 /// Each engine status the tool can meet, mapped onto the closed set. A `400` is `server_defect`
@@ -541,7 +541,7 @@ async fn test_rows_are_ordered_by_kind_then_group() {
 #[case::unauthenticated(401, codes::UNAUTHENTICATED, Remedy::Escalate)]
 #[case::forbidden(403, codes::FORBIDDEN, Remedy::Escalate)]
 #[tokio::test]
-async fn test_engine_statuses_map_to_their_documented_rows(
+async fn test_engine_statuses_map_to_their_codes_and_remedies(
     #[case] status: u16,
     #[case] code: &str,
     #[case] remedy: Remedy,

@@ -316,8 +316,8 @@ pub enum Upstream {
 ///
 /// The engine's shape and ours have diverged, which is a defect of this deployment rather than
 /// anything the model can change — and says nothing about the request's headers, which is why it
-/// is not the `406` row. Both the item reads and the type-definition lookup report it with this one
-/// wording.
+/// is not the `406` case. Both the item reads and the type-definition lookup report it with this
+/// one wording.
 pub fn unreadable_response(request_id: Option<&str>) -> ToolError {
     attach_request_id(
         ToolError::new(

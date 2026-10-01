@@ -231,7 +231,7 @@ fn invalid(parameter: &str, message: String) -> ToolError {
 ///
 /// # Errors
 ///
-/// Any failed count, as the core mapped it, saying that nothing was deleted.
+/// Any failed count, as `catalog-client` mapped it, saying that nothing was deleted.
 async fn count_scope(
     engine: &EngineClient,
     definition: &ItemTypeDefinition,
@@ -288,7 +288,7 @@ async fn count_scope(
     Ok(total)
 }
 
-/// A count that failed: the core's code and remedy, and the fact that nothing was deleted.
+/// A count that failed: `catalog-client`'s code and remedy, and the fact that nothing was deleted.
 fn uncounted(error: ToolError) -> ToolError {
     ToolError {
         message: format!(

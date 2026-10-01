@@ -1,11 +1,11 @@
 # Conformance baseline — MCP revision 2026-07-28.
 #
-# A baseline with "one entry, one reason" was expected, covering the four capabilities we
-# deliberately do not implement. The suite turned out to be **fixture-driven**: most scenarios
-# require the server under test to ship a named diagnostic tool, resource or prompt
-# (`test_simple_text`, `test_missing_capability`, ...), which an SDK example server has and a
-# production server deliberately does not. Every entry below is therefore one of exactly
-# three things, and none of them is a protocol defect:
+# A short baseline — one entry, one reason, for each of the four capabilities we deliberately
+# do not implement — would be the natural expectation. The suite turned out to be
+# **fixture-driven**: most scenarios require the server under test to ship a named diagnostic
+# tool, resource or prompt (`test_simple_text`, `test_missing_capability`, ...), which an SDK
+# example server has and a production server deliberately does not. Every entry below is
+# therefore one of exactly three things, and none of them is a protocol defect:
 #
 #   (a) a capability we do not declare — prompts, resources, completions;
 #   (b) an extension deliberately out of scope — tasks (SEP-2663), MRTR / input-required;

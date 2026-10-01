@@ -579,7 +579,7 @@ async fn test_a_no_op_reports_nothing_changed() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Every error row, `code` and `remedy`.
+// Every error case, `code` and `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 /// A schema violation names the offending field in `details.path` and points at the rules of

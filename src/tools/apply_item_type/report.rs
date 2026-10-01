@@ -77,7 +77,7 @@ impl Ignored {
 /// `ignored`, from what this tool held back and what the engine reported ignoring — in that order,
 /// each field once.
 ///
-/// The engine's side comes from its `Warning: 299` headers through the core's named parser
+/// The engine's side comes from its `Warning: 299` headers through `catalog-client`'s named parser
 /// (`EngineWarning::read_only_field`); the headers themselves stay in `warnings`, verbatim, so a
 /// change in their wording is diagnosable rather than silent.
 pub(super) fn ignored(held_back: Vec<Ignored>, warnings: &[EngineWarning]) -> Vec<Ignored> {

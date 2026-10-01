@@ -32,7 +32,7 @@ pub const DEFAULT_LIMIT: u32 = 50;
 ///
 /// It bounds a runaway **loop**, not a payload: twenty pages of two hundred is up to four
 /// thousand items, each of unbounded size, and nothing counts bytes on the way in. That is a
-/// recorded, accepted risk for v1, not an oversight.
+/// known risk, accepted for v1, not an oversight.
 pub const MAX_INTERNAL_PAGES: usize = 20;
 
 /// The version of the cursor format we mint. A cursor carrying anything else is refused rather

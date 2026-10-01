@@ -470,7 +470,7 @@ async fn test_the_kindless_path_takes_the_address_from_the_probe() {
     );
 }
 
-/// With `kind`, the core's point lookup gives the address — no name probe.
+/// With `kind`, `catalog-client`'s point lookup gives the address — no name probe.
 #[rstest]
 #[tokio::test]
 async fn test_the_kinded_path_resolves_from_the_type() {
@@ -1009,7 +1009,7 @@ async fn test_the_include_switches() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The rest of the error table.
+// The remaining error cases.
 // ---------------------------------------------------------------------------------------------
 
 /// Boundary bounds are `invalid_input` naming the parameter, before the engine is asked.

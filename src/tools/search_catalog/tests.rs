@@ -293,7 +293,7 @@ fn mock_entries(prefix: &str, n: usize) -> BTreeMap<String, String> {
 }
 
 /// The widest searches the tool's own bounds accept build, validate and encode: no combinator
-/// is wider than the core's 20, however many labels and fields there are.
+/// is wider than `catalog-client`'s 20, however many labels and fields there are.
 #[rstest]
 #[case::query_and_twenty_labels(true, MAX_FILTER_ENTRIES, 0)]
 #[case::twenty_labels_and_twenty_fields(false, MAX_FILTER_ENTRIES, MAX_FILTER_ENTRIES)]
@@ -872,7 +872,7 @@ async fn test_the_page_is_never_shortened() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Every error row, asserting `code` **and** `remedy`.
+// Every error case, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 /// A `400` on the `rawq` we built is our defect: the model never supplies `rawq`.

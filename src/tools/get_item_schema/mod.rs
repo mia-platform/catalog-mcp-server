@@ -150,7 +150,7 @@ struct FieldsAnswer {
 
 /// `get_item_schema` — one type's definition, whole, or the schema of chosen fields.
 ///
-/// **One** engine call — the core's `kind` lookup — and no reshaping of what the engine
+/// **One** engine call — `catalog-client`'s `kind` lookup — and no reshaping of what the engine
 /// returned beyond removing routing data. Nothing is capped, depth-limited or elided; a
 /// `fields` subset is asked for explicitly and is never a quieter version of the whole.
 pub struct GetItemSchema;
@@ -175,7 +175,7 @@ impl Tool for GetItemSchema {
         validate(&input)?;
 
         // An unknown kind comes back with near matches, a shared one with its candidates, and two
-        // rows for one `(group, kind)` as a `server_defect` — all the core's.
+        // rows for one `(group, kind)` as a `server_defect` — all `catalog-client`'s.
         let document = find_item_type_document_or_suggest(
             context.engine(),
             &input.kind,
@@ -183,7 +183,7 @@ impl Tool for GetItemSchema {
         )
         .await?;
 
-        // The core's rule, and its `unaddressable_type` when nothing is served.
+        // `catalog-client`'s rule, and its `unaddressable_type` when nothing is served.
         let coordinates = coordinates_of(&document.definition, &input.kind)?;
         let version = select_version(
             &document.definition,
@@ -295,8 +295,8 @@ fn invalid(parameter: &str, message: String) -> ToolError {
 
 /// The version to report and to read `fields` from.
 ///
-/// Absent: the one the core's rule selected. Given: it must exist **and** be served, or it is an
-/// error naming the versions that are — **never** silently substituted.
+/// Absent: the one `catalog-client`'s rule selected. Given: it must exist **and** be served, or it
+/// is an error naming the versions that are — **never** silently substituted.
 fn select_version(
     definition: &ItemTypeDefinition,
     selected: &str,

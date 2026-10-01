@@ -161,7 +161,7 @@ struct Applied {
 ///
 /// **The read-merge-write cycle is data-loss protection**: a `PUT` replaces every mutable
 /// column, so a body built from the patch alone would wipe everything it did not mention. The
-/// cycle, the merge and the conflict rule are the core's; this tool supplies the patch.
+/// cycle, the merge and the conflict rule are `catalog-client`'s; this tool supplies the patch.
 pub struct ApplyItem;
 
 impl Tool for ApplyItem {

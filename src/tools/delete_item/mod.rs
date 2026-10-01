@@ -300,7 +300,7 @@ async fn count_relationships(
 ///
 /// A `409` is reported and **not** retried; a `404` after a successful pre-read means
 /// another writer deleted the item in between, which is not the same as a wrong name. Anything
-/// else — `unknown_outcome` included — is the core's, unchanged.
+/// else — `unknown_outcome` included — is `catalog-client`'s, unchanged.
 fn delete_error(error: ToolError, name: &str) -> ToolError {
     match error.code {
         codes::CONFLICT => ToolError::new(

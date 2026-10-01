@@ -18,12 +18,12 @@
 // The closed error-code set, in one place.
 //
 // One error shape for every tool is only true if every code is listed somewhere a test can walk.
-// `ALL_CODES` is that list, and `tests::test_code_set_matches_the_documented_tables` asserts it
-// equals the union of the two documented tables — so adding an error without adding a row fails
-// CI.
+// `ALL_CODES` is that list, and `tests::test_code_set_matches_the_expected_list` asserts it
+// equals a second list written out independently in the tests — so adding an error without also
+// listing it there fails CI.
 
 // ---------------------------------------------------------------------------------------------
-// First table: raised from an engine outcome.
+// First group: raised from an engine outcome.
 // ---------------------------------------------------------------------------------------------
 
 /// A `400` the caller can fix, or a limit we validated before dialling. The two share a code
@@ -64,7 +64,7 @@ pub const UNKNOWN_OUTCOME: &str = "unknown_outcome";
 pub const DEADLINE_EXCEEDED: &str = "deadline_exceeded";
 
 // ---------------------------------------------------------------------------------------------
-// Second table: raised by the runtime and the client, with no engine status behind them.
+// Second group: raised by the runtime and the client, with no engine status behind them.
 // ---------------------------------------------------------------------------------------------
 
 /// Tool arguments did not deserialise; the serde path goes in `details.field`.
@@ -90,7 +90,7 @@ pub const CANCELLED: &str = "cancelled";
 /// read it and wait.
 pub const RATE_LIMITED: &str = "rate_limited";
 
-/// Every code in the closed set, in the order the documented tables list them.
+/// Every code in the closed set, the engine-outcome group first, then the runtime's and client's.
 pub const ALL_CODES: &[&str] = &[
     INVALID_INPUT,
     SERVER_DEFECT,

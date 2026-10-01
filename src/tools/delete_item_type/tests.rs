@@ -393,7 +393,7 @@ async fn test_a_failed_cascade_is_reported_beside_the_delete() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The remaining error rows.
+// The remaining error cases.
 // ---------------------------------------------------------------------------------------------
 
 /// A failure after the `DELETE` left may have landed; one on the count or the lookup did not.

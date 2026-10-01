@@ -58,7 +58,8 @@ struct Candidate {
     family: Option<String>,
 }
 
-/// Where the item lives: from `kind` through the core's point lookup, or from the name alone.
+/// Where the item lives: from `kind` through `catalog-client`'s point lookup, or from the name
+/// alone.
 ///
 /// `tool` is the calling tool's name, for the next step an ambiguous name is answered with.
 pub(crate) async fn resolve(
@@ -70,7 +71,7 @@ pub(crate) async fn resolve(
 ) -> Result<ItemAddress, ToolError> {
     match kind {
         // An unknown `kind` is answered with near matches, and a shared one with its candidates,
-        // by the core.
+        // by `catalog-client`.
         Some(kind) => {
             let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
 

@@ -70,7 +70,8 @@ pub struct TypeVersion {
     pub deprecated: Option<bool>,
 
     /// The JSON Schema of this version's `spec`. The largest part of an Item Type Definition by
-    /// far, and the whole of what the coordinates-projection ask would remove.
+    /// far, and the whole of what a coordinates-only projection, were the engine to offer one,
+    /// would remove.
     #[serde(rename = "schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
 

@@ -698,7 +698,7 @@ async fn test_a_create_over_another_kinds_name_writes_nothing() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The remaining error rows.
+// The remaining error cases.
 // ---------------------------------------------------------------------------------------------
 
 /// A `409` is reported once, never retried.

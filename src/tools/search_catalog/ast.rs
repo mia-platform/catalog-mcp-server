@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 // The parameters → `Predicate` mapping, which is this tool's **entire** contribution to the query
-// translator. Encoding, limits, splitting and base64 are the core's.
+// translator. Encoding, limits, splitting and base64 are `catalog-client`'s.
 
 use catalog_client::{
     FieldPath, Predicate, QueryValue, RegexLiteral, ToolError, query::MAX_BRANCH_CHILDREN,
@@ -38,10 +38,10 @@ pub const LABEL_PATH_PREFIX: &str = "metadata.labels.";
 ///   wrapped `/…/i`, so the semantics are a case-insensitive substring, which is what a person
 ///   means by "search".
 /// - each label → `eq` on `metadata.labels.<key>`; each field → `eq` on its path.
-/// - everything is `and`-ed at the top level, which is also the only shape the core may split
-///   across several `rawq` parameters.
-/// - **when that `and` would be wider than the core's [`MAX_BRANCH_CHILDREN`]**, the `eq`s are
-///   grouped into nested `and`s of at most that many, after the query's `or`. `query` plus 20
+/// - everything is `and`-ed at the top level, which is also the only shape `catalog-client` may
+///   split across several `rawq` parameters.
+/// - **when that `and` would be wider than `catalog-client`'s [`MAX_BRANCH_CHILDREN`]**, the `eq`s
+///   are grouped into nested `and`s of at most that many, after the query's `or`. `query` plus 20
 ///   labels plus 20 fields — all within the tool's own bounds — would otherwise be refused for
 ///   width. A conjunction of conjunctions is the same search, and the top-level `and` stays
 ///   splittable. A search that fits keeps exactly the shape it always had, so its `rawq` and its

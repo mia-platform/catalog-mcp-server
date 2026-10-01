@@ -146,8 +146,8 @@ impl Default for RateLimitConfig {
     }
 }
 
-/// Every tunable the tool analyses marked as a guess. They live here, not in the code,
-/// because the measurement exercise will change them and a config change is not a release.
+/// Every tunable whose value is an estimate rather than a measurement. They live here, not in
+/// the code, because measuring real usage will change them and a config change is not a release.
 ///
 /// **No response ceilings are among them** — there are none.
 #[derive(Clone, Debug, Deserialize)]

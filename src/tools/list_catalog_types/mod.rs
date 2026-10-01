@@ -81,7 +81,7 @@ pub struct CatalogType {
     #[serde(rename = "group")]
     pub group: String,
 
-    /// The served version chosen by the core's rule.
+    /// The served version chosen by `catalog-client`'s rule.
     #[serde(rename = "version")]
     pub version: String,
 

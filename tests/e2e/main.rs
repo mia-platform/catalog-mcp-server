@@ -1189,7 +1189,7 @@ async fn test_the_relationships_listing_is_flat_and_keeps_unresolved_entries() {
     );
 }
 
-/// Seeded types that must be present — the smallest useful one, the depth-table example and the
+/// Seeded types that must be present — the smallest useful one, a deeply nested one and the
 /// largest shipped type.
 const REPRESENTATIVE_SEEDED_KINDS: [&str; 3] = ["Skill", "AgenticWorkflow", "Campaign"];
 
@@ -1366,7 +1366,7 @@ async fn test_the_acl_context_is_accepted_verbatim_by_the_engine() {
 //
 // **What this environment can and cannot prove, stated plainly.** There is no gateway here and
 // no authz service, deliberately: the compose file exists to prove *our* forwarding, not the
-// policy's regeneration. So the `502` row below is verified live and the `401` row is not —
+// policy's regeneration. So the `502` case below is verified live and the `401` case is not —
 // producing a live `401` needs authz configured *with* token exchange and no `Authorization`
 // header, which is a cluster, not a compose file. The `401` path is asserted against the mock in
 // `src/tools/list_tenants/tests.rs`, and the remaining half is a dev-cluster check this

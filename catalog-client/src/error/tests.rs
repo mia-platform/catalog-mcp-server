@@ -22,10 +22,11 @@ use crate::error::{
 use rstest::rstest;
 use serde_json::json;
 
-/// The two documented error-code tables, transcribed. The set of codes reachable in the binary must
-/// equal this union, so an error added without a documented row fails CI.
-const DOCUMENTED_CODES: &[&str] = &[
-    // First table — raised from an engine outcome.
+/// The closed error-code set, written out independently of `ALL_CODES` and in the same two
+/// groups. The set of codes reachable in the binary must equal this list, so an error added
+/// without being listed here fails CI.
+const EXPECTED_CODES: &[&str] = &[
+    // First group — raised from an engine outcome.
     "invalid_input",
     "server_defect",
     "unauthenticated",
@@ -38,7 +39,7 @@ const DOCUMENTED_CODES: &[&str] = &[
     "catalog_unavailable",
     "unknown_outcome",
     "deadline_exceeded",
-    // Second table — raised by the runtime and the client.
+    // Second group — raised by the runtime and the client.
     "invalid_arguments",
     "invalid_cursor",
     "unaddressable_item",
@@ -51,14 +52,14 @@ const DOCUMENTED_CODES: &[&str] = &[
 /// One error shape for every tool is only true if every code is listed in one place. This is that
 /// assertion.
 #[rstest]
-fn test_code_set_matches_the_documented_tables() {
+fn test_code_set_matches_the_expected_list() {
     let mut reachable: Vec<&str> = ALL_CODES.to_vec();
-    let mut documented: Vec<&str> = DOCUMENTED_CODES.to_vec();
+    let mut expected: Vec<&str> = EXPECTED_CODES.to_vec();
 
     reachable.sort_unstable();
-    documented.sort_unstable();
+    expected.sort_unstable();
 
-    assert_eq!(reachable, documented);
+    assert_eq!(reachable, expected);
 }
 
 #[rstest]
@@ -73,7 +74,7 @@ fn test_no_code_is_listed_twice() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The first table, one case per row, asserting `code` **and** `remedy`.
+// The first group, one case per engine outcome, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]
@@ -156,14 +157,14 @@ fn test_no_code_is_listed_twice() {
     codes::CATALOG_UNAVAILABLE,
     Remedy::Retry
 )]
-fn test_engine_status_maps_to_its_documented_row(
+fn test_engine_status_maps_to_its_code_and_remedy(
     #[case] status: u16,
     #[case] origin: BadRequestOrigin,
     #[case] expected_code: &str,
     #[case] expected_remedy: Remedy,
 ) {
     // A `502` is the authorization service's only where the operation proxies it; every
-    // other row is the same whatever the upstream.
+    // other case is the same whatever the upstream.
     let upstream = if expected_code == codes::UPSTREAM_UNAVAILABLE {
         Upstream::Authz
     } else {
@@ -239,7 +240,7 @@ fn test_deadline_on_a_read_is_retryable() {
     assert_eq!(error.remedy, Remedy::Retry);
 }
 
-/// The deadline half of the dispatched-write rule: the same row as the 5xx case.
+/// The deadline half of the dispatched-write rule: the same outcome as the 5xx case.
 #[rstest]
 fn test_deadline_after_a_dispatched_write_is_unknown() {
     let error = deadline_exceeded(Dispatched::Yes, None);

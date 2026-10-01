@@ -277,13 +277,13 @@ async fn test_an_engine_warning_reaches_the_result_without_the_tool() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Every error row, asserting `code` **and** `remedy`.
+// Every error case, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 /// A `401` is an identity failure, and the message does not contain "catalog".
 ///
-/// An earlier version relaxed this to a blocklist of phrases on the premise that the core fixes a
-/// wording containing the word; it does not (it fixes only *"identity did not reach the
+/// An earlier version relaxed this to a blocklist of phrases on the premise that `catalog-client`
+/// fixes a wording containing the word; it does not (it fixes only *"identity did not reach the
 /// service"*), so the literal assertion stands.
 #[rstest]
 #[tokio::test]

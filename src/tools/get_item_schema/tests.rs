@@ -619,7 +619,7 @@ fn mock_two_versions() -> Value {
     itd
 }
 
-/// Absent `version`: the core's rule picks — a non-deprecated one wins.
+/// Absent `version`: `catalog-client`'s rule picks — a non-deprecated one wins.
 #[rstest]
 #[tokio::test]
 async fn test_the_served_version_is_selected_by_the_core_rule() {
@@ -691,7 +691,7 @@ async fn test_a_type_with_nothing_served_is_unaddressable() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Which type, and the rest of the error table.
+// Which type, and the remaining error cases.
 // ---------------------------------------------------------------------------------------------
 
 /// A kind shared by two groups is answered with the candidates; neither is picked.

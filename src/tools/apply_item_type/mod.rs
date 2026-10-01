@@ -406,7 +406,8 @@ fn missing(field: &str) -> ToolError {
     )
 }
 
-/// An unknown kind with nothing that says "create": the core's `not_found`, near matches included.
+/// An unknown kind with nothing that says "create": `catalog-client`'s `not_found`, near matches
+/// included.
 async fn no_such_kind(engine: &EngineClient, input: &ApplyItemTypeInput) -> ToolError {
     let error =
         match find_item_type_document_or_suggest(engine, &input.kind, input.group.as_deref()).await

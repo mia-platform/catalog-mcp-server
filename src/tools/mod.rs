@@ -28,7 +28,7 @@ mod arguments;
 /// Finding one item from its name, and `kind` when given.
 mod lookup;
 
-/// Create or merge-patch one item, through the core's read-merge-write cycle.
+/// Create or merge-patch one item, through `catalog-client`'s read-merge-write cycle.
 pub mod apply_item;
 
 /// Create or merge-patch one type definition, reporting what the engine ignored and what the

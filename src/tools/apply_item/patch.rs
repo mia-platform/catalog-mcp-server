@@ -15,8 +15,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// The tool's input, turned into the RFC 7396 document the core's write cycle merges, and the
-// `customFields` check.
+// The tool's input, turned into the RFC 7396 document `catalog-client`'s write cycle merges, and
+// the `customFields` check.
 
 use crate::tools::apply_item::{ApplyItemInput, ItemMetadataPatch};
 use catalog_client::{ItemAddress, Remedy, ToolError, error::codes};

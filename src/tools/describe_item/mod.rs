@@ -215,8 +215,8 @@ struct RelationshipsPinned {
 
 /// `describe_item` — one item, what it is and what it is connected to, in one call.
 ///
-/// Resolution — from `kind` through the core's point lookup, or from the name alone through a
-/// two-row probe — then the item and its relationships **concurrently**, then the shaper.
+/// Resolution — from `kind` through `catalog-client`'s point lookup, or from the name alone through
+/// a two-row probe — then the item and its relationships **concurrently**, then the shaper.
 /// A failed relationships call degrades the answer rather than failing it.
 pub struct DescribeItem;
 

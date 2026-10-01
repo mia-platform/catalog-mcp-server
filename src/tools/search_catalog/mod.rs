@@ -174,8 +174,8 @@ struct SearchOutput {
 /// `search_catalog` — find items by free text, type, labels and fields.
 ///
 /// One listing — global, or scoped to a family when `kind` is given — plus a count only when the
-/// page is full. The query translator is the core's; this tool builds the AST and chooses the
-/// endpoint.
+/// page is full. The query translator is `catalog-client`'s; this tool builds the AST and chooses
+/// the endpoint.
 pub struct SearchCatalog;
 
 impl Tool for SearchCatalog {
@@ -400,7 +400,7 @@ fn effective_limit(requested: Option<u16>) -> (u32, Option<u32>) {
 
 /// Resolves `kind` to its family and checks `fields` against what that family can filter on.
 ///
-/// An unknown `kind` is answered with near matches by the core.
+/// An unknown `kind` is answered with near matches by `catalog-client`.
 async fn resolve_family(
     engine: &EngineClient,
     kind: &str,

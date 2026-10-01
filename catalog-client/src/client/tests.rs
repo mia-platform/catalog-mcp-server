@@ -461,7 +461,7 @@ async fn test_an_unreadable_body_is_reported_as_our_defect() {
 
     assert_eq!(error.code, codes::SERVER_DEFECT);
     assert_eq!(error.remedy, Remedy::Escalate);
-    // An unreadable body says nothing about our headers, so it is not the `406` row.
+    // An unreadable body says nothing about our headers, so it is not the `406` case.
     assert!(!error.message.contains("Accept"), "{}", error.message);
     assert!(error.message.contains("cannot read"), "{}", error.message);
 }
