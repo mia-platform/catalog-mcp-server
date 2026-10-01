@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// End-to-end tests against a **live** `catalog-engine` (§12.3, §13.3).
+// End-to-end tests against a **live** `catalog-engine`.
 //
 // They exist for the things the OAS cannot express. `cargo make e2e` brings the environment up,
 // runs them and tears it down; they are `#[ignore]`d so a plain `cargo test` — which has no
@@ -23,7 +23,7 @@
 //
 // The gateway is deliberately absent from that environment (see `tests/docker-compose.yml`), so
 // the engine sees exactly the headers this client forwards. That is what makes these a true test
-// of D26's propagation rather than of the policy layer's regeneration of it.
+// of the client's header propagation rather than of the policy layer's regeneration of it.
 
 use catalog_client::{
     CallerIdentity, ConflictPolicy, Deadline, EngineClient, EngineClientFactory, Existence,
@@ -44,10 +44,10 @@ const ENGINE_BASE_URL: &str = "http://127.0.0.1:3100";
 /// The prefix the engine serves its API under, matching the deployed configuration.
 const ENGINE_API_PREFIX: &str = "/api/catalog";
 
-/// A fictional tenant, per D39.
+/// A fictional organization.
 const ORGANIZATION: &str = "my-org";
 
-/// A fictional tenant, per D39.
+/// A fictional tenant.
 const TENANT: &str = "my-tenant";
 
 /// The ACL context the policy layer would have emitted for this tenant.
@@ -58,7 +58,7 @@ fn acl_context() -> String {
         .encode(serde_json::json!({ "organization": ORGANIZATION, "tenant": TENANT }).to_string())
 }
 
-/// A client bound to a caller with the full D26 allowlist.
+/// A client bound to a caller with the full allowlist of forwarded headers.
 fn client() -> EngineClient {
     client_with(Some(&acl_context()))
 }
@@ -84,7 +84,7 @@ fn client_with(acl: Option<&str>) -> EngineClient {
     )
 }
 
-/// The §13.3 gate: one read operation reaches a live engine and returns a **shaped** result —
+/// The end-to-end gate: one read operation reaches a live engine and returns a **shaped** result —
 /// not a `Value`, but the typed model the tools will read.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
@@ -184,7 +184,7 @@ async fn test_pagination_walks_a_real_listing() {
     assert!(all.len() > 2, "the full walk returned {} types", all.len());
 }
 
-/// `field=spec.names.kind=<kind>` is the point lookup the coordinate resolver rests on (§8.6).
+/// `field=spec.names.kind=<kind>` is the point lookup the coordinate resolver rests on.
 /// Proving it against a live engine is the whole reason that helper can avoid a cache.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
@@ -217,8 +217,8 @@ async fn test_the_kind_point_lookup_returns_exactly_one_type() {
     assert_eq!(found.value.items[0].spec.names.kind, kind);
 }
 
-/// An empty match is **empty, not unavailable** — the distinction T1 insists on, asserted
-/// against the component that actually makes it.
+/// An empty match is **empty, not unavailable** — the distinction `list_catalog_types` insists on,
+/// asserted against the component that actually makes it.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_an_empty_result_is_not_an_error() {
@@ -239,8 +239,8 @@ async fn test_an_empty_result_is_not_an_error() {
 ///
 /// `metadata.family` is asserted **present** on every item: the engine derives it from the
 /// item's type on every read (since `v0.9.0`), and `null` means only that the type no longer
-/// exists — D30's `unaddressable_item`. §8.1's "address an item from the manifest in hand" rests on
-/// it. It is also an optional field in our model, so a rename would otherwise deserialise to
+/// exists — the `unaddressable_item` case. Addressing an item from the manifest in hand rests
+/// on it. It is also an optional field in our model, so a rename would otherwise deserialise to
 /// `None` silently; this is the assertion that would notice.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
@@ -294,9 +294,9 @@ const CUSTOM_FIELDS_IGNORED: &str = "The 'customFields' field cannot be set or u
      this endpoint and will be ignored. To set or update 'customFields', use the dedicated \
      endpoints for managing custom fields.";
 
-/// **§12.3, §15 — the `Warning: 299` path, against the live engine.** The one behaviour no OAS
+/// **The `Warning: 299` path, against the live engine.** The one behaviour no OAS
 /// describes: the engine declares the header nowhere, so only a real response can prove that
-/// the parser reads it and that the runtime's per-call record keeps it for the model (D28).
+/// the parser reads it and that the runtime's per-call record keeps it for the model.
 ///
 /// A `PUT` carrying `customFields` is the deterministic trigger — the engine ignores the field
 /// and says so. The write is a **raw** `put_item` on purpose: the write cycle's
@@ -364,14 +364,14 @@ async fn test_a_warning_299_reaches_the_client_and_the_calls_record() {
 /// `0.9.2`). A floor, not an exact count, so a release that adds one does not fail the run.
 const SEEDED_TYPE_COUNT: usize = 68;
 
-/// **T1 against the live engine** — what its contract test used to assert against a vendored
-/// OAS, asserted against the engine itself (T1 §11, decision (C)).
+/// **`list_catalog_types` against the live engine** — what its contract test used to assert
+/// against a vendored OAS, asserted against the engine itself.
 ///
-/// The lean `ItdListEntry` model reads every seeded type, walked to exhaustion as T1 walks it,
-/// and every one has the four coordinates T1 returns and a version the core's rule can select.
-/// `history.enabled` is optional in the model, so a rename would read as `false` everywhere
-/// without failing; asserting that **some** seeded type has it on is what would notice.
-/// `llmDescription` cannot be pinned this way — no seeded type carries one.
+/// The lean `ItdListEntry` model reads every seeded type, walked to exhaustion as
+/// `list_catalog_types` walks it, and every one has the four coordinates it returns and a version
+/// the served-version rule can select. `history.enabled` is optional in the model, so a rename
+/// would read as `false` everywhere without failing; asserting that **some** seeded type has it on
+/// is what would notice. `llmDescription` cannot be pinned this way — no seeded type carries one.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_the_type_listing_reads_every_seeded_type_through_the_lean_model() {
@@ -410,7 +410,7 @@ async fn test_the_type_listing_reads_every_seeded_type_through_the_lean_model() 
         assert!(!spec.group.is_empty(), "`{}` has no group", spec.names.kind);
         assert!(
             select_served_version(&spec.versions).is_some(),
-            "`{}` has no version the core's rule can select",
+            "`{}` has no version the served-version rule can select",
             spec.names.kind
         );
     }
@@ -429,13 +429,13 @@ async fn test_the_type_listing_reads_every_seeded_type_through_the_lean_model() 
 /// by no other test, so the walk cannot race a write.
 const WALKED_FAMILY: (&str, &str, &str) = ("ai.mia-platform.eu", "v1", "tools");
 
-/// Small enough that the walked family spans at least three pages (T2 §10, §12).
+/// Small enough that the walked family spans at least three pages.
 const WALK_PAGE_SIZE: u32 = 5;
 
-/// **T2 against the live engine: a cursor walk returns every item exactly once.** Driven through
-/// the same operations `search_catalog` uses — the family listing with the metadata-only
-/// projection, then its count — so the engine's `continue` semantics are proven on the path the
-/// tool takes, and the count agrees with what the walk saw.
+/// **`search_catalog` against the live engine: a cursor walk returns every item exactly once.**
+/// Driven through the same operations `search_catalog` uses — the family listing with the
+/// metadata-only projection, then its count — so the engine's `continue` semantics are proven on
+/// the path the tool takes, and the count agrees with what the walk saw.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_family_walk_returns_every_item_exactly_once() {
@@ -489,9 +489,9 @@ async fn test_a_family_walk_returns_every_item_exactly_once() {
     );
 }
 
-/// **T2-P2's regression guard: `matches` on `metadata.tags` hits any element of the array.**
-/// No seeded item carries tags, so the test writes one — `catalog-agent`'s `spec` under a new
-/// name, with two tags — and searches for the second.
+/// **Regression guard for `search_catalog`: `matches` on `metadata.tags` hits any element of the
+/// array.** No seeded item carries tags, so the test writes one — `catalog-agent`'s `spec` under a
+/// new name, with two tags — and searches for the second.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_matches_on_tags_hits_one_element_of_the_array() {
@@ -555,10 +555,11 @@ async fn test_matches_on_tags_hits_one_element_of_the_array() {
     assert!(!found("gamma").await, "a pattern matching no tag does not");
 }
 
-/// **F-01, live: a link without a `title` is valid engine data, and every read path decodes it.**
-/// The engine's own model makes `title` optional and its schema example is a bare `{"url": …}`; no
-/// seeded item carries `links`, so the test writes one and reads it back through each path T2 and
-/// T3 use: the item read, the family listing and the global listing (both partial projections).
+/// **Live: a link without a `title` is valid engine data, and every read path decodes it.** The
+/// engine's own model makes `title` optional and its schema example is a bare `{"url": …}`; no
+/// seeded item carries `links`, so the test writes one and reads it back through each path
+/// `search_catalog` and `describe_item` use: the item read, the family listing and the global
+/// listing (both partial projections).
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_titleless_link_is_read_on_every_path() {
@@ -638,13 +639,13 @@ async fn test_a_titleless_link_is_read_on_every_path() {
     );
 }
 
-/// The item T8's live test creates and patches.
+/// The item `apply_item`'s live test creates and patches.
 const APPLY_PROBE: &str = "e2e-apply-probe";
 
 /// A value no seeded agent uses for `spec.model`, so the patch is a real change.
 const PATCHED_MODEL: &str = "e2e-model";
 
-/// **T8 §9, live: a merge-patch write keeps what it did not mention.** The cycle `apply_item` runs
+/// **Live: a merge-patch write keeps what it did not mention.** The cycle `apply_item` runs
 /// — read, RFC 7396 merge, `PUT` — creates an item, then patches one spec field, and a re-read
 /// shows the labels, tags and every other spec field untouched. It also pins the premise of the
 /// `changed` diff: a no-op `PUT` still moves `resourceVersion`, and is still reported as a no-op.
@@ -712,7 +713,7 @@ async fn test_a_merge_patch_write_keeps_what_it_did_not_mention() {
     assert!(again.is_noop());
 }
 
-/// **T8 §6, live: a schema violation names its location** in the form `apply_item` reads into
+/// **Live: a schema violation names its location** in the form `apply_item` reads into
 /// `details.path` — `path "/spec/model": <reason>`. Nothing is written: the engine rejects the
 /// body before it stores anything.
 #[tokio::test]
@@ -748,14 +749,15 @@ async fn test_a_schema_violation_names_its_location() {
     );
 }
 
-/// The item T9's live test deletes, and the item on the other end of its one relationship. Both are
-/// its own, so no other test's relationship listing sees them.
+/// The item `delete_item`'s live test deletes, and the item on the other end of its one
+/// relationship. Both are its own, so no other test's relationship listing sees them.
 const DELETE_PROBE: &str = "e2e-delete-probe";
 const DELETE_PROBE_PEER: &str = "e2e-delete-peer";
 
-/// **T9, live: the delete T9 issues, against the engine.** A stale `resourceVersion` is a `409` and
-/// deletes nothing; the current one deletes the item; the relationship T9 counted beforehand — one
-/// page, both directions — is gone with it; and a second delete is a `404`.
+/// **Live: the delete `delete_item` issues, against the engine.** A stale `resourceVersion` is a
+/// `409` and deletes nothing; the current one deletes the item; the relationship `delete_item`
+/// counted beforehand — one page, both directions — is gone with it; and a second delete is a
+/// `404`.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_guarded_delete_takes_the_relationships_with_it() {
@@ -853,17 +855,17 @@ async fn test_a_guarded_delete_takes_the_relationships_with_it() {
     assert_eq!(again.code, codes::NOT_FOUND);
 }
 
-/// The type T12's live test creates: its own group, so no other test sees it.
+/// The type `apply_item_type`'s live test creates: its own group, so no other test sees it.
 const PROBE_TYPE_GROUP: &str = "e2e.example.com";
 const PROBE_TYPE_KIND: &str = "Probe";
 const PROBE_TYPE_PLURAL: &str = "probes";
 const PROBE_TYPE_PROSE: &str = "Use a Probe only in end-to-end tests.";
 
-/// **T12 §9, live: an `llmDescription` survives a `metadata`-only update**, through the same
-/// cycle `apply_item_type` runs — raw definitions, `Report` on a conflict. It also pins what T12's
-/// report reads off the engine: the read-only warning's wording (for `spec.names.kind` and
-/// `spec.history`, as the core's parser expects it), that nothing is warned about a field sent back
-/// unchanged, and that the global count filters on `kind` and `apiVersion`.
+/// **Live: an `llmDescription` survives a `metadata`-only update**, through the same cycle
+/// `apply_item_type` runs — raw definitions, `Report` on a conflict. It also pins what its report
+/// reads off the engine: the read-only warning's wording (for `spec.names.kind` and `spec.history`,
+/// as the client's parser expects it), that nothing is warned about a field sent back unchanged,
+/// and that the global count filters on `kind` and `apiVersion`.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_type_update_keeps_its_llm_description() {
@@ -973,15 +975,16 @@ async fn test_a_type_update_keeps_its_llm_description() {
 /// The groups of the types the write tests create, which the seeded-type walk leaves out.
 const E2E_TYPE_GROUPS: [&str; 2] = [PROBE_TYPE_GROUP, DOOMED_TYPE_GROUP];
 
-/// The throwaway type T13's live test creates, with two items, and deletes: its own group.
+/// The throwaway type `delete_item_type`'s live test creates, with two items, and deletes: its own
+/// group.
 const DOOMED_TYPE_GROUP: &str = "e2e-doomed.example.com";
 const DOOMED_TYPE_KIND: &str = "Doomed";
 const DOOMED_TYPE_PLURAL: &str = "dooms";
 const DOOMED_ITEMS: [&str; 2] = ["doomed-one", "doomed-two"];
 
-/// **T13 §9, live: a throwaway type with two items.** The family count T13's guard relies on sees
-/// exactly two; a stale `resourceVersion` is a `409` and deletes nothing; the current one deletes
-/// the type, and the cascade takes both items with it; a second delete is a `404`.
+/// **`delete_item_type`, live: a throwaway type with two items.** The family count its guard relies
+/// on sees exactly two; a stale `resourceVersion` is a `409` and deletes nothing; the current one
+/// deletes the type, and the cascade takes both items with it; a second delete is a `404`.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_type_delete_is_guarded_and_takes_its_items() {
@@ -1086,7 +1089,7 @@ async fn test_a_type_delete_is_guarded_and_takes_its_items() {
     assert_eq!(again.code, codes::NOT_FOUND);
 }
 
-/// The seeded agent T3's e2e test describes, and the agent its relationship points at.
+/// The seeded agent `describe_item`'s e2e test describes, and the agent its relationship points at.
 const DESCRIBED_AGENT: &str = "catalog-agent";
 const RELATED_AGENT: &str = "assisted-ai-resource-generator";
 
@@ -1123,14 +1126,14 @@ async fn relate(client: &EngineClient, name: &str, target: &str) {
         .expect("the engine accepts the relationship");
 }
 
-/// **T3 against the live engine** — what its contract and integration lines asked of the
-/// relationships endpoint, asserted on the endpoint itself (T3 §8, decision (C)).
+/// **`describe_item` against the live engine** — what its contract and integration tests asked of
+/// the relationships endpoint, asserted on the endpoint itself.
 ///
 /// A `groupBy`-free request answers with a flat `List` whose entries parse as
-/// `{direction, relationship, relatedItem}`, with `relationship` the **full** record — `typeRef`,
-/// `sourceRef`, `targetRef` all present under the metadata-only projection, which T3-D1's
-/// client-side grouping rests on. And with no `acl-filter` on this path, an entry whose other end
-/// does not exist comes back **without** `relatedItem` rather than being dropped — the case T3-D7
+/// `{direction, relationship, relatedItem}`, with `relationship` the **full** record — `typeRef`, `sourceRef`,
+/// `targetRef` all present under the metadata-only projection, which `describe_item`'s client-side
+/// grouping rests on. And with no `acl-filter` on this path, an entry whose other end does not
+/// exist comes back **without** `relatedItem` rather than being dropped — the case `describe_item`
 /// reports as `unresolved`.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
@@ -1186,19 +1189,20 @@ async fn test_the_relationships_listing_is_flat_and_keeps_unresolved_entries() {
     );
 }
 
-/// The seeded types T6's definition of done names — the smallest useful one, the depth-table
-/// example and the largest shipped type.
-const T6_NAMED_KINDS: [&str; 3] = ["Skill", "AgenticWorkflow", "Campaign"];
+/// Seeded types that must be present — the smallest useful one, the depth-table example and the
+/// largest shipped type.
+const REPRESENTATIVE_SEEDED_KINDS: [&str; 3] = ["Skill", "AgenticWorkflow", "Campaign"];
 
-/// **T6 against the live engine, over every seeded type** — what the plan asked 68 vendored
-/// fixtures to prove, proven on the engine itself instead, so nothing is copied and nothing can go
-/// stale (T6 §7, §9, decision (C); DR-82).
+/// **`get_item_schema` against the live engine, over every seeded type** — what 68 vendored
+/// fixtures would otherwise have to prove, proven on the engine itself instead, so nothing is
+/// copied and nothing can go stale.
 ///
-/// Each type goes through T6's exact path: the `(group, kind)` lookup (two rows asked for, exactly
-/// one back), and the core's version selection, which must land on a version carrying a schema.
-/// And the document it answers with must carry the type's `spec` **byte for byte as the engine's
-/// own listing does** — every version, every field, the ones this client's model does not declare
-/// included — because T6 hands that `spec` back untouched and T12 edits from it (DR-86).
+/// Each type goes through `get_item_schema`'s exact path: the `(group, kind)` lookup (two rows
+/// asked for, exactly one back), and the served-version selection, which must land on a version
+/// carrying a schema. And the document it answers with must carry the type's `spec` **byte for byte
+/// as the engine's own listing does** — every version, every field, the ones this client's model
+/// does not declare included — because `get_item_schema` hands that `spec` back untouched and
+/// `apply_item_type` edits from it.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_every_seeded_type_returns_its_definition_whole() {
@@ -1218,11 +1222,12 @@ async fn test_every_seeded_type_returns_its_definition_whole() {
             expected["spec"]["names"]["kind"].as_str().expect("a kind"),
             expected["spec"]["group"].as_str().expect("a group"),
         );
-        // Types other tests create — and T13's deletes — while this one runs are not seeded.
+        // Types other tests create — and `delete_item_type`'s deletes — while this one runs are not
+        // seeded.
         if E2E_TYPE_GROUPS.contains(&group) {
             continue;
         }
-        // The exact `(group, kind)` lookup: a kind is unique per group only (DR-80).
+        // The exact `(group, kind)` lookup: a kind is unique per group only.
         let (found, _) = find_item_type_document(&client, kind, Some(group))
             .await
             .unwrap_or_else(|err| panic!("`{kind}` does not resolve: {err:?}"));
@@ -1238,7 +1243,7 @@ async fn test_every_seeded_type_returns_its_definition_whole() {
                 .and_then(|version| version.schema.as_ref())
                 .and_then(|schema| schema.get("openAPIV31Schema"))
                 .is_some(),
-            "`{kind}` has no schema where T6 reads it"
+            "`{kind}` has no schema where `get_item_schema` reads it"
         );
         assert_eq!(
             found.raw["spec"], expected["spec"],
@@ -1246,7 +1251,7 @@ async fn test_every_seeded_type_returns_its_definition_whole() {
         );
     }
 
-    for kind in T6_NAMED_KINDS {
+    for kind in REPRESENTATIVE_SEEDED_KINDS {
         assert!(
             listed
                 .iter()
@@ -1256,9 +1261,9 @@ async fn test_every_seeded_type_returns_its_definition_whole() {
     }
 }
 
-/// **DR-80, live: a kind is unique per group, not per tenant.** `Service` is seeded in two groups,
-/// so a lookup by `kind` alone is answered with both as candidates — the premise the plans had
-/// wrong, pinned against the engine that disproved it.
+/// **Live: a kind is unique per group, not per tenant.** `Service` is seeded in two groups, so a
+/// lookup by `kind` alone is answered with both as candidates — a premise easy to get wrong,
+/// pinned against the engine that disproves it.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_a_shared_kind_is_answered_with_its_groups() {
@@ -1300,7 +1305,7 @@ async fn test_a_missing_item_maps_to_not_found() {
     assert_eq!(error.remedy, catalog_client::Remedy::RetryAfterChange);
 }
 
-/// **D47, end to end against the component that owns the rule.**
+/// **Extract, never reject: end to end against the component that owns the rule.**
 ///
 /// With no ACL context the engine answers `400 "Missing required header x-mia-acl-context"`.
 /// The point is not that it fails — it is that the failure comes from **there** and arrives as
@@ -1308,7 +1313,7 @@ async fn test_a_missing_item_maps_to_not_found() {
 /// refused nothing: it forwarded what arrived and let the owner decide.
 ///
 /// It arrives as `server_defect` / `Escalate`: the request carried nothing of the caller's, so
-/// the model is not told to change arguments it cannot change (§8.4). On the in-cluster path a
+/// the model is not told to change arguments it cannot change. On the in-cluster path a
 /// missing context *is* a deployment defect — headers not forwarded — which is what an operator
 /// should read, and the engine's own reason is carried so they can.
 #[tokio::test]
@@ -1357,20 +1362,21 @@ async fn test_the_acl_context_is_accepted_verbatim_by_the_engine() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T11 `list_tenants` — the worked example, against the live engine (§13.5).
+// `list_tenants` — the worked example, against the live engine.
 //
 // **What this environment can and cannot prove, stated plainly.** There is no gateway here and
 // no authz service, deliberately: the compose file exists to prove *our* forwarding, not the
 // policy's regeneration. So the `502` row below is verified live and the `401` row is not —
 // producing a live `401` needs authz configured *with* token exchange and no `Authorization`
 // header, which is a cluster, not a compose file. The `401` path is asserted against the mock in
-// `src/tools/list_tenants/tests.rs`, and the remaining half of §13.5's gate is a dev-cluster
-// check this repository cannot run.
+// `src/tools/list_tenants/tests.rs`, and the remaining half is a dev-cluster check this
+// repository cannot run.
 // ---------------------------------------------------------------------------------------------
 
-/// **T11-D4, live.** With authz unconfigured the engine answers `502`, and the tool must say
-/// *authz* rather than *the catalog* — every other tool may be working perfectly, and a model
-/// told "the catalog is unavailable" would stop doing things it could still do.
+/// **`list_tenants`, live: a `502` names authz.** With authz unconfigured the engine answers `502`,
+/// and the tool must say *authz* rather than *the catalog* — every other tool may be working
+/// perfectly, and a model told "the catalog is unavailable" would stop doing things it could still
+/// do.
 #[tokio::test]
 #[ignore = "needs `cargo make e2e`"]
 async fn test_the_tenant_listing_reports_authz_rather_than_the_catalog() {

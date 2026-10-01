@@ -1,14 +1,14 @@
 # Conformance baseline — MCP revision 2026-07-28.
 #
-# Read core §12.2 first, then this. The plan expected a baseline with "one entry, one reason"
-# covering the four capabilities we deliberately do not implement. The suite turned out to be
-# **fixture-driven**: most scenarios require the server under test to ship a named diagnostic
-# tool, resource or prompt (`test_simple_text`, `test_missing_capability`, ...), which an
-# SDK example server has and a production server deliberately does not. Every entry below is
-# therefore one of exactly three things, and none of them is a protocol defect:
+# A baseline with "one entry, one reason" was expected, covering the four capabilities we
+# deliberately do not implement. The suite turned out to be **fixture-driven**: most scenarios
+# require the server under test to ship a named diagnostic tool, resource or prompt
+# (`test_simple_text`, `test_missing_capability`, ...), which an SDK example server has and a
+# production server deliberately does not. Every entry below is therefore one of exactly
+# three things, and none of them is a protocol defect:
 #
-#   (a) a capability D5 does not declare — prompts, resources, completions;
-#   (b) an extension the plan puts out of scope — tasks (SEP-2663), MRTR / input-required;
+#   (a) a capability we do not declare — prompts, resources, completions;
+#   (b) an extension deliberately out of scope — tasks (SEP-2663), MRTR / input-required;
 #   (c) a scenario that needs a diagnostic tool we do not ship.
 #
 # Entries are per **check**, not per scenario, so that every other check in the same scenario
@@ -18,15 +18,15 @@
 #   - every wire-schema check: every message we send validates against the spec JSON schema;
 #   - `tools-list` (3/3), which is the payload we author;
 #   - `http-header-validation` (14/14) — SEP-2243 `Mcp-Method` / `Mcp-Name` / `Mcp-Param-*`;
-#   - `dns-rebinding-protection` (2/2) — D11's Host allowlist, our configuration;
-#   - `caching` cache-hint checks for `tools/list` and `server/discover` — D13;
+#   - `dns-rebinding-protection` (2/2) — the `Host` allowlist, our configuration;
+#   - `caching` cache-hint checks for `tools/list` and `server/discover`, which we advertise;
 #   - 21 of the 25 `server-stateless` checks — per-request `_meta`, version negotiation,
 #     header mismatch, method routing, request-id preservation.
 #
 # Regenerate with `cargo make conformance_record`; review every added line as code.
 
 server:
-  # (a) Capabilities D5 does not declare. `tools` only: no resources, prompts, completions,
+  # (a) Capabilities we do not declare. `tools` only: no resources, prompts, completions,
   #     logging — therefore no `subscriptions/listen` and no `notifications/tools/list_changed`.
   - completion-complete:completion-complete
   - prompts-list:prompts-list
@@ -47,7 +47,7 @@ server:
   - sep-2164-resource-not-found:sep-2164-data-uri
   - server-stateless:sep-2575-server-no-log-without-loglevel
 
-  # (b) Extensions the plan puts out of scope: MRTR (`resultType: "input_required"`),
+  # (b) Extensions deliberately out of scope: MRTR (`resultType: "input_required"`),
   #     elicitation, sampling, roots, and the SEP-2663 tasks extension. `call_tool` always
   #     returns a complete result.
   - input-required-result-basic-elicitation:sep-2322-elicitation-incomplete
@@ -111,7 +111,7 @@ server:
   - server-stateless:sep-2575-missing-capability-http-400
   - server-stateless:sep-2575-http-server-no-independent-requests-on-stream
 
-  # D8 — we publish no `x-mcp-header` annotation, deliberately: publishing one obliges a client
+  # We publish no `x-mcp-header` annotation, deliberately: publishing one obliges a client
   # to mirror a parameter into a header and obliges us to reject the request when it does not.
   # Cost with no benefit here, and a standing invitation to leak an argument into a header.
   - http-custom-header-server-validation:sep-2243-server-no-xmcp-tool

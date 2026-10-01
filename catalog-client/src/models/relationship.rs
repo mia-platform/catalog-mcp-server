@@ -47,7 +47,7 @@ impl RelationshipDirection {
 ///
 /// `relationship` is always the **full** relationship item — the engine needs its `sourceRef`,
 /// `targetRef` and `typeRef` — and the metadata-only projection applies to `relatedItem` alone.
-/// `relatedItem` is **omitted**, not null, when the other end could not be resolved (T3 §0).
+/// `relatedItem` is **omitted**, not null, when the other end could not be resolved.
 #[derive(Clone, Deserialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
 pub struct ItemRelationshipEntry {

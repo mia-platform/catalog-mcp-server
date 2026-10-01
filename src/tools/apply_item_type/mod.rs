@@ -34,7 +34,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::sync::LazyLock;
 
-/// `ignored`, `schemaChanged`, `versionsRemoved` and `backgroundJobs` (T12 §5).
+/// `ignored`, `schemaChanged`, `versionsRemoved` and `backgroundJobs`.
 mod report;
 
 use report::{IDENTITY_REASON, Ignored};
@@ -42,11 +42,11 @@ use report::{IDENTITY_REASON, Ignored};
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "apply_item_type";
 
-/// What the tool does (T12 §3, with DR-86's amendment: `spec.versions` is replaced whole, and the
-/// place to start from is `get_item_schema`'s `spec`).
+/// What the tool does. `spec.versions` is replaced whole, so it names `get_item_schema`'s `spec`
+/// as the place to start from.
 ///
-/// The last sentence is DR-105's, as DR-99's is T9's: behind the gateway the count is filtered to
-/// what the caller may read, so it is stated as that and never as the total.
+/// The last sentence matches `delete_item`'s: behind the gateway the count is filtered to what the
+/// caller may read, so it is stated as that and never as the total.
 const TOOL_DESCRIPTION: &str = "Creates or updates a catalog type definition. Send only what you \
      want to change; `spec.versions` is replaced whole, so start from `get_item_schema`'s `spec`. \
      Some fields cannot be changed after creation — the type's `kind`, `plural`, `group`, and its \
@@ -54,7 +54,7 @@ const TOOL_DESCRIPTION: &str = "Creates or updates a catalog type definition. Se
      Changing a type's schema does not re-validate items that already exist. `existingItems` \
      counts the items you can read.";
 
-/// The longest `kind`, in bytes (T12 §3).
+/// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
 
 /// The kinds whose items the global count does not include (the engine's "core" families), so
@@ -83,10 +83,10 @@ static SCHEMA_POINTER_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"path "([^"]*)": "#).expect("SCHEMA_POINTER_RE is a constant pattern")
 });
 
-/// Arguments for `apply_item_type` (T12 §3, DR-80).
+/// Arguments for `apply_item_type`; `group` says which type a shared `kind` means.
 ///
 /// `spec` and `metadata` are raw JSON: `openAPIV31Schema` is an arbitrary JSON Schema that cannot be
-/// usefully typed here, and the read-only set is the engine's to enforce and report (T12 §3).
+/// usefully typed here, and the read-only set is the engine's to enforce and report.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
@@ -99,8 +99,8 @@ pub struct ApplyItemTypeInput {
     #[serde(rename = "group")]
     pub group: Option<String>,
 
-    // Undocumented in the schema, as T8's: the description states the merge rules, and a
-    // description here is paid for in every `tools/list` (D12, DR-96).
+    // Undocumented in the schema, as in `apply_item`: the description states the merge rules, and
+    // a description here is paid for in every `tools/list`.
     #[serde(rename = "spec", default, deserialize_with = "present")]
     pub spec: Option<Value>,
 
@@ -108,7 +108,7 @@ pub struct ApplyItemTypeInput {
     pub metadata: Option<Value>,
 }
 
-/// What the write did (T12 §5). `warnings`, verbatim, is added by the runtime.
+/// What the write did. `warnings`, verbatim, is added by the runtime.
 #[derive(Serialize)]
 struct Applied {
     #[serde(rename = "kind")]
@@ -127,7 +127,7 @@ struct Applied {
     #[serde(rename = "changed")]
     changed: Vec<String>,
 
-    /// Present and empty when nothing was ignored (T12-D2).
+    /// Present and empty when nothing was ignored.
     #[serde(rename = "ignored")]
     ignored: Vec<Ignored>,
 
@@ -135,31 +135,30 @@ struct Applied {
     schema_changed: bool,
 
     /// Only when the schema changed or a served version went away; absent when it could not be
-    /// counted, which a warning then says. Behind the gateway, the items the caller can read
-    /// (DR-105).
+    /// counted, which a warning then says. Behind the gateway, the items the caller can read.
     #[serde(rename = "existingItems", skip_serializing_if = "Option::is_none")]
     existing_items: Option<u64>,
 
-    /// Only when T12-D6 fires.
+    /// Only when a version served before the write is no longer served.
     #[serde(rename = "versionsRemoved", skip_serializing_if = "Vec::is_empty")]
     versions_removed: Vec<String>,
 
-    /// Present and empty when nothing was started (T12-D4).
+    /// Present and empty when nothing was started.
     #[serde(rename = "backgroundJobs")]
     background_jobs: Vec<&'static str>,
 }
 
-/// T12 · `apply_item_type` — create or merge-patch one type definition, and report what the engine
-/// did not apply and what the change means for the items already stored.
+/// `apply_item_type` — create or merge-patch one type definition, and report what the engine did
+/// not apply and what the change means for the items already stored.
 ///
-/// The same read-merge-write cycle as T8 — `PUT` replaces here too — with **`Report`** on a `409`
-/// (T12-D7) and the definition read and written raw (DR-86).
+/// The same read-merge-write cycle as `apply_item` — `PUT` replaces here too — with **`Report`** on
+/// a `409` and the definition read and written raw.
 pub struct ApplyItemType;
 
 impl Tool for ApplyItemType {
     type Input = ApplyItemTypeInput;
 
-    /// Destructive (the default, not emitted) and idempotent (T12 §3, D16).
+    /// Destructive (the default, not emitted) and idempotent.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<ApplyItemTypeInput>(
             TOOL_NAME,
@@ -218,7 +217,7 @@ struct WritePlan {
     held_back: Vec<Ignored>,
 }
 
-/// NFR-10 — T12 §3's bounds, checked before anything reaches the engine.
+/// The input bounds, checked before anything reaches the engine.
 fn validate(input: &ApplyItemTypeInput) -> Result<(), ToolError> {
     if input.kind.is_empty() || input.kind.len() > MAX_KIND_BYTES {
         return Err(invalid(
@@ -267,8 +266,8 @@ fn string_at<'a>(value: Option<&'a Value>, pointer: &str) -> Option<&'a str> {
 ///
 /// `spec.group`, `spec.names.plural` and `metadata.name` are the definition's **address**: the
 /// engine requires `metadata.name` to equal `<plural>.<group>`, so a patch changing any of them is
-/// refused with a `400` about the name rather than reported as ignored (DR-102). They are held back
-/// here and reported in `ignored` — what T12 §3 promises — and everything else is sent.
+/// refused with a `400` about the name rather than reported as ignored. They are held back here
+/// and reported in `ignored`, as the tool promises, and everything else is sent.
 fn update(input: &ApplyItemTypeInput, document: &ItemTypeDocument) -> Result<WritePlan, ToolError> {
     let spec = &document.definition.spec;
     let address = ItemTypeAddress::new(&spec.group, &spec.names.plural)?;
@@ -332,9 +331,9 @@ fn identity(field: &str) -> Ignored {
 /// The create path: no type has this kind (in `group`, when given).
 ///
 /// A create names the new type's address — `group` and `spec.names.plural` — and at least one
-/// version, since a type with none is unaddressable on arrival (T12 §3). A call carrying **none** of
+/// version, since a type with none is unaddressable on arrival. A call carrying **none** of
 /// the three is not an attempted create but, most likely, an update of a misspelled kind: it gets
-/// the lookup's `not_found` with near matches (T2-D9), and a next step for either reading.
+/// the lookup's `not_found` with near matches, and a next step for either reading.
 async fn create(engine: &EngineClient, input: &ApplyItemTypeInput) -> Result<WritePlan, ToolError> {
     let spec = input.spec.as_ref();
     let spec_group = string_at(spec, "/group");
@@ -396,7 +395,7 @@ async fn create(engine: &EngineClient, input: &ApplyItemTypeInput) -> Result<Wri
     })
 }
 
-/// What a create needs and was not given (T12 §6).
+/// What a create needs and was not given.
 fn missing(field: &str) -> ToolError {
     invalid(
         field,
@@ -427,7 +426,7 @@ async fn no_such_kind(engine: &EngineClient, input: &ApplyItemTypeInput) -> Tool
     )
 }
 
-/// The write's failures, in T12's words (T12 §6).
+/// The write's failures, in this tool's words.
 fn write_error(error: ToolError, address: &ItemTypeAddress) -> ToolError {
     match error.code {
         // `Existence::Absent` found the name taken: another type — another kind — owns it.
@@ -441,7 +440,7 @@ fn write_error(error: ToolError, address: &ItemTypeAddress) -> ToolError {
             ),
         )
         .with_details(json!({ "name": address.name() })),
-        // T12-D7: a type is rarely written concurrently, so this is someone reshaping it.
+        // A type is rarely written concurrently, so this is someone reshaping it.
         codes::CONFLICT => ToolError::new(
             codes::CONFLICT,
             Remedy::RetryLater,
@@ -454,7 +453,7 @@ fn write_error(error: ToolError, address: &ItemTypeAddress) -> ToolError {
 }
 
 /// A definition the engine rejected, with where: `details.path` names the version, and
-/// `details.schemaPath` the pointer inside its schema when the engine gives one (T12 §6).
+/// `details.schemaPath` the pointer inside its schema when the engine gives one.
 fn with_location(error: ToolError) -> ToolError {
     let Some(location) = VERSION_LOCATION_RE
         .captures(&error.message)
@@ -482,7 +481,7 @@ fn with_location(error: ToolError) -> ToolError {
 }
 
 /// The answer, from the cycle's outcome — and, when the schema or the served set moved, one count
-/// of the items affected, which never blocks or undoes the write (T12 §4).
+/// of the items affected, which never blocks or undoes the write.
 async fn report(
     engine: &EngineClient,
     kind: &str,
@@ -534,7 +533,7 @@ async fn report(
 }
 
 /// How many items the type has, **across every version** it declared before or after the write —
-/// so items under a version just removed are counted too (T12-D5, T12-D6).
+/// so items under a version just removed are counted too.
 ///
 /// One global count, filtered on `kind` and each `apiVersion`: the family count would cover one
 /// version only, and cannot reach a version no longer served. The core kinds are not in the global

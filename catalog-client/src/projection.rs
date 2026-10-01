@@ -21,7 +21,7 @@ const ACCEPT_FULL: &str = "application/json";
 /// `Accept` value asking for the metadata-only projection.
 const ACCEPT_PARTIAL: &str = "application/json;as=PartialObjectMetadata";
 
-/// How much of an object the engine should send back (§8.2).
+/// How much of an object the engine should send back.
 ///
 /// `PartialObjectMetadata` is `{apiVersion, kind, metadata, resourceVersion}` with the **full**
 /// `ObjectMetadata` inside it — family, labels, tags and title are all present — and no `spec`.
@@ -46,7 +46,7 @@ impl Projection {
     }
 }
 
-/// How the relationships endpoint groups its answer (§8.2).
+/// How the relationships endpoint groups its answer.
 ///
 /// The engine rejects `groupBy=type` together with the partial projection, because grouping
 /// needs `spec.typeRef` and the partial projection drops it. **The pair is unconstructible here

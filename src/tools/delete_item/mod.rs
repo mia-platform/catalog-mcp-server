@@ -36,10 +36,10 @@ use serde_json::json;
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "delete_item";
 
-/// What the tool does (T9 §3). The consequences are here because they are not guessable from the
+/// What the tool does. The consequences are here because they are not guessable from the
 /// name, and the model's summary to the user needs to carry them.
 ///
-/// The last sentence is DR-99's: on the gateway path the engine lists only some of the
+/// The last sentence is there because on the gateway path the engine lists only some of the
 /// relationships a delete removes, so the count is stated as what it is — the ones `describe_item`
 /// lists — and never as the total.
 const TOOL_DESCRIPTION: &str = "Deletes a catalog item permanently. This also removes every \
@@ -48,20 +48,20 @@ const TOOL_DESCRIPTION: &str = "Deletes a catalog item permanently. This also re
      will be affected. `relationshipsRemoved` counts the ones `describe_item` lists; the delete \
      removes all of them.";
 
-/// The longest `name`, in bytes (T9 §3, as T3).
+/// The longest `name`, in bytes, as for `describe_item`.
 pub const MAX_NAME_BYTES: usize = 256;
 
 /// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
 
-/// How many relationships one count reads (T9-P1): **one** page, the engine's largest. The
+/// How many relationships one count reads: **one** page, the engine's largest. The
 /// relationships listing has no count endpoint and no total, so more than this is reported as a
 /// lower bound rather than walked.
 pub const RELATIONSHIP_COUNT_PAGE: u32 = MAX_LIMIT;
 
-/// Arguments for `delete_item` (T9 §3, DR-80).
+/// Arguments for `delete_item`; `group` says which type a shared `kind` means.
 ///
-/// No `confirm` and no `dry_run` (T9-D5): confirmation belongs to the client, which the default
+/// No `confirm` and no `dry_run`: confirmation belongs to the client, which the default
 /// `destructiveHint` drives, and `describe_item` already shows what a delete would affect.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -80,7 +80,7 @@ pub struct DeleteItemInput {
     pub group: Option<String>,
 }
 
-/// How many relationships the delete removed, as far as one page can tell (T9-P1).
+/// How many relationships the delete removed, as far as one page can tell.
 #[derive(Serialize)]
 #[serde(untagged)]
 enum RelationshipCount {
@@ -91,11 +91,11 @@ enum RelationshipCount {
     AtLeast(String),
 }
 
-/// What was deleted (T9 §5). The engine's warnings — the cascade's among them — are added by the
-/// runtime, present and empty when there are none (D28).
+/// What was deleted. The engine's warnings — the cascade's among them — are added by the runtime,
+/// present and empty when there are none.
 #[derive(Serialize)]
 struct Deleted {
-    /// Always `true`: a delete that did not happen is an error, never `false` (T9 §5, §6).
+    /// Always `true`: a delete that did not happen is an error, never `false`.
     #[serde(rename = "deleted")]
     deleted: bool,
 
@@ -105,33 +105,33 @@ struct Deleted {
     #[serde(rename = "kind")]
     kind: String,
 
-    /// A kind is unique per group only (DR-80), so the group says which type the item was.
+    /// A kind is unique per group only, so the group says which type the item was.
     #[serde(rename = "group")]
     group: String,
 
     #[serde(rename = "title", skip_serializing_if = "Option::is_none")]
     title: Option<String>,
 
-    /// Both directions, counted before the delete (T9-D6) — the relationships the listing shows
-    /// this caller, which on the gateway path can be fewer than the delete removes (DR-99). `null`
-    /// when the count failed.
+    /// Both directions, counted before the delete — the relationships the listing shows this
+    /// caller, which on the gateway path can be fewer than the delete removes. `null` when the
+    /// count failed.
     #[serde(rename = "relationshipsRemoved")]
     relationships_removed: Option<RelationshipCount>,
 }
 
-/// T9 · `delete_item` — delete one item, and say what went with it.
+/// `delete_item` — delete one item, and say what went with it.
 ///
-/// Not a passthrough for one reason: **a failed cascade returns `204`** (T9-D4). The engine's
-/// warning reaches the model verbatim through the runtime. Around it: find the item without
-/// guessing (T9-D7), read it for the concurrency token (T9-D1, T9-D2), count what the cascade will
-/// remove (T9-D6), and delete — reporting a `409` rather than retrying it (T9-D3).
+/// Not a passthrough for one reason: **a failed cascade returns `204`**. The engine's warning
+/// reaches the model verbatim through the runtime. Around it: find the item without guessing, read
+/// it for the concurrency token, count what the cascade will remove, and delete — reporting a `409`
+/// rather than retrying it.
 pub struct DeleteItem;
 
 impl Tool for DeleteItem {
     type Input = DeleteItemInput;
 
     /// Every hint is the specification's default — `destructiveHint: true` included — so none is
-    /// emitted (D16). Silence says "destructive".
+    /// emitted. Silence says "destructive".
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<DeleteItemInput>(TOOL_NAME, TOOL_DESCRIPTION, ToolAnnotations::new())
     }
@@ -144,7 +144,7 @@ impl Tool for DeleteItem {
         validate(&input)?;
         let engine = context.engine();
 
-        // T9-D7 — a name matching several items answers the candidates and deletes nothing.
+        // A name matching several items answers the candidates and deletes nothing.
         let address = resolve(
             engine,
             TOOL_NAME,
@@ -154,7 +154,7 @@ impl Tool for DeleteItem {
         )
         .await?;
 
-        // T9-D1 — the pre-read: "wrong name" here is a `not_found` with near matches, and a
+        // The pre-read: "wrong name" here is a `not_found` with near matches, and a
         // failure is `catalog_unavailable` with nothing deleted.
         let item = match engine.get_item(&address).await {
             Ok(response) => response.value,
@@ -164,7 +164,7 @@ impl Tool for DeleteItem {
             Err(error) => return Err(error),
         };
 
-        // T9-D2 — never "delete whatever is there now".
+        // Never "delete whatever is there now".
         let Some(resource_version) = item.resource_version.as_deref() else {
             tracing::error!(%address, "the catalog returned an item without a resourceVersion");
             return Err(ToolError::new(
@@ -208,7 +208,7 @@ impl Tool for DeleteItem {
     }
 }
 
-/// NFR-10 — T9 §3's bounds, checked before anything reaches the engine.
+/// The input bounds, checked before anything reaches the engine.
 fn validate(input: &DeleteItemInput) -> Result<(), ToolError> {
     if input.name.is_empty() || input.name.len() > MAX_NAME_BYTES {
         return Err(invalid(
@@ -256,7 +256,7 @@ fn invalid(parameter: &str, message: String) -> ToolError {
         .with_details(json!({ "field": parameter }))
 }
 
-/// T9-D6, T9-P1 — the relationships the cascade will remove, both directions, from one page.
+/// The relationships the cascade will remove, both directions, from one page.
 ///
 /// A failure does **not** stop the delete: the count is a report, not a precondition, and refusing
 /// to delete because a report failed would make a read the gate on a write the caller asked for.
@@ -296,11 +296,11 @@ async fn count_relationships(
     }
 }
 
-/// The delete's own failures, in T9's words (T9 §6).
+/// The delete's own failures, in this tool's words.
 ///
-/// A `409` is reported and **not** retried (T9-D3); a `404` after a successful pre-read means
+/// A `409` is reported and **not** retried; a `404` after a successful pre-read means
 /// another writer deleted the item in between, which is not the same as a wrong name. Anything
-/// else — `unknown_outcome` included (D20) — is the core's, unchanged.
+/// else — `unknown_outcome` included — is the core's, unchanged.
 fn delete_error(error: ToolError, name: &str) -> ToolError {
     match error.code {
         codes::CONFLICT => ToolError::new(

@@ -34,17 +34,17 @@ use serde_json::{Value, json};
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "delete_item_type";
 
-/// What the tool does (T13 §3). The last sentence is what makes the two-phase flow discoverable
+/// What the tool does. The last sentence is what makes the two-phase flow discoverable
 /// without a second tool.
 const TOOL_DESCRIPTION: &str = "Deletes a catalog type definition and every item of that type, \
      along with their history and every relationship connected to them — including relationships \
      owned by items of other types. There is no undo. If the type has any items, the call is \
      refused the first time and reports how many would be destroyed.";
 
-/// The longest `kind`, in bytes (T13 §3).
+/// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
 
-/// Arguments for `delete_item_type` (T13 §3, DR-80).
+/// Arguments for `delete_item_type`; `group` says which type a shared `kind` means.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
@@ -62,7 +62,7 @@ pub struct DeleteItemTypeInput {
     pub expected_items: Option<u64>,
 }
 
-/// The type was deleted (T13 §5).
+/// The type was deleted.
 #[derive(Serialize)]
 struct Deleted {
     #[serde(rename = "deleted")]
@@ -77,17 +77,17 @@ struct Deleted {
     #[serde(rename = "name")]
     name: String,
 
-    /// The count the guard checked a moment before the delete (T13-D6).
+    /// The count the guard checked a moment before the delete.
     #[serde(rename = "itemsDeleted")]
     items_deleted: u64,
 
     /// Always `null`: the engine reports no such number and none can be computed from here, and
-    /// the description says so (T13-D6, T13-P1).
+    /// the description says so.
     #[serde(rename = "relationshipsDeleted")]
     relationships_deleted: Option<u64>,
 }
 
-/// The delete was refused for scope — **a success, not an error** (T13-D3), in the same shape.
+/// The delete was refused for scope — **a success, not an error**, in the same shape.
 #[derive(Serialize)]
 struct Refused {
     #[serde(rename = "deleted")]
@@ -111,19 +111,19 @@ struct Refused {
     action: String,
 }
 
-/// T13 · `delete_item_type` — delete one type and everything of it, only once its scope is known.
+/// `delete_item_type` — delete one type and everything of it, only once its scope is known.
 ///
-/// The guard is `expected_items` (T13-D2): the items are counted **on every call**, and the delete
-/// is sent only when there are none, or when the caller states exactly how many there are. A
-/// refusal is an answer, not a failure (T13-D3); a `409` is reported, never retried (T13-D4); and a
-/// cascade that failed after a `204` reaches the model through the engine's warning (T13-D5).
+/// The guard is `expected_items`: the items are counted **on every call**, and the delete is sent
+/// only when there are none, or when the caller states exactly how many there are. A refusal is an
+/// answer, not a failure; a `409` is reported, never retried; and a cascade that failed after a
+/// `204` reaches the model through the engine's warning.
 pub struct DeleteItemType;
 
 impl Tool for DeleteItemType {
     type Input = DeleteItemTypeInput;
 
     /// Every hint is the specification's default — `destructiveHint: true` included — so none is
-    /// emitted (D16).
+    /// emitted.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<DeleteItemTypeInput>(
             TOOL_NAME,
@@ -140,7 +140,7 @@ impl Tool for DeleteItemType {
         validate(&input)?;
         let engine = context.engine();
 
-        // An unknown kind comes back with near matches, never as an idempotent success (T13 §6).
+        // An unknown kind comes back with near matches, never as an idempotent success.
         let document =
             find_item_type_document_or_suggest(engine, &input.kind, input.group.as_deref()).await?;
         let definition = &document.definition;
@@ -157,7 +157,7 @@ impl Tool for DeleteItemType {
             ));
         };
 
-        // THE SCOPE (T13 §4): counted on every call, `expected_items` or not.
+        // THE SCOPE: counted on every call, `expected_items` or not.
         let items = count_scope(engine, definition).await?;
 
         let proceed = match input.expected_items {
@@ -192,7 +192,7 @@ impl Tool for DeleteItemType {
     }
 }
 
-/// NFR-10 — T13 §3's bounds, checked before anything reaches the engine.
+/// The input bounds, checked before anything reaches the engine.
 fn validate(input: &DeleteItemTypeInput) -> Result<(), ToolError> {
     if input.kind.is_empty() || input.kind.len() > MAX_KIND_BYTES {
         return Err(invalid(
@@ -224,7 +224,7 @@ fn invalid(parameter: &str, message: String) -> ToolError {
 /// How many items the delete would destroy: every item of the kind under **every** version the type
 /// declares — exactly what the engine's cascade selects (`kind = $1 AND api_version = ANY($2)`).
 ///
-/// **Fails closed** (DR-107). A served version is counted through its family count, which the
+/// **Fails closed**. A served version is counted through its family count, which the
 /// gateway gates on reading the type and does not filter: exact, or an error. Any error stops the
 /// delete — a guard that cannot count must not pass. Only the items under versions that are no
 /// longer served, which no family route reaches, are counted globally.
@@ -299,10 +299,10 @@ fn uncounted(error: ToolError) -> ToolError {
     }
 }
 
-/// The delete's own failures, in T13's words (T13 §6).
+/// The delete's own failures, in this tool's words.
 fn delete_error(error: ToolError, name: &str) -> ToolError {
     match error.code {
-        // T13-D4: the intent was formed against the type as it was read.
+        // The intent was formed against the type as it was read.
         codes::CONFLICT => ToolError::new(
             codes::CONFLICT,
             Remedy::RetryLater,

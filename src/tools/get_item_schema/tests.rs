@@ -42,7 +42,7 @@ const TYPES_PATH: &str = "/mia-platform.eu/v1/item-type-definitions";
 /// The per-call budget the fixtures run under.
 const CALL_BUDGET: Duration = Duration::from_secs(25);
 
-/// The recorded size of the realistic fixture's whole definition (DR-86). Regression detection,
+/// The recorded size of the realistic fixture's whole definition. Regression detection,
 /// not a limit.
 const RECORDED_FULL_BYTES: usize = 1_447;
 
@@ -205,7 +205,7 @@ async fn run(context: &CallContext, input: GetItemSchemaInput) -> Result<Value, 
 }
 
 // ---------------------------------------------------------------------------------------------
-// DR-86 — the default is the whole definition, exactly as the engine sent it.
+// The default is the whole definition, exactly as the engine sent it.
 // ---------------------------------------------------------------------------------------------
 
 /// The engine's `spec` comes back **untouched** — including fields this client's typed model does
@@ -277,7 +277,7 @@ async fn test_metadata_with_nothing_left_is_omitted() {
     assert!(payload.get("metadata").is_none(), "{payload}");
 }
 
-/// A schema larger than the largest shipped type comes back byte for byte (§5, D34).
+/// A schema larger than the largest shipped type comes back byte for byte.
 #[rstest]
 #[tokio::test]
 async fn test_a_large_schema_comes_back_whole() {
@@ -297,7 +297,7 @@ async fn test_a_large_schema_comes_back_whole() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// DR-86 — `fields`: the schema of just the fields being changed.
+// `fields`: the schema of just the fields being changed.
 // ---------------------------------------------------------------------------------------------
 
 /// Top-level and nested fields come back as their own schemas, in the order asked.
@@ -600,7 +600,7 @@ fn test_one_schema_reached_twice_is_returned_once() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T6-D8 — versions.
+// Versions.
 // ---------------------------------------------------------------------------------------------
 
 /// A type with two served versions, the older deprecated, whose schemas differ.
@@ -691,7 +691,7 @@ async fn test_a_type_with_nothing_served_is_unaddressable() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// DR-80 and §6 — which type, and the rest of the error table.
+// Which type, and the rest of the error table.
 // ---------------------------------------------------------------------------------------------
 
 /// A kind shared by two groups is answered with the candidates; neither is picked.
@@ -759,7 +759,7 @@ async fn test_a_group_makes_the_lookup_exact() {
     );
 }
 
-/// Two rows for one `(group, kind)` break the engine's own constraint: `server_defect` (T6-D2).
+/// Two rows for one `(group, kind)` break the engine's own constraint: `server_defect`.
 #[rstest]
 #[tokio::test]
 async fn test_two_types_for_one_group_and_kind_are_a_server_defect() {

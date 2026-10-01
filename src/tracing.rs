@@ -17,7 +17,7 @@
  */
 pub use tracing::*;
 
-/// Installs the JSON subscriber on **stdout** (D41).
+/// Installs the JSON subscriber on **stdout**.
 ///
 /// The previous server wrote to stderr, which was right while stdio was a supported transport
 /// and is wrong now that the deployment is remote HTTP only.

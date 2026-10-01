@@ -20,14 +20,16 @@ use serde::Deserialize;
 /// Default path prefix the gateway rewrites `catalog-engine` behind.
 pub static DEFAULT_API_PREFIX: &str = "/api/catalog";
 
-/// Default per-request timeout against the engine, in milliseconds (§6.4).
+/// Default per-request timeout against the engine, in milliseconds.
 pub static DEFAULT_TIMEOUT_MS: u64 = 5_000;
 
-/// Default connect timeout against the engine, in milliseconds — in-cluster (§6.4).
+/// Default connect timeout against the engine, in milliseconds — in-cluster.
 pub static DEFAULT_CONNECT_TIMEOUT_MS: u64 = 1_000;
 
-/// Default retry allowance. A *policy*, not a number: the four conditions are in §8.1,
-/// and a dispatched write is never retried (D20).
+/// Default retry allowance. A *policy*, not a number: a request is retried only when it is
+/// idempotent, the failure is a connect error, a read timeout or a `502`/`503`/`504`, the
+/// deadline has room for another attempt, and this allowance is not spent. A dispatched write
+/// is never retried.
 pub static DEFAULT_MAX_RETRIES: u8 = 1;
 
 /// Returns [`DEFAULT_API_PREFIX`].
@@ -50,11 +52,11 @@ pub fn default_max_retries() -> u8 {
     DEFAULT_MAX_RETRIES
 }
 
-/// Where `catalog-engine` is reached, and how patiently (§11).
+/// Where `catalog-engine` is reached, and how patiently.
 ///
 /// `base_url` always points at the **API gateway**, never at the engine `Service`: every
 /// outbound call has to traverse `ext_authz` so the server can never do more than its caller
-/// could do itself (D27, D48). Validation refuses a `base_url` that addresses the engine
+/// could do itself. Validation refuses a `base_url` that addresses the engine
 /// directly.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
@@ -76,7 +78,7 @@ pub struct EngineConfig {
     #[serde(default = "default_connect_timeout_ms", rename = "connectTimeoutMs")]
     pub connect_timeout_ms: u64,
 
-    /// Maximum retry attempts for a request the §8.1 policy classifies as retryable.
+    /// Maximum retry attempts for a request the retry policy classifies as retryable.
     #[serde(default = "default_max_retries", rename = "maxRetries")]
     pub max_retries: u8,
 }

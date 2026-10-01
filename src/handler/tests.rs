@@ -41,7 +41,7 @@ fn mock_handler() -> CatalogHandler {
     )
 }
 
-/// D5 — capabilities are `tools` only. No `resources`, `prompts`, `completions` or `logging`,
+/// Capabilities are `tools` only. No `resources`, `prompts`, `completions` or `logging`,
 /// therefore no `subscriptions/listen` and no `notifications/tools/list_changed`.
 #[rstest]
 fn test_capabilities_are_tools_only(mock_handler: CatalogHandler) {
@@ -53,7 +53,7 @@ fn test_capabilities_are_tools_only(mock_handler: CatalogHandler) {
     assert!(capabilities.completions.is_none());
 }
 
-/// D5 — `listChanged` is left **absent**, which is what "not supported" means on the wire.
+/// `listChanged` is left **absent**, which is what "not supported" means on the wire.
 /// The explicit `false` is unreachable through the builder and buys nothing.
 #[rstest]
 fn test_list_changed_is_absent(mock_handler: CatalogHandler) {
@@ -63,7 +63,7 @@ fn test_list_changed_is_absent(mock_handler: CatalogHandler) {
     assert_eq!(serialised["tools"], serde_json::json!({}));
 }
 
-/// §5.3 — name and version come from the build environment, as the previous server did.
+/// Name and version come from the build environment, as the previous server did.
 #[rstest]
 fn test_server_identity_comes_from_the_build_environment(mock_handler: CatalogHandler) {
     let info = mock_handler.get_info();
@@ -72,9 +72,9 @@ fn test_server_identity_comes_from_the_build_environment(mock_handler: CatalogHa
     assert_eq!(info.server_info.version, crate::VERSION);
 }
 
-/// D14 — `instructions` says only what no tool description can, and is capped at 400 bytes.
-/// Part 4's rule 2 (every tool usable with no system-prompt instructions) makes anything longer
-/// a smell rather than a feature.
+/// `instructions` says only what no tool description can, and is capped at 400 bytes.
+/// The rule that every tool be usable with no system-prompt instructions makes anything longer a
+/// smell rather than a feature.
 #[rstest]
 fn test_instructions_are_within_their_cap(mock_handler: CatalogHandler) {
     let instructions = mock_handler
@@ -90,7 +90,7 @@ fn test_instructions_are_within_their_cap(mock_handler: CatalogHandler) {
     assert!(instructions.contains("multi-tenant"));
 }
 
-/// D3 — the advertised version set is read from the SDK, never hardcoded, so an SDK upgrade
+/// The advertised version set is read from the SDK, never hardcoded, so an SDK upgrade
 /// cannot leave us advertising a revision we no longer serve.
 #[rstest]
 fn test_supported_versions_are_the_sdks_own(mock_handler: CatalogHandler) {
@@ -100,7 +100,7 @@ fn test_supported_versions_are_the_sdks_own(mock_handler: CatalogHandler) {
     );
 }
 
-/// D17 — `get_tool` answers with the registry's schema, and `None` for a name nobody
+/// `get_tool` answers with the registry's schema, and `None` for a name nobody
 /// registered. The unknown-tool *call* path is the SDK router's, not ours.
 #[rstest]
 fn test_get_tool_answers_for_registered_names_only(mock_handler: CatalogHandler) {

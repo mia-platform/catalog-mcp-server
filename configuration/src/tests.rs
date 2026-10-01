@@ -62,7 +62,7 @@ fn test_valid_configuration_is_accepted(mock_valid_config: Config) {
     assert!(mock_valid_config.validate().is_ok());
 }
 
-/// D11 — the first-deploy failure this plan most expects. The message has to name the symptom,
+/// The most likely first-deploy failure. The message has to name the symptom,
 /// because `403 Forbidden: Host header is not allowed` reads as a routing bug.
 #[rstest]
 fn test_empty_allowed_hosts_is_refused(mock_valid_config: Config) {
@@ -75,7 +75,7 @@ fn test_empty_allowed_hosts_is_refused(mock_valid_config: Config) {
     assert!(reason.contains("403 Forbidden: Host header is not allowed"));
 }
 
-/// D46 — a config value for an unimplemented mode is a startup failure, not a surprise at
+/// A config value for an unimplemented mode is a startup failure, not a surprise at
 /// request time.
 #[rstest]
 fn test_resource_server_auth_mode_is_refused(mock_valid_config: Config) {
@@ -86,7 +86,10 @@ fn test_resource_server_auth_mode_is_refused(mock_valid_config: Config) {
 
     assert_eq!(field, "auth.mode");
     assert!(reason.contains("not implemented"));
-    assert!(reason.contains("P-C3"));
+    assert!(
+        reason.contains("`gateway`"),
+        "the error names the mode to use"
+    );
 }
 
 #[rstest]
@@ -103,7 +106,7 @@ fn test_non_canonical_auth_resource_is_refused(mock_valid_config: Config, #[case
     assert_eq!(field, "auth.resource");
 }
 
-/// D27 and D48 — addressing the engine `Service` directly skips `ext_authz`, which is an
+/// Addressing the engine `Service` directly skips `ext_authz`, which is an
 /// authorization bypass that is invisible in testing.
 #[rstest]
 #[case::bare("http://catalog-engine")]
@@ -131,7 +134,7 @@ fn test_non_absolute_engine_base_url_is_refused(mock_valid_config: Config, #[cas
     assert_eq!(field, "engine.baseUrl");
 }
 
-/// §11 — a deadline below one engine hop makes every call time out at the wrong layer.
+/// A deadline below one engine hop makes every call time out at the wrong layer.
 #[rstest]
 fn test_call_deadline_below_engine_timeouts_is_refused(mock_valid_config: Config) {
     let mut config = mock_valid_config;
@@ -178,7 +181,7 @@ fn test_camel_case_field_names_deserialise() {
       "observability": { "metricsEnabled": true }
     }"#;
 
-    let config: Config = serde_json::from_slice(raw).expect("the §11 configuration deserialises");
+    let config: Config = serde_json::from_slice(raw).expect("the full configuration deserialises");
 
     assert!(config.validate().is_ok());
     assert_eq!(config.server.mcp_path, "/mcp");
@@ -203,7 +206,7 @@ fn test_omitted_blocks_take_their_defaults() {
     assert_eq!(config.tools.rate_limit.per_tenant_calls_per_minute, 120);
     assert_eq!(config.tools.defaults.max_write_bytes, 262_144);
     assert_eq!(config.transport.sse_keep_alive_seconds, 15);
-    // ...and it is still refused, because `allowedHosts` has no usable default (D11).
+    // ...and it is still refused, because `allowedHosts` has no usable default.
     assert!(config.validate().is_err());
 }
 

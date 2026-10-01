@@ -15,15 +15,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// The closed error-code set of §8.4, in one place.
+// The closed error-code set, in one place.
 //
-// D19 says one shape for every tool, which is only true if every code is listed somewhere a test
-// can walk. `ALL_CODES` is that list, and `tests::test_code_set_matches_the_documented_tables`
-// asserts it equals the union of §8.4's two tables — so adding an error without adding a row
-// fails CI.
+// One error shape for every tool is only true if every code is listed somewhere a test can walk.
+// `ALL_CODES` is that list, and `tests::test_code_set_matches_the_documented_tables` asserts it
+// equals the union of the two documented tables — so adding an error without adding a row fails
+// CI.
 
 // ---------------------------------------------------------------------------------------------
-// §8.4, first table: raised from an engine outcome.
+// First table: raised from an engine outcome.
 // ---------------------------------------------------------------------------------------------
 
 /// A `400` the caller can fix, or a limit we validated before dialling. The two share a code
@@ -36,13 +36,13 @@ pub const SERVER_DEFECT: &str = "server_defect";
 /// A `401`. Phrased as identity not reaching the service, never as a catalog problem.
 pub const UNAUTHENTICATED: &str = "unauthenticated";
 
-/// A `403`. The model cannot widen its own scope (NFR-01).
+/// A `403`. The model cannot widen its own scope.
 pub const FORBIDDEN: &str = "forbidden";
 
 /// A `404` on an item or a type.
 pub const NOT_FOUND: &str = "not_found";
 
-/// A `409`, after the write helper's own conflict policy has decided whether to retry (D23).
+/// A `409`, after the write helper's own conflict policy has decided whether to retry.
 pub const CONFLICT: &str = "conflict";
 
 /// A `422`: this kind cannot have versions, or custom fields, or whatever was asked of it.
@@ -57,40 +57,40 @@ pub const UPSTREAM_UNAVAILABLE: &str = "upstream_unavailable";
 /// A `5XX` or a transport failure on a read: *"unavailable, not empty"*.
 pub const CATALOG_UNAVAILABLE: &str = "catalog_unavailable";
 
-/// A `5XX`, transport failure or deadline **after** a write or delete was dispatched (D20).
+/// A `5XX`, transport failure or deadline **after** a write or delete was dispatched.
 pub const UNKNOWN_OUTCOME: &str = "unknown_outcome";
 
 /// The deadline ran out on a read.
 pub const DEADLINE_EXCEEDED: &str = "deadline_exceeded";
 
 // ---------------------------------------------------------------------------------------------
-// §8.4, second table: raised by the runtime and the client, with no engine status behind them.
+// Second table: raised by the runtime and the client, with no engine status behind them.
 // ---------------------------------------------------------------------------------------------
 
 /// Tool arguments did not deserialise; the serde path goes in `details.field`.
 pub const INVALID_ARGUMENTS: &str = "invalid_arguments";
 
 /// A cursor that does not decode, carries the wrong version, or whose filter fingerprint does
-/// not match. **Never** silently treated as end-of-results (D32).
+/// not match. **Never** silently treated as end-of-results.
 pub const INVALID_CURSOR: &str = "invalid_cursor";
 
-/// `metadata.family == null` on a resolved item — a real engine state, not a lookup miss (D30).
+/// `metadata.family == null` on a resolved item — a real engine state, not a lookup miss.
 pub const UNADDRESSABLE_ITEM: &str = "unaddressable_item";
 
-/// The kind resolves but has no `served: true` version (§8.6).
+/// The kind resolves but has no `served: true` version.
 pub const UNADDRESSABLE_TYPE: &str = "unaddressable_type";
 
-/// The query exceeds the parameter-count or byte split budget (D33).
+/// The query exceeds the parameter-count or byte split budget.
 pub const QUERY_TOO_LARGE: &str = "query_too_large";
 
-/// The client disconnected mid-call (§5.5 rule 5).
+/// The client disconnected mid-call.
 pub const CANCELLED: &str = "cancelled";
 
-/// The per-tenant call rate was exceeded (§6.4). A tool error, not a `429`, so the model can
+/// The per-tenant call rate was exceeded. A tool error, not a `429`, so the model can
 /// read it and wait.
 pub const RATE_LIMITED: &str = "rate_limited";
 
-/// Every code in the closed set, in the order §8.4's tables list them.
+/// Every code in the closed set, in the order the documented tables list them.
 pub const ALL_CODES: &[&str] = &[
     INVALID_INPUT,
     SERVER_DEFECT,

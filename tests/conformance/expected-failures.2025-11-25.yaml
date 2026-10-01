@@ -1,14 +1,14 @@
 # Conformance baseline — MCP revision 2025-11-25, the newest handshake-era revision and the one
-# our only production client speaks (D2).
+# our only production client speaks.
 #
 # See the 2026-07-28 baseline for why these exist. On this revision the picture is cleaner:
 # **every scenario that needs neither a diagnostic fixture nor an undeclared capability passes.**
 # In particular `server-initialize`, `ping`, `tools-list`, `server-session-lifecycle`,
 # `server-sse-multiple-streams`, `server-sse-polling` and `dns-rebinding-protection` are all
-# green, which is the handshake-era half of the §13.2 gate.
+# green, which is the handshake-era half of the conformance release gate.
 
 server:
-  # Capabilities D5 does not declare: no prompts, resources, completions or logging.
+  # Capabilities we do not declare: no prompts, resources, completions or logging.
   - completion-complete:completion-complete
   - logging-set-level:logging-set-level
   - prompts-list:prompts-list

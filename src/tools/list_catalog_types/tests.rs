@@ -46,11 +46,11 @@ const UNREACHABLE_ENGINE: &str = "http://127.0.0.1:9";
 /// The per-call budget the fixtures run under, matching the shipped default.
 const CALL_BUDGET: Duration = Duration::from_secs(25);
 
-/// A description exercising everything §7 forbids touching: markdown, several paragraphs, a code
-/// fence and non-ASCII text. It must come back **byte for byte**.
+/// A description exercising everything the tool must not touch: markdown, several paragraphs, a
+/// code fence and non-ASCII text. It must come back **byte for byte**.
 const RICH_DESCRIPTION: &str = "# Services\n\nA **deployable** unit — «données» and Überwachung      included.\n\nValid tiers:\n\n- `gold`\n- `silver`\n\n```yaml\ntier: gold\n```\n\nTrailing      paragraph, after the example.";
 
-/// The recorded size of the realistic fixture's output (T1 §8, core §12.4). **Regression
+/// The recorded size of the realistic fixture's output. **Regression
 /// detection, not a limit**: update it deliberately when growth is intended.
 const RECORDED_REALISTIC_BYTES: usize = 30_469;
 
@@ -182,7 +182,7 @@ fn kinds(payload: &Value) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §7 — `llmDescription` is returned verbatim.
+// `llmDescription` is returned verbatim.
 // ---------------------------------------------------------------------------------------------
 
 /// The description is **byte-identical** to the engine's: markdown, paragraphs, a code fence
@@ -201,8 +201,8 @@ async fn test_a_description_is_returned_byte_identical() {
     assert_eq!(row["description"].as_str(), Some(RICH_DESCRIPTION));
 }
 
-/// The clearest statement of why §7 exists: an opening negation, which any shortening risks
-/// turning into its opposite, survives intact.
+/// The clearest statement of why the description is returned verbatim: an opening negation, which
+/// any shortening risks turning into its opposite, survives intact.
 #[rstest]
 #[tokio::test]
 async fn test_a_description_opening_with_a_negation_survives() {
@@ -254,7 +254,7 @@ async fn test_nothing_is_synthesised_into_a_missing_description() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — `search`.
+// `search`.
 // ---------------------------------------------------------------------------------------------
 
 /// Three types, each findable by exactly one field.
@@ -305,8 +305,8 @@ async fn test_search_is_case_insensitive(#[case] term: &str, #[case] expected: &
     assert_eq!(kinds(&payload), vec![expected.to_string()]);
 }
 
-/// T1-D5's whole point: a term present only in the **tail** of a long description still finds
-/// its type, because nothing was shortened.
+/// Why `search` matches the whole description: a term present only in the **tail** of a long
+/// description still finds its type, because nothing was shortened.
 #[rstest]
 #[tokio::test]
 async fn test_search_finds_a_term_only_in_the_descriptions_tail() {
@@ -332,7 +332,7 @@ async fn test_search_finds_a_term_only_in_the_descriptions_tail() {
     assert_eq!(kinds(&payload), vec!["Service".to_string()]);
 }
 
-/// T1-D9 — no match is **not** an empty catalogue: the term and the unfiltered count come back.
+/// No match is **not** an empty catalogue: the term and the unfiltered count come back.
 #[rstest]
 #[tokio::test]
 async fn test_no_match_reports_the_term_and_what_it_filtered() {
@@ -357,7 +357,7 @@ async fn test_no_types_visible_is_an_empty_list_not_an_error() {
     assert_eq!(payload, json!({ "types": [], "total": 0 }));
 }
 
-/// NFR-10 — an over-long term is refused **before** the engine is asked anything; the limit
+/// An over-long term is refused **before** the engine is asked anything; the limit
 /// itself is accepted.
 #[rstest]
 #[tokio::test]
@@ -395,7 +395,7 @@ async fn test_an_over_long_search_is_rejected_before_the_engine() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T1-D4 — version selection, delegated to the core.
+// Version selection, delegated to the core.
 // ---------------------------------------------------------------------------------------------
 
 /// A type with no served version is omitted: nothing about it is addressable.
@@ -441,11 +441,11 @@ async fn test_the_selected_version_reaches_the_row() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §4 — projection and ordering.
+// Projection and ordering.
 // ---------------------------------------------------------------------------------------------
 
-/// The row is exactly §4's shape **in §4's order** — `kind` first, the long `description` after
-/// the coordinates — with absent fields omitted rather than null.
+/// The row has exactly its documented shape **in its documented order** — `kind` first, the long
+/// `description` after the coordinates — with absent fields omitted rather than null.
 ///
 /// Compared as a string on purpose: the order is what is under test. It holds because the
 /// workspace enables `serde_json`'s `preserve_order`; without it a `Value` sorts its keys and the
@@ -487,7 +487,7 @@ async fn test_absent_history_is_false_and_absent_display_name_is_omitted() {
     assert!(row.get("displayName").is_none(), "{row}");
 }
 
-/// T1-D8 — ordered by `kind` byte-wise whatever the engine's order, with `group` breaking a tie
+/// Ordered by `kind` byte-wise whatever the engine's order, with `group` breaking a tie
 /// two groups sharing a kind would otherwise leave to chance.
 #[rstest]
 #[tokio::test]
@@ -528,11 +528,11 @@ async fn test_rows_are_ordered_by_kind_then_group() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §9 — every row, asserting `code` **and** `remedy`.
+// Every error row, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
-/// Each engine status T1 can meet, mapped onto the closed set. A `400` is `server_defect`
-/// because T1 sends nothing of the caller's: the model must not be told to change its input.
+/// Each engine status the tool can meet, mapped onto the closed set. A `400` is `server_defect`
+/// because the tool sends nothing of the caller's: the model must not be told to change its input.
 #[rstest]
 #[case::server_error(500, codes::CATALOG_UNAVAILABLE, Remedy::Retry)]
 #[case::unavailable(503, codes::CATALOG_UNAVAILABLE, Remedy::Retry)]
@@ -619,7 +619,7 @@ async fn test_a_cancelled_call_stops_and_reports_cancelled() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T1-D7 — pagination: all or nothing.
+// Pagination: all or nothing.
 // ---------------------------------------------------------------------------------------------
 
 /// `count` distinct types, `Kind0000`…, so a page boundary can be seen in the result.
@@ -725,11 +725,11 @@ async fn test_the_internal_page_cap_is_enforced() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// NFR-01 — tenancy, asserted although trivially true with no cache.
+// Tenancy, asserted although trivially true with no cache.
 // ---------------------------------------------------------------------------------------------
 
 /// Two tenants see their own catalogues. Trivially true today; asserted because it must survive
-/// a future cache (T1 §14).
+/// a future cache.
 #[rstest]
 #[tokio::test]
 async fn test_two_tenants_see_their_own_catalogues() {
@@ -755,7 +755,7 @@ async fn test_two_tenants_see_their_own_catalogues() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §8 — the byte golden: regression detection, not a limit.
+// The byte golden: regression detection, not a limit.
 // ---------------------------------------------------------------------------------------------
 
 /// Sixty-eight realistic types, each with a ~300-byte briefing, serialise to a recorded size.

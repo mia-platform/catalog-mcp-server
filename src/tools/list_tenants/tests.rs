@@ -102,7 +102,7 @@ async fn call_failing(status: u16, message: &str) -> ToolError {
 // The surface.
 // ---------------------------------------------------------------------------------------------
 
-/// T11-D1 — no parameters, deliberately. Offering a filter would invite the model to believe it
+/// No parameters, deliberately. Offering a filter would invite the model to believe it
 /// can widen its own scope.
 #[rstest]
 fn test_the_tool_takes_no_arguments() {
@@ -143,7 +143,7 @@ async fn test_a_tenant_is_projected_to_three_fields() {
     );
 }
 
-/// T11-D2 — `current` comes from the forwarded ACL context, never from a second call.
+/// `current` comes from the forwarded ACL context, never from a second call.
 #[rstest]
 #[tokio::test]
 async fn test_current_comes_from_the_forwarded_context() {
@@ -172,7 +172,7 @@ async fn test_current_does_not_need_a_tenant_name() {
     assert_eq!(output.payload()["current"], json!("tenant-two"));
 }
 
-/// **Omitted, never null.** Under D47 the identity layer extracts rather than rejects, so an
+/// **Omitted, never null.** The identity layer extracts rather than rejects, so an
 /// undecodable context is a reachable state — and the tool must not invent a value for it.
 #[rstest]
 #[tokio::test]
@@ -200,7 +200,7 @@ async fn test_a_malformed_context_also_omits_current() {
     assert!(output.payload().get("current").is_none());
 }
 
-/// T11-D5 — an empty list is a real, successful answer, and materially different from a `401`.
+/// An empty list is a real, successful answer, and materially different from a `401`.
 #[rstest]
 #[tokio::test]
 async fn test_an_empty_list_is_not_an_error() {
@@ -235,7 +235,7 @@ async fn test_the_bare_array_response_is_read_directly() {
     );
 }
 
-/// D28 — the tool reaches the engine, so the runtime renders the key **present and empty** when
+/// The tool reaches the engine, so the runtime renders the key **present and empty** when
 /// the engine said nothing: the model never has to tell "no warnings" from "never warns".
 #[rstest]
 #[tokio::test]
@@ -253,7 +253,7 @@ async fn test_an_engine_call_without_warnings_renders_an_empty_key() {
     assert_eq!(output.render(collected.as_deref())["warnings"], json!([]));
 }
 
-/// §5.5 — a warning the engine attaches reaches the model **without the tool doing anything**:
+/// A warning the engine attaches reaches the model **without the tool doing anything**:
 /// this tool never looks at warnings, and it is rendered anyway.
 #[rstest]
 #[tokio::test]
@@ -277,14 +277,14 @@ async fn test_an_engine_warning_reaches_the_result_without_the_tool() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 of the T11 plan — every row, asserting `code` **and** `remedy`.
+// Every error row, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
-/// **T11 §7:** a `401` is an identity failure, and the message does not contain "catalog".
+/// A `401` is an identity failure, and the message does not contain "catalog".
 ///
-/// An earlier version relaxed this to a blocklist of phrases on the premise that core §8.4 fixes
-/// a wording containing the word; it does not (§8.4 fixes only *"identity did not reach the
-/// service"*), so the plan's literal assertion stands (F-05).
+/// An earlier version relaxed this to a blocklist of phrases on the premise that the core fixes a
+/// wording containing the word; it does not (it fixes only *"identity did not reach the
+/// service"*), so the literal assertion stands.
 #[rstest]
 #[tokio::test]
 async fn test_a_401_is_an_identity_failure_and_says_so() {
@@ -306,7 +306,7 @@ async fn test_a_401_is_an_identity_failure_and_says_so() {
     );
 }
 
-/// **T11-D4.** A `502` says *authz*, not *the catalog*: every other tool may be working, and a
+/// A `502` says *authz*, not *the catalog*: every other tool may be working, and a
 /// model told "the catalog is unavailable" would stop doing things it could still do.
 #[rstest]
 #[tokio::test]
@@ -377,7 +377,7 @@ async fn test_an_exhausted_deadline_is_reported_as_one() {
     assert_eq!(error.remedy, Remedy::Retry);
 }
 
-/// D26 — the tool makes no request of its own: the client forwards the allowlist, and this is
+/// The tool makes no request of its own: the client forwards the allowlist, and this is
 /// the one route where no policy regenerates it, so what the engine sees is what we sent.
 #[rstest]
 #[tokio::test]
@@ -396,7 +396,7 @@ async fn test_the_forwarded_identity_reaches_the_tenants_endpoint() {
         .await
         .expect("the mock records its requests");
 
-    assert_eq!(requests.len(), 1, "T11 makes exactly one engine call");
+    assert_eq!(requests.len(), 1, "the tool makes exactly one engine call");
     assert_eq!(requests[0].url.path(), "/bff/tenants");
     assert!(
         requests[0].url.query().is_none(),
@@ -415,7 +415,7 @@ async fn test_the_forwarded_identity_reaches_the_tenants_endpoint() {
             .get("x-mia-principal-id")
             .and_then(|value| value.to_str().ok()),
         Some(MOCK_PRINCIPAL_ID),
-        "the principal id reaches the engine as well (F-07)"
+        "the principal id reaches the engine as well"
     );
     assert!(requests[0].headers.get("authorization").is_some());
 }

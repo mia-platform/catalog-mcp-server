@@ -61,7 +61,7 @@ fn test_eq_has_the_engines_shape() {
 }
 
 /// The wire name is **snake_case**, and the value is a regex **literal** rather than a bare
-/// string — the two corrections this plan makes to T2's analysis.
+/// string.
 #[rstest]
 fn test_matches_has_the_engines_shape() {
     let predicate = Predicate::Matches {
@@ -119,7 +119,7 @@ fn test_value_kinds_render_untagged(#[case] value: QueryValue, #[case] expected:
 }
 
 // ---------------------------------------------------------------------------------------------
-// The free-text search shape T2 composes from these parts.
+// The free-text search shape `search_catalog` composes from these parts.
 // ---------------------------------------------------------------------------------------------
 
 /// A free-text `query` becomes an `or` of three `matches` over `metadata.{name,title,tags}`.
@@ -434,7 +434,7 @@ fn test_the_golden_base64_for_a_fixed_query() {
 }
 
 /// The compliance `raw-query` scope carries the query object **directly**: the same AST, no
-/// base64 anywhere. Reusing the AST and not the encoding is the correction to T4's analysis.
+/// base64 anywhere. Reusing the AST but not the encoding is deliberate.
 #[rstest]
 fn test_the_compliance_scope_is_plain_json() {
     let predicate = eq("kind", "Service");
@@ -544,8 +544,8 @@ fn test_a_split_is_equivalent_to_the_whole_query() {
 /// **The 8 KiB total is the binding constraint, not the four-parameter count.**
 ///
 /// Four parameters of 5 600 bytes would be 22 400, so the total cap is reached first in every
-/// realistic shape. Worth pinning: a reader of §8.8 could reasonably expect `MAX_RAWQ_PARAMS` to
-/// be what fires, and it is not.
+/// realistic shape. Worth pinning: a reader of the limits could reasonably expect `MAX_RAWQ_PARAMS`
+/// to be what fires, and it is not.
 #[rstest]
 fn test_the_total_query_string_cap_binds_before_the_parameter_count() {
     let predicate = and_of_wide_leaves(13);

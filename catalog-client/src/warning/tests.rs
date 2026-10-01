@@ -97,8 +97,8 @@ fn test_the_code_is_parsed() {
     assert_eq!(parse(&headers)[0].code, 214);
 }
 
-/// D28 — T12's `ignored` list is derived from the warning by a named regex, not by each tool
-/// matching on prose.
+/// `apply_item_type`'s `ignored` list is derived from the warning by a named regex, not by each
+/// tool matching on prose.
 #[rstest]
 fn test_read_only_field_is_extracted() {
     let warning = EngineWarning {

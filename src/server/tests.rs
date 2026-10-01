@@ -61,8 +61,8 @@ fn mock_config() -> Config {
     config.server.allowed_hosts = vec![TEST_HOST.to_string()];
     config.engine.base_url = "http://api-gateway:8080".to_string();
     config.auth.resource = "https://catalog-mcp.example.com/mcp".to_string();
-    // The fixture's engine does not exist, so readiness does not probe it; the D43 probe tests
-    // turn it on against a mock engine of their own.
+    // The fixture's engine does not exist, so readiness does not probe it; the readiness probe
+    // tests turn it on against a mock engine of their own.
     config.health.readiness_checks_engine = false;
 
     config
@@ -88,7 +88,7 @@ fn mock_router(mock_config: Config) -> Router {
 
 /// A router whose only tool is the test-only [`echo_identity`](crate::tools::echo_identity)
 /// probe, for the tests of the handler, both eras and the identity hook that need a tool with no
-/// catalog behind it. Production never registers it (F-10).
+/// catalog behind it. Production never registers it.
 #[fixture]
 fn mock_echo_router(mock_config: Config) -> Router {
     use crate::registry::{Registry, route_for};
@@ -316,7 +316,7 @@ fn tool_payload(response: &Value) -> Value {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The §13.2 gate: both eras, one endpoint.
+// Both eras, one endpoint.
 // ---------------------------------------------------------------------------------------------
 
 /// The shipped tools, and a real one called, on the stateless era.
@@ -350,7 +350,7 @@ async fn test_stateless_era_lists_and_calls_a_tool(mock_config: Config) {
     assert_eq!(called["result"]["isError"], json!(false));
     assert_eq!(tool_payload(&called)["tenants"], json!([]));
 
-    // D15 — a result is one text block of compact JSON, never the same thing twice.
+    // A result is one text block of compact JSON, never the same thing twice.
     assert!(
         called["result"].get("structuredContent").is_none(),
         "a result carried structuredContent while the switch is off"
@@ -389,14 +389,14 @@ async fn test_legacy_era_lists_and_calls_a_tool(mock_config: Config) {
     assert_eq!(called["result"]["isError"], json!(false));
     assert_eq!(tool_payload(&called)["tenants"], json!([]));
 
-    // D15 — a result is one text block of compact JSON, never the same thing twice.
+    // A result is one text block of compact JSON, never the same thing twice.
     assert!(
         called["result"].get("structuredContent").is_none(),
         "a result carried structuredContent while the switch is off"
     );
 }
 
-/// F-10 — the Step 1 probe does not ship: `tools/list` is the catalog tools and nothing else.
+/// The early `hello` probe tool does not ship: `tools/list` is the catalog tools and nothing else.
 #[rstest]
 #[tokio::test]
 async fn test_hello_is_not_in_tools_list(mock_router: Router) {
@@ -413,14 +413,14 @@ async fn test_hello_is_not_in_tools_list(mock_router: Router) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6.2 — the identity hook. The one load-bearing integration unknown: the transport's promise to
+// The identity hook. The one load-bearing integration unknown: the transport's promise to
 // inject `http::request::Parts` into the request context has **no upstream integration test**,
 // so these are ours. Both eras, because the injection points differ.
 // ---------------------------------------------------------------------------------------------
 
 /// The header used is `x-mia-acl-context`, and the assertion is on the tenant it decodes to —
-/// because §5.5 rule 1 means **no tool ever sees a header**. What has to survive is the
-/// identity, and the tenant is the observable half of it.
+/// because rule 1 of the tool-authoring contract is that **no tool ever sees a header**. What
+/// has to survive is the identity, and the tenant is the observable half of it.
 #[rstest]
 #[tokio::test]
 async fn test_forwarded_header_reaches_the_tool_on_the_stateless_era(mock_echo_router: Router) {
@@ -472,7 +472,8 @@ async fn test_forwarded_header_reaches_the_tool_on_the_legacy_era(mock_echo_rout
 
 /// The `Parts` ride on the **message**, not on the handler. In legacy mode one handler instance
 /// serves a whole session, so a second call on the same session must see its *own* header rather
-/// than the first one's — which is the property that makes D4 safe.
+/// than the first one's — which is the property that makes a handler with no
+/// per-request state safe.
 #[rstest]
 #[tokio::test]
 async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_echo_router: Router) {
@@ -505,7 +506,7 @@ async fn test_each_request_sees_its_own_header_within_one_legacy_session(mock_ec
 }
 
 /// A call with no identity at all still reaches the tool, and the tenant it sees is `unknown` —
-/// recorded and carried, never rejected (D47).
+/// recorded and carried, never rejected.
 #[rstest]
 #[tokio::test]
 async fn test_a_call_without_an_identity_still_reaches_the_tool(mock_echo_router: Router) {
@@ -523,7 +524,7 @@ async fn test_a_call_without_an_identity_still_reaches_the_tool(mock_echo_router
 }
 
 // ---------------------------------------------------------------------------------------------
-// D11 — Host and Origin are the SDK's, and we configure them. These assert the configuration
+// Host and Origin are the SDK's, and we configure them. These assert the configuration
 // arrived, not that the SDK works.
 // ---------------------------------------------------------------------------------------------
 
@@ -621,7 +622,7 @@ async fn test_configured_origin_allowlist_rejects_a_foreign_origin(mock_config: 
 }
 
 // ---------------------------------------------------------------------------------------------
-// The operational endpoints, unchanged from Step 0 and still outside everything request-scoped.
+// The operational endpoints, outside everything request-scoped.
 // ---------------------------------------------------------------------------------------------
 
 /// Reads one operational endpoint.
@@ -652,7 +653,7 @@ async fn get(router: &Router, path: &str) -> (StatusCode, Value) {
     )
 }
 
-/// D43 — liveness answers the engine's shape, and never depends on a dependency.
+/// Liveness answers the engine's shape, and never depends on a dependency.
 #[rstest]
 #[tokio::test]
 async fn test_healthz_answers_ok(mock_router: Router) {
@@ -664,7 +665,7 @@ async fn test_healthz_answers_ok(mock_router: Router) {
     assert_eq!(body["version"], crate::VERSION);
 }
 
-/// D43 — liveness does **not** depend on readiness: a pod draining cleanly must not be
+/// Liveness does **not** depend on readiness: a pod draining cleanly must not be
 /// restarted for it.
 #[rstest]
 #[tokio::test]
@@ -685,7 +686,7 @@ async fn test_healthz_stays_ok_while_draining(mock_config: Config) {
     assert_eq!(body["status"], "OK");
 }
 
-/// The Step 0 gate: `/-/ready` reports not-ready until the startup conditions hold.
+/// `/-/ready` reports not-ready until the startup conditions hold.
 #[rstest]
 #[tokio::test]
 async fn test_ready_reports_not_ready_before_startup_completes(mock_router: Router) {
@@ -713,7 +714,7 @@ async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
     assert_eq!(body["status"], "OK");
 }
 
-/// D43 — shutdown flips readiness to `503` **before** the drain begins, so the endpoint stops
+/// Shutdown flips readiness to `503` **before** the drain begins, so the endpoint stops
 /// receiving traffic while in-flight calls finish.
 #[rstest]
 #[tokio::test]
@@ -734,7 +735,7 @@ async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-04 / D43 — `/-/ready` probes the engine when `health.readinessChecksEngine` is on, at most
+// `/-/ready` probes the engine when `health.readinessChecksEngine` is on, at most
 // once every 5 s, and serves the cached result in between.
 // ---------------------------------------------------------------------------------------------
 
@@ -885,7 +886,7 @@ async fn test_ready_serves_the_cached_probe_inside_the_interval(mock_config: Con
     );
 }
 
-/// Shutdown answers `503` even with a cached success, without probing again (D42).
+/// Shutdown answers `503` even with a cached success, without probing again.
 #[rstest]
 #[tokio::test]
 async fn test_ready_is_503_once_draining_whatever_the_probe_said(mock_config: Config) {
@@ -936,7 +937,7 @@ async fn test_healthz_never_probes_the_engine(mock_config: Config) {
     );
 }
 
-/// §6.1 — a probe must never need a token, so the operational routes answer with no identity
+/// A probe must never need a token, so the operational routes answer with no identity
 /// header of any kind and without the `Host` the MCP service insists on.
 #[rstest]
 #[tokio::test]
@@ -966,13 +967,13 @@ async fn test_operational_routes_are_not_behind_the_transport_checks(mock_config
 }
 
 // ---------------------------------------------------------------------------------------------
-// D13 — the cache hints, and the one thing about them that is worth stating out loud.
+// The cache hints, and the one thing about them that is worth stating out loud.
 // ---------------------------------------------------------------------------------------------
 
 /// `tools/list` answers `cacheScope: private` with a real `ttlMs` on a `2026-07-28` request.
 ///
 /// This is *why* `list_tools` is hand-written: the SDK's macro emits `Public` with `ttlMs: 0`.
-/// `"private"` is kept even though the set is identical for every caller (D22), because
+/// `"private"` is kept even though the set is identical for every caller, because
 /// `"public"` licenses an intermediary to share the response between callers even when it came
 /// from an authenticated endpoint — a one-way door, for no measurable saving here.
 #[rstest]
@@ -989,9 +990,9 @@ async fn test_tools_list_carries_private_cache_hints_on_the_stateless_era(mock_r
 
 /// On a handshake-era request the hints are omitted, exactly as the SDK gates them.
 ///
-/// **Note what this means:** D13's benefit does not reach today's only production client, which
-/// is handshake-era (D2). Hand-writing `list_tools` still pays for itself on that path through
-/// the prebuilt, byte-budgeted payload (D12) — the larger of the two reasons. Both halves are
+/// **Note what this means:** the cache hints' benefit does not reach today's only production
+/// client, which is handshake-era. Hand-writing `list_tools` still pays for itself on that path
+/// through the prebuilt, byte-budgeted payload — the larger of the two reasons. Both halves are
 /// tested now so neither regresses in the interval.
 #[rstest]
 #[tokio::test]
@@ -1003,7 +1004,7 @@ async fn test_tools_list_omits_cache_hints_on_the_legacy_era(mock_router: Router
     assert!(listed["result"].get("ttlMs").is_none());
 }
 
-/// D13 — the same values are set on the `server/discover` override, whose SDK default is
+/// The same values are set on the `server/discover` override, whose SDK default is
 /// `ttlMs: 0`. That default is the only thing wrong with it, so it is the only thing we touch.
 #[rstest]
 #[tokio::test]
@@ -1018,11 +1019,11 @@ async fn test_discover_carries_the_same_cache_hints(mock_router: Router) {
     assert_eq!(
         discovered["result"]["capabilities"]["tools"],
         json!({}),
-        "listChanged must stay absent (D5)"
+        "listChanged must stay absent"
     );
 }
 
-/// D12 — a `cursor` is ignored, as the SDK's own macro does: the set is not paginated, and one
+/// A `cursor` is ignored, as the SDK's own macro does: the set is not paginated, and one
 /// prebuilt payload is the whole answer.
 #[rstest]
 #[tokio::test]
@@ -1057,7 +1058,7 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §13.3's gate — tenant isolation, through the whole identity path.
+// Tenant isolation, through the whole identity path.
 //
 // Layer → `Parts` → `MiaIdentity` → `CallerIdentity` → `EngineClient` → forwarded headers. The
 // assertion is made at the far end, on what the engine actually received, because every stage in
@@ -1150,9 +1151,10 @@ async fn probe_as(router: &Router, acl_context: &str) -> Value {
     .await
 }
 
-/// **§5.5 / D28, through the real adapter.** A tool that never looks at warnings still delivers
-/// the engine's to the model, because `route_for` reads them off the call's client after the
-/// tool returns — the property that makes a forgotten warning impossible rather than unlikely.
+/// **Engine warnings always reach the model, through the real adapter.** A tool that never looks
+/// at warnings still delivers the engine's to the model, because `route_for` reads them off the
+/// call's client after the tool returns — the property that makes a forgotten warning impossible
+/// rather than unlikely.
 #[rstest]
 #[tokio::test]
 async fn test_an_engine_warning_reaches_the_model_through_the_adapter(mock_config: Config) {
@@ -1251,7 +1253,8 @@ async fn test_each_caller_reaches_the_engine_with_its_own_tenant(mock_config: Co
 }
 
 /// The same, within **one legacy session**, where a single handler instance serves both calls.
-/// This is the case D4 exists for: a cached identity would be a cross-tenant leak, not a cache.
+/// This is why the handler holds no per-request state: a cached identity would be a
+/// cross-tenant leak, not a cache.
 #[rstest]
 #[tokio::test]
 async fn test_one_legacy_session_does_not_leak_a_tenant_between_calls(mock_config: Config) {
@@ -1308,9 +1311,9 @@ async fn test_one_legacy_session_does_not_leak_a_tenant_between_calls(mock_confi
     );
 }
 
-/// **D47, asserted through the whole server.** A request with no identity at all still reaches
-/// the tool and still produces an engine call: no `401`, no error of ours. This is the test that
-/// fails if somebody re-adds a gate.
+/// **The identity layer never rejects, asserted through the whole server.** A request with no
+/// identity at all still reaches the tool and still produces an engine call: no `401`, no error
+/// of ours. This is the test that fails if somebody re-adds a gate.
 #[rstest]
 #[tokio::test]
 async fn test_a_request_with_no_identity_still_reaches_the_engine(mock_config: Config) {
@@ -1349,7 +1352,7 @@ async fn test_a_request_with_no_identity_still_reaches_the_engine(mock_config: C
     assert!(requests[0].headers.get("x-mia-acl-context").is_none());
 }
 
-/// The whole D26 allowlist survives the layer, the transport and the client.
+/// The whole allowlist of forwarded headers survives the layer, the transport and the client.
 #[rstest]
 #[tokio::test]
 async fn test_the_full_allowlist_reaches_the_engine(mock_config: Config) {
@@ -1411,7 +1414,7 @@ async fn test_the_full_allowlist_reaches_the_engine(mock_config: Config) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §13.4's gate — observability. `/-/metrics` reports the seven, the `mcp.request` span carries
+// Observability. `/-/metrics` reports the seven, the `mcp.request` span carries
 // its fields from inside the handler, and a transport-rejected request is still counted.
 // ---------------------------------------------------------------------------------------------
 
@@ -1541,7 +1544,7 @@ async fn test_a_tool_call_is_counted(mock_config: Config) {
     );
 }
 
-/// **§10's stated asymmetry, asserted.** The transport rejects a malformed request before any
+/// **The protocol-error asymmetry, asserted.** The transport rejects a malformed request before any
 /// handler runs, so no `mcp.request` span exists for it — the tower layer counts it from the
 /// response instead. This is the test that fails if somebody "fixes" it by parsing requests in
 /// a layer.
@@ -1657,10 +1660,10 @@ async fn test_metrics_is_absent_when_disabled(mock_config: Config) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §13.4's gate — the `mcp.request` span carries its fields **from inside the handler**.
+// The `mcp.request` span carries its fields **from inside the handler**.
 //
 // Captured as `tracing` sees it during a real request, rather than read off a log line: the
-// point of §10 is *where* the span is opened. A tower layer could not record `mcp.tool` or
+// point is *where* the span is opened. A tower layer could not record `mcp.tool` or
 // `mcp.era` without reading the JSON-RPC body first — that is, without re-implementing dispatch.
 // ---------------------------------------------------------------------------------------------
 
@@ -1870,7 +1873,8 @@ async fn test_the_mcp_request_span_is_opened_inside_the_handler(mock_echo_router
 }
 
 /// The transport-only `http.request` span is opened in the layer, with the fields derivable from
-/// headers alone — and **not** with the MCP-shaped ones, which is the asymmetry §4 rule 5 fixes.
+/// headers alone — and **not** with the MCP-shaped ones, which is the asymmetry the span
+/// layering fixes.
 #[rstest]
 #[tokio::test]
 async fn test_the_http_request_span_carries_transport_fields_only(mock_router: Router) {
@@ -1907,7 +1911,7 @@ async fn test_the_http_request_span_carries_transport_fields_only(mock_router: R
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-02 / F-09 — a tool error is counted as one, the call's engine requests nest under its span
+// A tool error is counted as one, the call's engine requests nest under its span
 // and are counted, and the W3C trace context from `_meta` reaches the engine.
 // ---------------------------------------------------------------------------------------------
 
@@ -1990,8 +1994,8 @@ fn mcp_request_of(tenant: &str) -> CapturedSpan {
 /// A mapped engine error and an argument failure are each recorded as `tool_error`, with the
 /// code and remedy the model was given, on the span **and** on `mcp_tool_calls_total`.
 #[rstest]
-#[case::engine_error(json!({ "kind": "Nope" }), "f02-engine-error", "not_found", "retry_after_change")]
-#[case::argument_failure(json!({ "kind": 5 }), "f02-argument-failure", "invalid_arguments", "retry_after_change")]
+#[case::engine_error(json!({ "kind": "Nope" }), "tool-error-engine", "not_found", "retry_after_change")]
+#[case::argument_failure(json!({ "kind": 5 }), "tool-error-arguments", "invalid_arguments", "retry_after_change")]
 #[tokio::test]
 async fn test_a_tool_error_is_recorded_as_one(
     mock_config: Config,
@@ -2033,7 +2037,7 @@ async fn test_a_tool_error_is_recorded_as_one(
 #[rstest]
 #[tokio::test]
 async fn test_engine_requests_nest_under_the_call_and_are_counted(mock_config: Config) {
-    let tenant = "f09-nesting";
+    let tenant = "nesting-calls";
     let engine = mock_engine_without_types().await;
     let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
 
@@ -2090,7 +2094,7 @@ async fn test_the_trace_context_reaches_every_engine_request(
         "get_item_schema",
         json!({ "kind": "Nope" }),
         meta,
-        "f09-trace",
+        "trace-context",
     )
     .await;
 
@@ -2121,7 +2125,7 @@ async fn test_the_trace_context_reaches_every_engine_request(
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-03 — the identity layer's fields land on the request's **own** `http.request` span, even
+// The identity layer's fields land on the request's **own** `http.request` span, even
 // when requests interleave on one thread.
 // ---------------------------------------------------------------------------------------------
 
@@ -2140,8 +2144,9 @@ async fn mock_yield_once(
 /// resumed while the second's span was current and wrote its tenant there.
 ///
 /// What this proves: the identity fields cannot cross spans when futures interleave on a thread,
-/// which is the mechanism of F-03. What it does not: it drives one task, not concurrent load, so
-/// it says nothing about throughput or other layers' behaviour under it.
+/// which is how one request's identity could leak onto another's span. What it does not: it
+/// drives one task, not concurrent load, so it says nothing about throughput or other layers'
+/// behaviour under it.
 #[rstest]
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn test_identity_fields_land_on_the_requests_own_span(mock_config: Config) {
@@ -2169,16 +2174,17 @@ async fn test_identity_fields_land_on_the_requests_own_span(mock_config: Config)
 
     // The order is forced by hand, because `tokio::join!` rotates which future it polls first
     // and so resumes the second request first, hiding the leak. Here the first request is
-    // resumed while the second's span is still the thread's current one: exactly F-03's window.
+    // resumed while the second's span is still the thread's current one: exactly the window
+    // in which the leak would happen.
     let mut first = std::pin::pin!(
         router
             .clone()
-            .oneshot(request("f03-request-a", "f03-tenant-a"))
+            .oneshot(request("interleaved-request-a", "interleaved-tenant-a"))
     );
     let mut second = std::pin::pin!(
         router
             .clone()
-            .oneshot(request("f03-request-b", "f03-tenant-b"))
+            .oneshot(request("interleaved-request-b", "interleaved-tenant-b"))
     );
     std::future::poll_fn(|cx| {
         let _ = first.as_mut().poll(cx);
@@ -2192,8 +2198,8 @@ async fn test_identity_fields_land_on_the_requests_own_span(mock_config: Config)
 
     let spans = SPANS.snapshot();
     for (request_id, tenant) in [
-        ("f03-request-a", "f03-tenant-a"),
-        ("f03-request-b", "f03-tenant-b"),
+        ("interleaved-request-a", "interleaved-tenant-a"),
+        ("interleaved-request-b", "interleaved-tenant-b"),
     ] {
         let span = spans
             .iter()
@@ -2213,7 +2219,7 @@ async fn test_identity_fields_land_on_the_requests_own_span(mock_config: Config)
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-08 — `response.structuredContent` reaches the result, and never an `outputSchema`.
+// `response.structuredContent` reaches the result, and never an `outputSchema`.
 // ---------------------------------------------------------------------------------------------
 
 /// With the switch on, a real call carries `structuredContent` equal to its text block.
@@ -2231,7 +2237,7 @@ async fn test_structured_content_follows_the_switch(mock_config: Config) {
         "tools/call",
         Some("list_tenants"),
         json!({ "name": "list_tenants", "arguments": {} }),
-        &[("x-mia-acl-context", &acl_for("f08-structured"))],
+        &[("x-mia-acl-context", &acl_for("structured-content"))],
     )
     .await;
 
@@ -2242,7 +2248,7 @@ async fn test_structured_content_follows_the_switch(mock_config: Config) {
     assert_eq!(result["structuredContent"], text);
 }
 
-/// No tool declares an `outputSchema`, whatever the switch says (D15).
+/// No tool declares an `outputSchema`, whatever the switch says.
 #[rstest]
 fn test_no_tool_declares_an_output_schema_with_the_switch_on(mock_config: Config) {
     let mut config = mock_config;
@@ -2264,7 +2270,7 @@ fn test_no_tool_declares_an_output_schema_with_the_switch_on(mock_config: Config
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-11, end to end — an unknown argument is `invalid_arguments` naming it, through the router.
+// End to end, an unknown argument is `invalid_arguments` naming it, through the router.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]
@@ -2285,7 +2291,7 @@ async fn test_an_unknown_argument_is_invalid_arguments(
         "tools/call",
         Some(tool),
         json!({ "name": tool, "arguments": arguments }),
-        &[("x-mia-acl-context", &acl_for("f11-unknown"))],
+        &[("x-mia-acl-context", &acl_for("unknown-argument"))],
     )
     .await;
 

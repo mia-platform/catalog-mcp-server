@@ -22,8 +22,8 @@ use crate::error::{
 use rstest::rstest;
 use serde_json::json;
 
-/// §8.4's two tables, transcribed. The set of codes reachable in the binary must equal this
-/// union, so an error added without a documented row fails CI.
+/// The two documented error-code tables, transcribed. The set of codes reachable in the binary must
+/// equal this union, so an error added without a documented row fails CI.
 const DOCUMENTED_CODES: &[&str] = &[
     // First table — raised from an engine outcome.
     "invalid_input",
@@ -48,7 +48,8 @@ const DOCUMENTED_CODES: &[&str] = &[
     "rate_limited",
 ];
 
-/// D19 is only true if every code is listed in one place. This is that assertion.
+/// One error shape for every tool is only true if every code is listed in one place. This is that
+/// assertion.
 #[rstest]
 fn test_code_set_matches_the_documented_tables() {
     let mut reachable: Vec<&str> = ALL_CODES.to_vec();
@@ -72,7 +73,7 @@ fn test_no_code_is_listed_twice() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §8.4's first table, one case per row, asserting `code` **and** `remedy`.
+// The first table, one case per row, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]
@@ -161,7 +162,7 @@ fn test_engine_status_maps_to_its_documented_row(
     #[case] expected_code: &str,
     #[case] expected_remedy: Remedy,
 ) {
-    // A `502` is the authorization service's only where the operation proxies it (F-06); every
+    // A `502` is the authorization service's only where the operation proxies it; every
     // other row is the same whatever the upstream.
     let upstream = if expected_code == codes::UPSTREAM_UNAVAILABLE {
         Upstream::Authz
@@ -174,8 +175,8 @@ fn test_engine_status_maps_to_its_documented_row(
     assert_eq!(error.remedy, expected_remedy);
 }
 
-/// T9's case, and the reason `Remedy::Unknown` exists: a `5XX` after a delete has taken effect
-/// is indistinguishable from one before it.
+/// The `delete_item` case, and the reason `Remedy::Unknown` exists: a `5XX` after a delete has
+/// taken effect is indistinguishable from one before it.
 #[rstest]
 #[case::server_error(500)]
 #[case::bad_gateway(502)]
@@ -238,7 +239,7 @@ fn test_deadline_on_a_read_is_retryable() {
     assert_eq!(error.remedy, Remedy::Retry);
 }
 
-/// D20's deadline half: the same row as the 5xx case.
+/// The deadline half of the dispatched-write rule: the same row as the 5xx case.
 #[rstest]
 fn test_deadline_after_a_dispatched_write_is_unknown() {
     let error = deadline_exceeded(Dispatched::Yes, None);
@@ -266,7 +267,7 @@ fn test_the_engine_request_id_is_carried_into_details() {
     );
 }
 
-/// A `401` is phrased as an identity problem and never names the catalog (T11 §7, F-05).
+/// A `401` is phrased as an identity problem and never names the catalog.
 #[rstest]
 fn test_unauthenticated_is_not_phrased_as_a_catalog_problem() {
     let error = map_status(
@@ -282,7 +283,7 @@ fn test_unauthenticated_is_not_phrased_as_a_catalog_problem() {
     assert!(!error.message.to_lowercase().contains("catalog"));
 }
 
-/// A `502` says **authz**, not *the catalog* (T11).
+/// A `502` says **authz**, not *the catalog*.
 #[rstest]
 fn test_upstream_unavailable_names_the_authorization_service() {
     let error = map_status(
@@ -302,7 +303,7 @@ fn test_upstream_unavailable_names_the_authorization_service() {
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]
-fn test_payload_shape_is_the_frozen_one() {
+fn test_payload_shape_is_the_documented_one() {
     let error = ToolError::new(
         codes::NOT_FOUND,
         Remedy::RetryAfterChange,

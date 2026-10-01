@@ -27,14 +27,14 @@ static WARNING_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// The read-only-field warning the engine emits from an Item Type Definition update, from which
-/// T12 derives its `ignored` list (D28).
+/// `apply_item_type` derives its `ignored` list.
 pub static READ_ONLY_FIELD_RE: LazyLock<Regex> = LazyLock::new(|| {
     // PANIC: a compile-time constant pattern.
     Regex::new(r"^'(?<field>[^']+)' field is read-only and was ignored during the update\.$")
         .expect("READ_ONLY_FIELD_RE is a constant pattern")
 });
 
-/// One `Warning: 299 - "…"` the engine attached to a response (P6, D28).
+/// One `Warning: 299 - "…"` the engine attached to a response.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineWarning {
     /// The warn-code. Always `299` from this engine, parsed rather than assumed.
@@ -45,7 +45,7 @@ pub struct EngineWarning {
 }
 
 impl EngineWarning {
-    /// The field name, when this warning is the read-only-field one T12 reads.
+    /// The field name, when this warning is the read-only-field one `apply_item_type` reads.
     pub fn read_only_field(&self) -> Option<&str> {
         READ_ONLY_FIELD_RE
             .captures(&self.text)
@@ -60,7 +60,7 @@ impl std::fmt::Display for EngineWarning {
     }
 }
 
-/// Collects **all** `Warning` headers from one engine response (P6).
+/// Collects **all** `Warning` headers from one engine response.
 ///
 /// One parser, one place. A value that does not match the engine's shape is dropped rather than
 /// guessed at: a malformed warning is not worth failing a good response over, and surfacing a

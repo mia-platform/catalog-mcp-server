@@ -15,9 +15,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// T3-D1, T3-D2, T3-D7 — the relationship shaper and the client-side grouping. This is where T3's
-// size comes from: a relationship on the wire is ~1 KB of BFF routing data, and the agent needs
-// four fields of it.
+// The relationship shaper and the client-side grouping. This is where the tool's size comes from: a
+// relationship on the wire is ~1 KB of BFF routing data, and the agent needs four fields of it.
 
 use catalog_client::models::{ItemRelationshipEntry, RelationshipDirection};
 use serde::Serialize;
@@ -28,7 +27,7 @@ use std::collections::BTreeMap;
 /// not produce — named so the entry is still grouped rather than dropped.
 const UNKNOWN_TYPE: &str = "unknown";
 
-/// How the shaped relationships are grouped (T3 §3).
+/// How the shaped relationships are grouped.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Grouping {
     /// `{"outbound": [...], "inbound": [...]}`; `type` carried per entry.
@@ -39,10 +38,10 @@ pub enum Grouping {
     ByType,
 }
 
-/// One shaped relationship (T3-D2), in its serialised field order.
+/// One shaped relationship, in its serialised field order.
 ///
 /// A resolved entry is `{name, kind, type|direction}`; an unresolved one is `{urn,
-/// type|direction, unresolved: true}` (T3-D7). Whichever of `type` and `direction` is the grouping
+/// type|direction, unresolved: true}`. Whichever of `type` and `direction` is the grouping
 /// key is left out of the entry: it would be repeated, and always redundant.
 #[derive(Serialize)]
 struct ShapedEntry {
@@ -65,7 +64,7 @@ struct ShapedEntry {
     unresolved: Option<bool>,
 }
 
-/// The relationship type's name: the last segment of `spec.typeRef`, not the whole URN (T3-D2).
+/// The relationship type's name: the last segment of `spec.typeRef`, not the whole URN.
 pub fn relationship_type(entry: &ItemRelationshipEntry) -> String {
     entry
         .type_ref()
@@ -77,7 +76,7 @@ pub fn relationship_type(entry: &ItemRelationshipEntry) -> String {
 
 /// Shapes one entry for `grouping`.
 ///
-/// **An entry whose other end is unresolved is reported, never dropped** (T3-D7): an omitted
+/// **An entry whose other end is unresolved is reported, never dropped**: an omitted
 /// relationship reads as *"no such connection"*, a stronger and wronger claim than *"I could not
 /// resolve it"*. `unresolved` states what happened to the response and nothing about why — the
 /// causes cannot be told apart from here, so the tool never says "deleted".
@@ -111,7 +110,7 @@ fn shape(entry: &ItemRelationshipEntry, grouping: Grouping) -> Value {
     serde_json::to_value(shaped).unwrap_or(Value::Null)
 }
 
-/// Groups the shaped entries (T3-D1): both groupings come from the same flat, `groupBy`-free
+/// Groups the shaped entries: both groupings come from the same flat, `groupBy`-free
 /// listing.
 ///
 /// By direction, both keys are always present — an empty group is `[]`, not absent — unless the

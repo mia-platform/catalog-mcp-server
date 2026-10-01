@@ -38,36 +38,36 @@ use rmcp::{
 use std::{borrow::Cow, time::Instant};
 use tracing::Instrument;
 
-/// What the server tells the model that no tool description can (D14).
+/// What the server tells the model that no tool description can.
 ///
-/// Capped at [`MAX_INSTRUCTIONS_BYTES`] and asserted by a test: Part 4's rule 2 — every tool
-/// usable with no system-prompt instructions — makes anything longer a smell, not a feature.
+/// Capped at [`MAX_INSTRUCTIONS_BYTES`] and asserted by a test: the rule that every tool be
+/// usable with no system-prompt instructions makes anything longer a smell, not a feature.
 const INSTRUCTIONS: &str = "This catalog is multi-tenant. The tenant you are acting in is fixed \
                             by the request and cannot be chosen, changed or widened from a tool \
                             argument. Every result is scoped to it.";
 
-/// Ceiling on [`INSTRUCTIONS`], in bytes (D14).
+/// Ceiling on [`INSTRUCTIONS`], in bytes.
 pub const MAX_INSTRUCTIONS_BYTES: usize = 400;
 
-// D14 as a compile error rather than a test failure: the cap cannot be exceeded by a commit
+// The cap as a compile error rather than a test failure: the cap cannot be exceeded by a commit
 // that forgets to run the tests.
 const _: () = assert!(
     INSTRUCTIONS.len() <= MAX_INSTRUCTIONS_BYTES,
-    "`instructions` exceeds its 400-byte cap (D14)"
+    "`instructions` exceeds its 400-byte cap"
 );
 
 /// The MCP protocol revision from which cache hints and `resultType` are required (SEP-2549,
 /// SEP-2322). Below it they are omitted, exactly as the SDK's own macro gates them.
 const CACHE_HINT_FLOOR: ProtocolVersion = ProtocolVersion::V_2026_07_28;
 
-/// Our half of the wire (§5.1, D6).
+/// Our half of the wire.
 ///
 /// The handler implements four things — server identity, `list_tools`, `get_tool`, `call_tool` —
-/// plus a thin `server/discover` override that does nothing but attach the cache hints of D13.
+/// plus a thin `server/discover` override that does nothing but attach the cache hints.
 /// Everything else is the SDK's: framing, era negotiation, `initialize`, `ping`, header↔body
 /// validation, status codes and SSE plumbing.
 ///
-/// **It holds no per-request state, ever** (D4). Its lifetime is not uniform — one instance per
+/// **It holds no per-request state, ever.** Its lifetime is not uniform — one instance per
 /// session in legacy mode, one per request when stateless, plus extras to populate the SDK's
 /// schema cache — so a field here would be a cross-request leak rather than a cache. Everything
 /// shared lives in [`AppState`] behind an `Arc`, and the factory clones `Arc`s and nothing else.
@@ -100,16 +100,16 @@ impl CatalogHandler {
     }
 }
 
-/// The inbound HTTP request parts the transport injected into the request context (§6.2).
+/// The inbound HTTP request parts the transport injected into the request context.
 ///
 /// This is the **one** place the dig happens. The `Parts` ride on the *message*, not on the
 /// handler, which is what makes it correct in legacy mode where one handler instance serves a
-/// whole session (D4). `None` on any transport that is not HTTP.
+/// whole session. `None` on any transport that is not HTTP.
 pub fn inbound_parts(context: &RequestContext<RoleServer>) -> Option<&http::request::Parts> {
     context.extensions.get::<http::request::Parts>()
 }
 
-/// Opens the `mcp.request` span for one method (§10).
+/// Opens the `mcp.request` span for one method.
 ///
 /// **It is opened here, not in a tower layer, and that is the load-bearing part.** The method
 /// name, the negotiated era and `clientInfo` all live inside the JSON-RPC body or its `_meta`,
@@ -161,7 +161,7 @@ pub(crate) fn mcp_request_span(
     span
 }
 
-/// Renders a [`ToolError`] as the in-band result the model reads (D18, D19, §8.4).
+/// Renders a [`ToolError`] as the in-band result the model reads.
 ///
 /// `isError: true`, HTTP `200`: anything the model could act on must be something it can see and
 /// self-correct from.
@@ -173,7 +173,7 @@ pub fn tool_error_result(error: &ToolError) -> CallToolResponse {
     CallToolResult::error(vec![ContentBlock::text(text)]).into()
 }
 
-/// What one tool call did, as the runtime needs to report it (§10).
+/// What one tool call did, as the runtime needs to report it.
 ///
 /// Put into the request's extensions by [`CatalogHandler::call_tool`] before dispatch, and filled
 /// in by the tool's route — which is the only place that knows which [`ToolError`] it rendered and
@@ -224,13 +224,13 @@ impl CallRecord {
     }
 }
 
-/// How many bytes a result serialises to, for `mcp_response_bytes` (§10, D34).
+/// How many bytes a result serialises to, for `mcp_response_bytes`.
 ///
 /// **Measured, never acted on.** There is no runtime cap on any tool's response.
 ///
 /// `CallToolResponse` is a `#[non_exhaustive]` enum with no `Serialize`, so the measurement is
 /// taken from the `Complete` variant's result — which is the only one this server ever
-/// constructs (§5.5 rule 2).
+/// constructs (rule 2 of the tool-authoring contract).
 fn response_bytes(response: &CallToolResponse) -> usize {
     match response {
         CallToolResponse::Complete(result) => serde_json::to_vec(result)
@@ -240,16 +240,16 @@ fn response_bytes(response: &CallToolResponse) -> usize {
     }
 }
 
-/// The caller's identity for this request (§6.2).
+/// The caller's identity for this request.
 ///
 /// Two digs, because the value the tower layer inserted sits one level deeper than the `Parts`
 /// the transport injected: `RequestContext.extensions` holds the `Parts`, and the layer's
 /// `MiaIdentity` is inside `Parts.extensions`.
 ///
-/// **It is read on every call and never cached on the handler** (D4): in legacy mode one handler
+/// **It is read on every call and never cached on the handler**: in legacy mode one handler
 /// instance serves a whole session, so a field here would be a cross-request leak. An absent
 /// identity yields an empty one rather than an error — the server relays identity, it does not
-/// adjudicate it (D47).
+/// adjudicate it.
 pub fn caller_identity(context: &RequestContext<RoleServer>) -> CallerIdentity {
     inbound_parts(context)
         .and_then(|parts| parts.extensions.get::<MiaIdentity>())
@@ -259,9 +259,9 @@ pub fn caller_identity(context: &RequestContext<RoleServer>) -> CallerIdentity {
 
 impl ServerHandler for CatalogHandler {
     /// Server identity, used by both `server/discover` and `initialize`, so the two eras cannot
-    /// describe different servers (§5.3).
+    /// describe different servers.
     ///
-    /// Capabilities are `tools` only (D5). `listChanged` is left **absent**, which is what "not
+    /// Capabilities are `tools` only. `listChanged` is left **absent**, which is what "not
     /// supported" means on the wire and what the builder produces; tool-set invalidation is the
     /// cache hint, not a push.
     fn get_info(&self) -> ServerConfig {
@@ -273,7 +273,7 @@ impl ServerHandler for CatalogHandler {
             ))
     }
 
-    /// We do not restrict the advertised protocol versions (D3).
+    /// We do not restrict the advertised protocol versions.
     ///
     /// Whatever `rmcp` supports is what we support: the set is read from the SDK, never
     /// hardcoded, so an SDK upgrade cannot leave us advertising a revision we no longer serve.
@@ -282,7 +282,7 @@ impl ServerHandler for CatalogHandler {
         Cow::Borrowed(ProtocolVersion::KNOWN_VERSIONS)
     }
 
-    /// `server/discover` with the real cache hints (D13).
+    /// `server/discover` with the real cache hints.
     ///
     /// The SDK derives the whole payload from `get_info()` and `supported_protocol_versions()`;
     /// the only thing wrong with its default is `ttlMs: 0`, so that is the only thing we touch.
@@ -301,7 +301,7 @@ impl ServerHandler for CatalogHandler {
         std::future::ready(Ok(result))
     }
 
-    /// The prebuilt, byte-budgeted `tools/list` (D12, D13).
+    /// The prebuilt, byte-budgeted `tools/list`.
     ///
     /// Hand-written rather than macro-generated for two reasons, of which the second is the
     /// larger: the macro answers `cacheScope: Public` with `ttlMs: 0`, and the payload itself is
@@ -320,7 +320,7 @@ impl ServerHandler for CatalogHandler {
         span.record("outcome", Outcome::Ok.as_str());
         span.record("bytes_out", self.state.registry.serialised_bytes());
 
-        // `"private"` is kept even though the set is identical for every caller (D22), because
+        // `"private"` is kept even though the set is identical for every caller, because
         // `"public"` licenses an intermediary to share the response between callers even when it
         // came from an authenticated endpoint — a one-way door, for no measurable saving on a
         // payload this size.
@@ -333,7 +333,7 @@ impl ServerHandler for CatalogHandler {
         std::future::ready(Ok(result))
     }
 
-    /// The same normalised schema `list_tools` served (D17).
+    /// The same normalised schema `list_tools` served.
     ///
     /// This is ours **only** because the SDK's `Mcp-Param-*` validation reads it: two sources
     /// for one schema would diverge silently.
@@ -341,7 +341,7 @@ impl ServerHandler for CatalogHandler {
         self.state.registry.tool(name)
     }
 
-    /// D5 — capabilities are `tools` only, and these four make that true **on the wire**.
+    /// Capabilities are `tools` only, and these four make that true **on the wire**.
     ///
     /// The SDK's default `ServerHandler` answers `prompts/list`, `resources/list`,
     /// `resources/templates/list` and `completion/complete` with an empty success rather than
@@ -390,14 +390,15 @@ impl ServerHandler for CatalogHandler {
 
     /// Dispatches one tool call.
     ///
-    /// Identity is read from the request context on every call, never from a handler field
-    /// (D4). Unknown-tool is the SDK router's path and we never implement it.
+    /// Identity is read from the request context on every call, never from a handler field,
+    /// because one handler instance may serve many requests. Unknown-tool is the SDK router's path
+    /// and we never implement it.
     fn call_tool(
         &self,
         request: CallToolRequestParams,
         context: RequestContext<RoleServer>,
     ) -> impl Future<Output = Result<CallToolResponse, McpError>> + Send + '_ {
-        // §7.2 — decode the ACL context for the tenant log and metric fields, and carry on
+        // Decode the ACL context for the tenant log and metric fields, and carry on
         // whatever it says. The principal id is recorded as received and never required: it is
         // an actor id rather than a secret, and it is the field that makes an audit trail
         // followable. The raw ACL context and the bearer are never logged.
@@ -405,7 +406,7 @@ impl ServerHandler for CatalogHandler {
         let tool = request.name.to_string();
         let span = mcp_request_span("tools/call", Some(&tool), &context, &identity);
 
-        // §6.4 — the limiter runs **after** identity and **before** the tool, and is keyed by
+        // The limiter runs **after** identity and **before** the tool, and is keyed by
         // tenant. `list_tools` and `get_tool` are not limited, being prebuilt and free.
         let limited = match self.state.rate_limiter.check(&identity.tenant_key()) {
             RateLimitDecision::Allowed => None,
@@ -431,7 +432,7 @@ impl ServerHandler for CatalogHandler {
                     let cancellation = context.request_context().ct.clone();
 
                     // The tool runs **inside** `mcp.request`, so every `engine.request` span its
-                    // client opens is a child of this call's span (§10).
+                    // client opens is a child of this call's span.
                     let dispatched = self
                         .state
                         .registry
@@ -441,8 +442,8 @@ impl ServerHandler for CatalogHandler {
                         .await;
 
                     match dispatched {
-                        // §5.5 rule 5 — the client going away is recorded, never surfaced to a
-                        // peer that is gone. A tool that loops or polls also `select!`s on its
+                        // Contract rule 5 — the client going away is recorded, never surfaced
+                        // to a peer that is gone. A tool that loops or polls also `select!`s on its
                         // own clone of this token; this is the runtime's half of the rule.
                         Ok(response) if cancellation.is_cancelled() => {
                             (response, Outcome::Cancelled, Remedy::Retry, None)
@@ -482,10 +483,10 @@ impl ServerHandler for CatalogHandler {
                 bytes,
             );
 
-            // One event **inside** the span, so its fields are observable at all. With the
-            // logging stack of D41 — `tracing-subscriber`'s JSON layer to stdout — a span with
+            // One event **inside** the span, so its fields are observable at all. With our
+            // logging stack — `tracing-subscriber`'s JSON layer to stdout — a span with
             // no event in it never prints: spans surface only as context on events. Without
-            // this line every §10 field on `mcp.request` would exist and be invisible.
+            // this line every field on `mcp.request` would exist and be invisible.
             span.in_scope(|| {
                 tracing::info!(
                     outcome = outcome.as_str(),
@@ -501,7 +502,7 @@ impl ServerHandler for CatalogHandler {
     }
 }
 
-/// The `rate_limited` tool error of §8.4, carrying the wait the model should honour.
+/// The `rate_limited` tool error, carrying the wait the model should honour.
 fn rate_limited(retry_after_ms: u64) -> ToolError {
     ToolError::new(
         codes::RATE_LIMITED,

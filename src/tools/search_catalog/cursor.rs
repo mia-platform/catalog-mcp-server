@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// T2 §6 — what a search cursor pins, and the fingerprint that stops it being replayed against a
+// What a search cursor pins, and the fingerprint that stops it being replayed against a
 // different search. The wrapper, its versioning and its encoding are the core's `ToolCursor`.
 
 use catalog_client::{
@@ -34,7 +34,7 @@ struct SearchPinned {
     coordinates: Option<PinnedFamily>,
 
     /// How many items earlier pages returned — what makes a later page's `total` right without
-    /// a count call when that page is not full (T2-D5).
+    /// a count call when that page is not full.
     #[serde(rename = "n")]
     returned: u64,
 }
@@ -66,10 +66,10 @@ pub struct Resumed {
 
 /// The fingerprint of one search: its predicate and the type it was restricted to.
 ///
-/// The `kind` and `group` **arguments** stand in for the resolved coordinates the plan names: the
-/// coordinates are only known after the cursor is decoded, and the same pair resolves to the same
-/// family, so pinning the arguments gives the same protection. Changing any filter, the query,
-/// the `kind` or the `group` makes an old cursor refuse to continue.
+/// The `kind` and `group` **arguments** stand in for the resolved coordinates a fingerprint would
+/// pin: the coordinates are only known after the cursor is decoded, and the same pair resolves to
+/// the same family, so pinning the arguments gives the same protection. Changing any filter, the
+/// query, the `kind` or the `group` makes an old cursor refuse to continue.
 pub fn fingerprint(
     kind: Option<&str>,
     group: Option<&str>,
@@ -108,7 +108,7 @@ pub fn mint(
 /// together.
 ///
 /// **Never** treated as end-of-results: a model that read a bad cursor as "no more" would
-/// silently truncate its own answer (D32).
+/// silently truncate its own answer.
 pub fn resume(
     raw: &str,
     fingerprint: &str,

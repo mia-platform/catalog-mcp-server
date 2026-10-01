@@ -161,7 +161,7 @@ async fn mount_catch_all(engine: &MockEngine) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// NFR-11 — the propagation guarantee, as three tests rather than a convention (§7.4).
+// The identity-propagation guarantee, as three tests rather than a convention.
 // ---------------------------------------------------------------------------------------------
 
 /// (a) **Every** method in `ops` sends `x-mia-acl-context` *and* `x-mia-principal-id` when both
@@ -235,7 +235,7 @@ fn test_every_declared_operation_is_listed() {
 }
 
 /// The operation list and the exercised set must not drift apart: this is the assertion that
-/// makes the test above meaningful when a wave adds an operation.
+/// makes the test above meaningful when a new tool adds an operation.
 #[rstest]
 fn test_the_operation_list_matches_what_the_client_implements() {
     let ids: Vec<&str> = OPERATIONS.iter().map(|spec| spec.id).collect();
@@ -324,9 +324,9 @@ async fn test_nothing_is_synthesised_when_no_identity_arrives() {
     assert!(requests[0].headers.get(AUTHORIZATION_HEADER).is_none());
 }
 
-/// **D47, asserted negatively.** A request with no identity at all still produces an engine
-/// call: the server returns no `401` and raises no error of its own. This is the test that fails
-/// if somebody re-adds a gate.
+/// **Absent identity is never refused, asserted negatively.** A request with no identity at all
+/// still produces an engine call: the server returns no `401` and raises no error of its own. This
+/// is the test that fails if somebody re-adds a gate.
 #[rstest]
 #[tokio::test]
 async fn test_a_request_with_no_identity_still_reaches_the_engine() {
@@ -375,7 +375,7 @@ async fn test_an_acl_only_identity_is_forwarded_as_it_arrived() {
     assert!(requests[0].headers.get(AUTHORIZATION_HEADER).is_none());
 }
 
-/// D26 — `acl-filter` is never sent. It is policy-injected, and a second occurrence is a `400`.
+/// `acl-filter` is never sent. It is policy-injected, and a second occurrence is a `400`.
 #[rstest]
 #[tokio::test]
 async fn test_the_acl_filter_parameter_is_never_sent() {
@@ -401,7 +401,7 @@ async fn test_the_acl_filter_parameter_is_never_sent() {
     }
 }
 
-/// D26 — `x-jwt-payload` is dropped: it carries unverified claims by construction, and a field
+/// `x-jwt-payload` is dropped: it carries unverified claims by construction, and a field
 /// that exists on one of two ingress paths becomes load-bearing by accident.
 #[rstest]
 #[tokio::test]
@@ -453,7 +453,7 @@ async fn test_get_item_addresses_the_right_path() {
     );
 }
 
-/// T9-D2 — the delete goes to the item's path, as a `DELETE`, carrying the token it was given.
+/// The delete goes to the item's path, as a `DELETE`, carrying the token it was given.
 #[rstest]
 #[tokio::test]
 async fn test_delete_item_sends_the_resource_version() {
@@ -481,7 +481,7 @@ async fn test_delete_item_sends_the_resource_version() {
     assert_eq!(requests[0].url.query(), Some("resourceVersion=42"));
 }
 
-/// T9-D4 — a `204` can still carry the cascade warning, and it must reach the caller.
+/// A `204` can still carry the cascade warning, and it must reach the caller.
 #[rstest]
 #[tokio::test]
 async fn test_a_delete_keeps_the_engines_warning() {
@@ -504,7 +504,7 @@ async fn test_a_delete_keeps_the_engines_warning() {
     assert!(response.warnings[0].text.contains("orphaned relationships"));
 }
 
-/// D20, D23 — a delete is never retried, and a failure after dispatch may have landed.
+/// A delete is never retried, and a failure after dispatch may have landed.
 #[rstest]
 #[case::internal_error(500)]
 #[case::unavailable(503)]
@@ -656,7 +656,7 @@ async fn test_item_type_definitions_are_shaped() {
 }
 
 /// An item whose type no longer exists is unaddressable — a real engine state, reported as
-/// such, never as an empty result (D30).
+/// such, never as an empty result.
 #[rstest]
 #[tokio::test]
 async fn test_an_item_without_a_family_cannot_be_addressed() {
@@ -687,7 +687,7 @@ async fn test_an_item_without_a_family_cannot_be_addressed() {
 }
 
 /// The mock engine must be able to emit a paginated list whose `metadata.continue` walks exactly
-/// once — §12.5's own requirement — and `paginate_all` must follow it.
+/// once, and `paginate_all` must follow it.
 #[rstest]
 #[tokio::test]
 async fn test_a_paginated_listing_walks_exactly_once() {
@@ -742,7 +742,7 @@ async fn test_a_paginated_listing_walks_exactly_once() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §8.4 — whose fault a `400` is, decided by what the request carried.
+// Whose fault a `400` is, decided by what the request carried.
 // ---------------------------------------------------------------------------------------------
 
 /// `field`, `label` and `sort` are the caller's; `limit`, the cursor and `rawq` are ours.
@@ -776,7 +776,7 @@ fn test_a_listings_bad_request_origin_follows_what_it_carries(
 }
 
 /// A `400` on a listing built entirely by us is **our** defect, and the model is told so rather
-/// than being asked to change arguments it never sent (T1 §9).
+/// than being asked to change arguments it never sent.
 #[rstest]
 #[tokio::test]
 async fn test_a_400_on_a_listing_we_built_is_a_server_defect() {
@@ -845,7 +845,7 @@ async fn test_a_400_on_the_tenant_listing_is_a_server_defect() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T2 — the family listing and the two counts.
+// `search_catalog` — the family listing and the two counts.
 // ---------------------------------------------------------------------------------------------
 
 /// The family listing reaches `/{group}/{version}/items/{family}` with the metadata-only
@@ -949,7 +949,7 @@ async fn test_the_counts_send_only_the_query() {
     }
 }
 
-/// T3-D1 and T3-D7 — the relationships call is addressed by the item, asks for the partial
+/// The relationships call is addressed by the item, asks for the partial
 /// projection, and sends **only** paging and `direction`: never `groupBy`, never `rawq`.
 #[rstest]
 #[tokio::test]
@@ -997,7 +997,7 @@ async fn test_the_relationships_call_never_sends_group_by_or_rawq() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-06 — a `502` is the authorization service's only where the operation proxies it.
+// A `502` is the authorization service's only where the operation proxies it.
 // ---------------------------------------------------------------------------------------------
 
 /// `list_tenants` is proxied to authz, so its `502` says so; on every catalog read a `502` comes
@@ -1027,7 +1027,7 @@ async fn test_a_502_is_mapped_per_operation(
         .expect_err("a 502 is an error");
 
     assert_eq!((error.code, error.remedy), (expected, Remedy::Retry));
-    // T11 §7: the two are told apart in wording as well as in code.
+    // The two are told apart in wording as well as in code.
     assert_eq!(
         error.message.contains("authorization service"),
         expected == codes::UPSTREAM_UNAVAILABLE,

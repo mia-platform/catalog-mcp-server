@@ -20,31 +20,31 @@ use http::{HeaderMap, HeaderName, HeaderValue};
 use serde::Deserialize;
 use zeroize::{Zeroize, ZeroizeOnDrop};
 
-/// Tenancy. **Tier 1 of the D26 allowlist**: forwarded byte-for-byte on every outbound request.
+/// Tenancy. **Tier 1 of the header allowlist**: forwarded byte-for-byte on every outbound request.
 pub const ACL_CONTEXT_HEADER: HeaderName = HeaderName::from_static("x-mia-acl-context");
 
-/// Ownership and attribution. **Tier 1 of the D26 allowlist**, and new to this server: the
+/// Ownership and attribution. **Tier 1 of the header allowlist**, and new to this server: the
 /// previous one forwarded only `authorization` and `x-mia-acl-context`, which is why every agent
 /// write is unattributed in revisions and audit today.
 pub const PRINCIPAL_ID_HEADER: HeaderName = HeaderName::from_static("x-mia-principal-id");
 
-/// The caller's bearer. **Tier 2 of the D26 allowlist**: passed through when present.
+/// The caller's bearer. **Tier 2 of the header allowlist**: passed through when present.
 pub const AUTHORIZATION_HEADER: HeaderName = HeaderName::from_static("authorization");
 
-/// Request correlation. **Tier 2 of the D26 allowlist**: passed through when present.
+/// Request correlation. **Tier 2 of the header allowlist**: passed through when present.
 pub const REQUEST_ID_HEADER: HeaderName = HeaderName::from_static("x-request-id");
 
-/// What `organization` and `tenant` are reported as when no usable ACL context arrived (§7.2).
+/// What `organization` and `tenant` are reported as when no usable ACL context arrived.
 ///
-/// Absent or malformed identity is recorded and carried, never rejected (D47): the engine fails
+/// Absent or malformed identity is recorded and carried, never rejected: the engine fails
 /// the request authoritatively, and on a gateway-routed hop the policy has already replaced the
 /// value anyway.
 pub const UNKNOWN_TENANT: &str = "unknown";
 
-/// A value that must never be logged and must not outlive its use (D45).
+/// A value that must never be logged and must not outlive its use.
 ///
-/// `secret_rs` is not vendored in this repository, so this is the local wrapper the decision
-/// allows for. It wraps exactly one thing today: the forwarded bearer token.
+/// `secret_rs` is not vendored in this repository, so this is a local wrapper. It wraps exactly one
+/// thing today: the forwarded bearer token.
 #[derive(Clone, Default, PartialEq, Eq, ZeroizeOnDrop)]
 pub struct Sensitive<T: Zeroize>(T);
 
@@ -72,7 +72,7 @@ impl<T: Zeroize> std::fmt::Display for Sensitive<T> {
     }
 }
 
-/// The decoded `x-mia-acl-context`, kept **only** for logging and tenancy (D47).
+/// The decoded `x-mia-acl-context`, kept **only** for logging and tenancy.
 ///
 /// The header itself is forwarded as the received string and never re-encoded from this — that
 /// is how a `tenantName` gets dropped.
@@ -94,8 +94,9 @@ pub struct AclContext {
 impl AclContext {
     /// Decodes the header value: URL-safe base64 without padding, of a JSON object.
     ///
-    /// Returns `None` rather than an error for anything unusable. **This is D47**: the server
-    /// does not adjudicate identity, so a malformed context costs us a log field, not a request.
+    /// Returns `None` rather than an error for anything unusable. **This is deliberate**: the
+    /// server does not adjudicate identity, so a malformed context costs us a log field, not a
+    /// request.
     pub fn decode(raw: &str) -> Option<Self> {
         let decoded = URL_SAFE_NO_PAD.decode(raw).ok()?;
 
@@ -111,9 +112,9 @@ impl AclContext {
     }
 }
 
-/// The tenant log and metric field (§7.4).
+/// The tenant log and metric field.
 ///
-/// **Nothing is keyed by it, because nothing is stored** (D31). It exists to label a span, a log
+/// **Nothing is keyed by it, because nothing is stored**. It exists to label a span, a log
 /// line and a rate-limit bucket, and for no other purpose.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct TenantKey {
@@ -139,15 +140,15 @@ impl std::fmt::Display for TenantKey {
     }
 }
 
-/// The caller's identity, as forwarded (§7.4).
+/// The caller's identity, as forwarded.
 ///
-/// **The identity pair is forwarded on every outbound engine request, unmodified (NFR-11, D26).**
+/// **The identity pair is forwarded on every outbound engine request, unmodified.**
 /// That is a property of this type, not of each call site: [`Self::forwarded`] is built once, and
 /// `EngineClient` exposes **no method taking a `HeaderMap`** — every request method applies it
 /// itself, so a tool or an operation cannot construct a request that omits the pair.
 ///
 /// Nothing here is validated and nothing is synthesised. No default tenant, no principal derived
-/// from anything else: an absent principal id stays absent (D47), because inventing one would
+/// from anything else: an absent principal id stays absent, because inventing one would
 /// attribute a write to somebody who did not make it, and a misattributed write is worse than an
 /// unattributed one.
 #[derive(Clone, Debug, Default)]
@@ -204,7 +205,7 @@ impl CallerIdentity {
         }
     }
 
-    /// The headers to put on every outbound engine request: the D26 allowlist, nothing else.
+    /// The headers to put on every outbound engine request: the header allowlist, nothing else.
     ///
     /// `acl-filter` is never here — it is policy-injected and a client must never send it — and
     /// neither is `x-jwt-payload`, which carries unverified claims by construction.
@@ -217,7 +218,7 @@ impl CallerIdentity {
         self.acl.as_ref()
     }
 
-    /// The forwarded bearer, wrapped so it cannot be logged (D45).
+    /// The forwarded bearer, wrapped so it cannot be logged.
     pub fn bearer(&self) -> Option<&Sensitive<String>> {
         self.bearer.as_ref()
     }
@@ -273,7 +274,7 @@ mod tests {
         assert_eq!(acl.tenant_name.as_deref(), Some("My Tenant"));
     }
 
-    /// D47 — a malformed context costs a log field, not a request.
+    /// A malformed context costs a log field, not a request.
     #[rstest]
     #[case::not_base64("!!! not base64 !!!")]
     #[case::not_json("bm90IGpzb24")]
@@ -282,7 +283,7 @@ mod tests {
         assert_eq!(AclContext::decode(raw), None);
     }
 
-    /// NFR-11 (b) — the bytes forwarded are byte-identical to the bytes received, including a
+    /// The bytes forwarded are byte-identical to the bytes received, including a
     /// `tenantName` that survives, because the header is carried and never re-encoded.
     #[rstest]
     fn test_acl_context_is_forwarded_verbatim() {
@@ -301,7 +302,7 @@ mod tests {
         );
     }
 
-    /// NFR-11 (b) — the principal id is validated as a UUID and then forwarded as the original
+    /// The principal id is validated as a UUID and then forwarded as the original
     /// string, so canonicalisation cannot change its casing.
     #[rstest]
     fn test_principal_id_casing_is_not_canonicalised() {
@@ -312,8 +313,8 @@ mod tests {
         assert_eq!(identity.principal_id(), Some(principal));
     }
 
-    /// A principal id that is not a UUID is not forwarded — but it is not an error either
-    /// (D47). The engine's own extractor is `Infallible` for the same reason.
+    /// A principal id that is not a UUID is not forwarded — but it is not an error either. The
+    /// engine's own extractor is `Infallible` for the same reason.
     #[rstest]
     fn test_malformed_principal_id_is_dropped_without_an_error() {
         let identity = CallerIdentity::new(None, Some("not-a-uuid"), None, None);
@@ -322,7 +323,7 @@ mod tests {
         assert!(identity.forwarded().get(PRINCIPAL_ID_HEADER).is_none());
     }
 
-    /// NFR-11 (c) — neither header is ever synthesised: with none inbound, none goes out.
+    /// Neither header is ever synthesised: with none inbound, none goes out.
     #[rstest]
     fn test_nothing_is_synthesised_when_nothing_arrives() {
         let identity = CallerIdentity::new(None, None, None, None);
@@ -333,7 +334,7 @@ mod tests {
         assert!(identity.bearer().is_none());
     }
 
-    /// §7.2 — an absent or malformed context records `tenant = unknown` and carries on.
+    /// An absent or malformed context records `tenant = unknown` and carries on.
     #[rstest]
     fn test_tenant_key_is_unknown_without_a_context() {
         let identity = CallerIdentity::new(None, None, None, None);
@@ -350,7 +351,7 @@ mod tests {
         assert_eq!(identity.tenant_key().to_string(), "my-org/my-tenant");
     }
 
-    /// D45 — the bearer is never printable, by either formatter.
+    /// The bearer is never printable, by either formatter.
     #[rstest]
     fn test_bearer_is_redacted_in_both_formatters() {
         let identity = CallerIdentity::new(None, None, Some("Bearer test-token"), None);
@@ -362,7 +363,7 @@ mod tests {
         assert!(!format!("{identity:?}").contains("test-token"));
     }
 
-    /// D26 — nothing outside the allowlist is ever forwarded.
+    /// Nothing outside the allowlist is ever forwarded.
     #[rstest]
     fn test_only_the_allowlist_is_forwarded() {
         let raw = mock_acl_header(r#"{"organization":"my-org","tenant":"my-tenant"}"#);

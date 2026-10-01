@@ -29,7 +29,7 @@ pub mod item_type_definition;
 /// The engine's list and count envelopes.
 pub mod list;
 
-/// A relationship between two items, as the relationships listing returns it (T3).
+/// A relationship between two items, as the relationships listing returns it.
 pub mod relationship;
 
 /// Tenants, as the authz service describes them.

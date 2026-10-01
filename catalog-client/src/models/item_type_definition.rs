@@ -61,7 +61,7 @@ pub struct TypeVersion {
     pub name: String,
 
     /// Whether items are served under this version. **A type with no served version is not
-    /// addressable** and is reported as such (§8.6).
+    /// addressable** and is reported as such.
     #[serde(rename = "served")]
     pub served: bool,
 
@@ -70,12 +70,12 @@ pub struct TypeVersion {
     pub deprecated: Option<bool>,
 
     /// The JSON Schema of this version's `spec`. The largest part of an Item Type Definition by
-    /// far, and the whole of what the coordinates-projection ask would remove (§17.4).
+    /// far, and the whole of what the coordinates-projection ask would remove.
     #[serde(rename = "schema", default, skip_serializing_if = "Option::is_none")]
     pub schema: Option<Value>,
 
-    /// The field selectors this version exposes, which is what T2 validates a `fields` filter
-    /// against.
+    /// The field selectors this version exposes, which is what `search_catalog` validates a
+    /// `fields` filter against.
     #[serde(
         rename = "selectableFields",
         default,
@@ -105,7 +105,7 @@ pub struct ItemTypeDefinitionSpec {
     pub versions: Vec<TypeVersion>,
 
     /// The briefing written for a model. Returned **verbatim** when present and omitted when
-    /// absent; never summarised (T1, T6).
+    /// absent; never summarised.
     #[serde(
         rename = "llmDescription",
         default,
@@ -113,7 +113,8 @@ pub struct ItemTypeDefinitionSpec {
     )]
     pub llm_description: Option<String>,
 
-    /// Revision-history settings, which decide whether T3 and T1 can offer history at all.
+    /// Revision-history settings, which decide whether `describe_item` and `list_catalog_types`
+    /// can offer history at all.
     #[serde(rename = "history", default, skip_serializing_if = "Option::is_none")]
     pub history: Option<Value>,
 
@@ -162,11 +163,11 @@ impl ItemTypeDefinitionSpec {
     }
 }
 
-/// One entry of the type listing, read **only** as far as T1 needs it (T1 §5).
+/// One entry of the type listing, read **only** as far as `list_catalog_types` needs it.
 ///
-/// There is no `metadata` and nothing past the names and versions: T1 addresses a type by its
-/// `spec`, never by decomposing `metadata.name`, and every field not declared here is skipped by
-/// the deserialiser without being built.
+/// There is no `metadata` and nothing past the names and versions: `list_catalog_types`
+/// addresses a type by its `spec`, never by decomposing `metadata.name`, and every field not
+/// declared here is skipped by the deserialiser without being built.
 #[derive(Clone, Deserialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
 pub struct ItdListEntry {
@@ -191,7 +192,7 @@ pub struct ItdSpec {
     #[serde(rename = "versions", default)]
     pub versions: Vec<ItdVersion>,
 
-    /// The briefing written for a model, returned verbatim (T1 §7).
+    /// The briefing written for a model, returned verbatim.
     #[serde(rename = "llmDescription", default)]
     pub llm_description: Option<String>,
 
@@ -200,7 +201,7 @@ pub struct ItdSpec {
     pub history: Option<ItdHistory>,
 }
 
-/// One version of a type, **without its schema** (T1-D3).
+/// One version of a type, **without its schema**.
 ///
 /// `schema` is deliberately not declared. It is ~90 % of the listing's bytes and the type
 /// listing never reads it, so it is left to the deserialiser to skip — which walks it without

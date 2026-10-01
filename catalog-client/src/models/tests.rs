@@ -23,7 +23,7 @@ use rstest::rstest;
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 
-/// A link the engine accepts: its own schema example is a bare `{"url": …}` (F-01).
+/// A link the engine accepts: its own schema example is a bare `{"url": …}`.
 fn mock_titleless_links() -> Value {
     json!([
         { "url": "https://example.com/runbook" },

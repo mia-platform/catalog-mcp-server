@@ -28,20 +28,20 @@ use serde_json::{Value, json};
 /// The selector the point lookup filters on.
 const KIND_SELECTOR: &str = "spec.names.kind";
 
-/// How many near matches an unknown `kind` is answered with (T2-D9, and T3 by reference).
+/// How many near matches an unknown `kind` is answered with.
 pub const MAX_KIND_CANDIDATES: usize = 5;
 
 /// The selector a `group` narrows the lookup by.
 const GROUP_SELECTOR: &str = "spec.group";
 
-/// How many rows an exact `(group, kind)` lookup asks for (T6-D2): **two**. The pair is unique by
+/// How many rows an exact `(group, kind)` lookup asks for: **two**. The pair is unique by
 /// the engine's own constraint (`UNIQUE (spec_group, spec_names_kind)`), so a second row cannot
 /// happen — which is exactly why asking for it costs nothing and makes a broken invariant visible.
 const EXACT_LOOKUP_LIMIT: u32 = 2;
 
 /// How many rows a `kind`-only lookup asks for. A kind is unique per **group**, not per tenant,
 /// so several types can share one — the seeded catalogue's worst case is three (`Project`) — and
-/// every one of them must come back to be offered as a candidate (DR-80).
+/// every one of them must come back to be offered as a candidate.
 const SHARED_KIND_LIMIT: u32 = 20;
 
 /// Whether `kind` matches the engine's `kind` grammar, `^[a-zA-Z][a-zA-Z0-9]*$`
@@ -56,7 +56,7 @@ pub fn is_valid_kind(kind: &str) -> bool {
         && characters.all(|rest| rest.is_ascii_alphanumeric())
 }
 
-/// Where a kind's items live, plus the two fields that come back in the same response (§8.6).
+/// Where a kind's items live, plus the two fields that come back in the same response.
 ///
 /// Returning `selectable_fields` and `history_enabled` here is not scope creep: they arrive in
 /// the response the lookup already made, and fetching them separately would be a second request
@@ -95,11 +95,11 @@ impl TypeCoordinates {
 
 /// One type definition, both as the engine sent it and as this client reads it.
 ///
-/// `raw` is the engine's JSON, untouched. It exists for T6, which hands a definition to a model that
-/// may go on to edit it with T12: T12 merge-patches `spec`, which replaces arrays such as
-/// `versions` whole, so any field the typed model does not declare — a version's
-/// `deprecationWarning`, say — would be silently erased by an edit built from a re-serialised copy
-/// (DR-86). `definition` is what every decision here is made on.
+/// `raw` is the engine's JSON, untouched. It exists for `get_item_schema`, which hands a
+/// definition to a model that may go on to edit it with `apply_item_type`: that tool
+/// merge-patches `spec`, which replaces arrays such as `versions` whole, so any field the typed
+/// model does not declare — a version's `deprecationWarning`, say — would be silently erased by
+/// an edit built from a re-serialised copy. `definition` is what every decision here is made on.
 #[derive(Clone)]
 #[cfg_attr(any(test, feature = "testing"), derive(Debug))]
 pub struct ItemTypeDocument {
@@ -134,7 +134,7 @@ fn read_definition(raw: &Value) -> Result<ItemTypeDefinition, ToolError> {
     })
 }
 
-/// The one request both coordinate resolution and T6's schema read make (P9, D30, T6-D1).
+/// The one request both coordinate resolution and `get_item_schema`'s schema read make.
 async fn lookup(
     engine: &EngineClient,
     kind: &str,
@@ -177,15 +177,15 @@ async fn lookup(
     })
 }
 
-/// The Item Type Definition a `kind` — and, when it is shared, a `group` — names (P9, D30, T6-D1).
+/// The Item Type Definition a `kind` — and, when it is shared, a `group` — names.
 ///
 /// A tenant-scoped point lookup on denormalised, filterable columns, in **one** request on the happy
 /// path — never a cache read, so it cannot be stale and there is no tenant key to get wrong. The
 /// **only** place that knows this URL.
 ///
-/// **A kind is unique per group, not per tenant** (DR-80): `Service`, `Project` and four more are
-/// shared by several groups in the seeded catalogue. So a shared kind is never guessed at — the
-/// failure T3-D6 and T6-D2 exist to prevent — and `group` is how the caller says which.
+/// **A kind is unique per group, not per tenant**: `Service`, `Project` and four more are
+/// shared by several groups in the seeded catalogue. So a shared kind is never guessed at, and
+/// `group` is how the caller says which.
 ///
 /// # Errors
 ///
@@ -196,7 +196,7 @@ async fn lookup(
 ///   more request on this error path only;
 /// - no such kind in this tenant → the lookup echoed in `details`;
 /// - two rows for one `(group, kind)` → `server_defect`, logged with both names: the engine's own
-///   uniqueness constraint is broken, and neither row may be picked (T6-D2).
+///   uniqueness constraint is broken, and neither row may be picked.
 pub async fn find_item_type(
     engine: &EngineClient,
     kind: &str,
@@ -207,7 +207,7 @@ pub async fn find_item_type(
         .map(|(document, warnings)| (document.definition, warnings))
 }
 
-/// [`find_item_type`], keeping the engine's raw document alongside the typed one (DR-86).
+/// [`find_item_type`], keeping the engine's raw document alongside the typed one.
 ///
 /// # Errors
 ///
@@ -238,11 +238,11 @@ pub async fn find_item_type_document(
 }
 
 /// [`find_item_type_document`] for a caller to whom **no such type** is an answer, not an error —
-/// T12, for which it means *create*.
+/// `apply_item_type`, for which it means *create*.
 ///
 /// `Ok(None)` when no type has this kind (in `group`, when given). With a `group`, a kind that
-/// exists only in *other* groups is still `None`: a kind is unique per group (DR-80), so creating it
-/// in a new one is legitimate. A shared kind without a `group`, and a broken invariant, are the
+/// exists only in *other* groups is still `None`: a kind is unique per group, so creating it in a
+/// new one is legitimate. A shared kind without a `group`, and a broken invariant, are the
 /// same errors as [`find_item_type_document`]'s.
 ///
 /// # Errors
@@ -288,8 +288,8 @@ fn unknown_kind(kind: &str) -> ToolError {
     .with_next_step("call list_catalog_types to see the kinds that do exist")
 }
 
-/// Several types share this kind, and nothing says which (DR-80). The same answer T3-D6 gives an
-/// ambiguous item name: the candidates, never a pick.
+/// Several types share this kind, and nothing says which. The same answer `describe_item` gives
+/// an ambiguous item name: the candidates, never a pick.
 fn shared_kind(kind: &str, definitions: &[ItemTypeDefinition]) -> ToolError {
     ToolError::new(
         codes::NOT_FOUND,
@@ -342,7 +342,7 @@ fn broken_invariant(kind: &str, group: &str, definitions: &[ItemTypeDefinition])
     .with_details(json!({ "kind": kind, "group": group, "itemTypes": names }))
 }
 
-/// Resolves `kind` (and `group`, when the kind is shared) to `{group, version, family}` (P9, D30).
+/// Resolves `kind` (and `group`, when the kind is shared) to `{group, version, family}`.
 ///
 /// # Errors
 ///
@@ -361,8 +361,8 @@ pub async fn resolve_kind(
 /// [`resolve_kind`], answering an unknown `kind` with the types it was probably meant to be.
 ///
 /// A bare `not_found` tells the model nothing, so on that path — **and only that one** — the types
-/// are listed once and up to [`MAX_KIND_CANDIDATES`] near matches go into `details.candidates`
-/// (T2-D9): a case-insensitive substring, in both directions, over each type's `kind`, family and
+/// are listed once and up to [`MAX_KIND_CANDIDATES`] near matches go into `details.candidates`:
+/// a case-insensitive substring, in both directions, over each type's `kind`, family and
 /// display name, with no edit distance. If that listing fails too, the original `not_found` is
 /// returned unchanged rather than masked. A shared kind or a wrong group already carries its own
 /// candidates, and is left as it is. The happy path costs nothing extra.
@@ -377,7 +377,7 @@ pub async fn resolve_kind_or_suggest(
 }
 
 /// [`find_item_type`], answering an unknown `kind` with near matches — the whole definition, for
-/// a tool that needs more of it than the coordinates (T6).
+/// a tool that needs more of it than the coordinates.
 pub async fn find_item_type_or_suggest(
     engine: &EngineClient,
     kind: &str,
@@ -389,7 +389,7 @@ pub async fn find_item_type_or_suggest(
 }
 
 /// [`find_item_type_or_suggest`], keeping the engine's raw document alongside the typed one —
-/// what T6 returns (DR-86).
+/// what `get_item_schema` returns.
 pub async fn find_item_type_document_or_suggest(
     engine: &EngineClient,
     kind: &str,
@@ -450,8 +450,8 @@ async fn kind_candidates(engine: &EngineClient, kind: &str) -> Result<Vec<String
 
 /// Builds the coordinates from a resolved definition, applying the served-version rule.
 ///
-/// Public so a tool holding the whole definition (T6) gets the same selection and the same
-/// `unaddressable_type` error without a second request.
+/// Public so a tool holding the whole definition (`get_item_schema`) gets the same selection and
+/// the same `unaddressable_type` error without a second request.
 pub fn coordinates_of(
     definition: &ItemTypeDefinition,
     kind: &str,
@@ -493,9 +493,9 @@ pub fn coordinates_of(
 
 /// What version selection reads from a version, whichever model it was deserialised into.
 ///
-/// The rule of [`select_served_version`] **lives in one place** (§8.6, T1-D4), but two models
-/// carry versions: the full [`TypeVersion`], schema and all, and T1's lean [`ItdVersion`], which
-/// skips the schema (T1-D3). This is what lets both reach the same rule rather than a copy.
+/// The rule of [`select_served_version`] **lives in one place**, but two models carry versions:
+/// the full [`TypeVersion`], schema and all, and the type listing's lean [`ItdVersion`], which
+/// skips the schema. This is what lets both reach the same rule rather than a copy.
 pub trait ServedVersion {
     /// `v1`, `v2beta1`, and so on.
     fn name(&self) -> &str;
@@ -535,7 +535,7 @@ impl ServedVersion for ItdVersion {
     }
 }
 
-/// Picks the version items are addressed under (§8.6, from T1).
+/// Picks the version items are addressed under.
 ///
 /// The rule, in order: consider only `served: true`; prefer one that is not `deprecated`; then
 /// the highest stability and number — `v2` > `v1` > `v2beta1` > `v1alpha1`.

@@ -19,7 +19,7 @@ use crate::context::AppState;
 use axum::{Json, Router, extract::State, http::StatusCode, response::IntoResponse, routing::get};
 use serde::Serialize;
 
-/// The engine's own health shape (D43), so one dashboard reads both services.
+/// The engine's own health shape, so one dashboard reads both services.
 #[derive(Serialize)]
 enum Status {
     #[serde(rename = "OK")]
@@ -34,7 +34,7 @@ impl From<bool> for Status {
     }
 }
 
-/// `{name, status, version}` — the engine's payload, field for field (D43).
+/// `{name, status, version}` — the engine's payload, field for field.
 #[derive(Serialize)]
 struct HealthPayload {
     name: &'static str,
@@ -59,7 +59,7 @@ impl HealthPayload {
     }
 }
 
-/// Liveness: the process is up and the runtime is not wedged (D43).
+/// Liveness: the process is up and the runtime is not wedged.
 ///
 /// **It never calls the engine**, and it has no failing branch of its own: answering at all
 /// *is* the check, because a wedged runtime never schedules this handler and the probe times
@@ -71,10 +71,10 @@ async fn healthz() -> impl IntoResponse {
 }
 
 /// Readiness: every startup condition holds, shutdown has not begun and — when
-/// `health.readinessChecksEngine` is on — the engine was reachable at the last probe (D43).
+/// `health.readinessChecksEngine` is on — the engine was reachable at the last probe.
 ///
 /// The flag is checked first, so a draining process answers `503` without probing and whatever
-/// the cached probe said (D42).
+/// the cached probe said.
 async fn ready(State(state): State<AppState>) -> impl IntoResponse {
     let ready = state.readiness.is_ready()
         && match &state.engine_probe {

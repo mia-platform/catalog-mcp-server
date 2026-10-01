@@ -32,7 +32,7 @@ use serde_json::json;
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "list_catalog_types";
 
-/// What the tool does (T1 §3.3, adopted from the analysis unchanged).
+/// What the tool does.
 ///
 /// Note what it omits: nothing about `group`/`version`/`family` being needed elsewhere, no
 /// pagination instructions. If the model had to be told any of that, the tool set would have
@@ -42,7 +42,7 @@ const TOOL_DESCRIPTION: &str = "Lists every item type in the catalog, with the c
      `kind`. Returns every type in one response — there is no pagination. Use `search` to \
      narrow by name or purpose.";
 
-/// The longest `search` term accepted, in bytes (T1 §3.1, NFR-10).
+/// The longest `search` term accepted, in bytes.
 ///
 /// Nothing legitimate needs more, and it keeps the filter's cost bounded.
 pub const MAX_SEARCH_BYTES: usize = 200;
@@ -63,7 +63,7 @@ pub struct ListCatalogTypesInput {
     pub search: Option<String>,
 }
 
-/// One row of the response. Field order here is the serialised order (T1 §4).
+/// One row of the response. Field order here is the serialised order.
 ///
 /// Absent fields are **omitted, never null**: a null costs bytes and tells the model nothing.
 #[derive(Serialize)]
@@ -81,7 +81,7 @@ pub struct CatalogType {
     #[serde(rename = "group")]
     pub group: String,
 
-    /// The served version chosen by the core's rule (§8.6, T1-D4).
+    /// The served version chosen by the core's rule.
     #[serde(rename = "version")]
     pub version: String,
 
@@ -89,7 +89,7 @@ pub struct CatalogType {
     #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
 
-    /// `spec.llmDescription`, **verbatim** (T1 §7) — omitted when absent or blank, and never
+    /// `spec.llmDescription`, **verbatim** — omitted when absent or blank, and never
     /// synthesised from anything else.
     #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
@@ -99,11 +99,11 @@ pub struct CatalogType {
     pub history_enabled: bool,
 }
 
-/// The whole response (T1 §4).
+/// The whole response.
 ///
 /// `search` and `filteredFrom` are present **whenever a search was supplied**, so an empty
-/// result can always be told apart: *"nothing matched your term"* is not *"you have no types"*
-/// (T1-D9), and echoing the term back is what lets the model notice its own typo.
+/// result can always be told apart: *"nothing matched your term"* is not *"you have no types"*,
+/// and echoing the term back is what lets the model notice its own typo.
 #[derive(Serialize)]
 struct ListCatalogTypesOutput {
     #[serde(rename = "types")]
@@ -119,17 +119,17 @@ struct ListCatalogTypesOutput {
     filtered_from: Option<usize>,
 }
 
-/// T1 · `list_catalog_types` — every item type the caller can see, with its coordinates.
+/// `list_catalog_types` — every item type the caller can see, with its coordinates.
 ///
 /// One engine listing, walked to exhaustion, projected, optionally filtered, sorted. Nothing is
-/// cached (D31, T1-D1): every call fetches the caller's own catalogue, which is what makes it
+/// cached: every call fetches the caller's own catalogue, which is what makes it
 /// impossible for one tenant to be answered with another's.
 pub struct ListCatalogTypes;
 
 impl Tool for ListCatalogTypes {
     type Input = ListCatalogTypesInput;
 
-    /// `readOnlyHint: true`; every other hint is the specification's default (D16).
+    /// `readOnlyHint: true`; every other hint is the specification's default.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<ListCatalogTypesInput>(
             TOOL_NAME,
@@ -143,7 +143,7 @@ impl Tool for ListCatalogTypes {
         context: &CallContext,
         input: Self::Input,
     ) -> Result<ToolOutput, ToolError> {
-        // NFR-10 — validated at the boundary, before anything reaches the engine.
+        // Validated at the boundary, before anything reaches the engine.
         if let Some(search) = &input.search {
             validate_search(search)?;
         }
@@ -158,15 +158,15 @@ impl Tool for ListCatalogTypes {
         let fetched = entries.len();
         let mut types: Vec<CatalogType> = entries.into_iter().filter_map(project).collect();
 
-        // T1 §10 — the inputs to T1-D2's future decision. `omitted` is zero everywhere today; a
-        // non-zero value is the first sign the version-selection rule has started firing.
+        // The evidence for revisiting the version-selection rule. `omitted` is zero everywhere
+        // today; a non-zero value is the first sign the rule has started firing.
         tracing::debug!(
             fetched,
             omitted = fetched - types.len(),
             "listed the catalog's item types"
         );
 
-        // T1-D8 — by `kind`, byte-wise; `group` then `family` break the tie two groups sharing
+        // By `kind`, byte-wise; `group` then `family` break the tie two groups sharing
         // a kind would otherwise leave to the engine's unspecified order.
         types.sort_by(|left, right| {
             (&left.kind, &left.group, &left.family).cmp(&(&right.kind, &right.group, &right.family))
@@ -226,7 +226,7 @@ fn validate_search(search: &str) -> Result<(), ToolError> {
     })))
 }
 
-/// Walks the whole type listing (T1-D1, T1-D7) — all or nothing, so a failing page fails the
+/// Walks the whole type listing — all or nothing, so a failing page fails the
 /// call. Only `limit` and the cursor are sent, nothing of the caller's, which is why a `400`
 /// here is reported as ours.
 async fn fetch_every_type(context: &CallContext) -> Result<Vec<ItdListEntry>, ToolError> {
@@ -238,7 +238,7 @@ async fn fetch_every_type(context: &CallContext) -> Result<Vec<ItdListEntry>, To
 
 /// Projects one listed type into its row, or `None` when it has no served version.
 ///
-/// A type with nothing served is **omitted** (T1-D4): nothing about it is addressable, and
+/// A type with nothing served is **omitted**: nothing about it is addressable, and
 /// listing it would invite a call that can only fail.
 fn project(entry: ItdListEntry) -> Option<CatalogType> {
     let spec = entry.spec;
@@ -250,7 +250,7 @@ fn project(entry: ItdListEntry) -> Option<CatalogType> {
         group: spec.group,
         version,
         display_name: spec.names.display_plural,
-        // Verbatim or nothing (T1 §7): a blank description is absent, and there is no fallback.
+        // Verbatim or nothing: a blank description is absent, and there is no fallback.
         description: spec
             .llm_description
             .filter(|description| !description.trim().is_empty()),
@@ -258,7 +258,7 @@ fn project(entry: ItdListEntry) -> Option<CatalogType> {
     })
 }
 
-/// Whether `row` matches an already-lowercased `needle` (T1-D5, T1 §6).
+/// Whether `row` matches an already-lowercased `needle`.
 ///
 /// A plain substring over the four fields, case-insensitive under **full Unicode** lowercasing —
 /// `to_ascii_lowercase` would silently fail on accented text. The description searched is the

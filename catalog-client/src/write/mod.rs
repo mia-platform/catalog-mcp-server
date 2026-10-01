@@ -23,7 +23,7 @@ use crate::{
 };
 use serde_json::{Map, Value};
 
-/// Fields a `PUT` ignores, which this server therefore strips before sending (§8.5).
+/// Fields a `PUT` ignores, which this server therefore strips before sending.
 ///
 /// `customFields` is the one that matters: the engine ignores it on `PUT` and says so in a
 /// `Warning`, so echoing it back to the model would report a write that did not happen.
@@ -38,7 +38,7 @@ const READ_ONLY_METADATA_FIELDS: &[&str] = &[
     "family",
 ];
 
-/// Where the optimistic-concurrency token goes on a given endpoint (§8.5).
+/// Where the optimistic-concurrency token goes on a given endpoint.
 ///
 /// Items and Item Type Definitions carry it **in the body**; custom fields and restore take it
 /// as a **query parameter**. Hiding the difference behind an enum is what stops six tools each
@@ -52,7 +52,7 @@ pub enum ResourceVersionIn {
     Query,
 }
 
-/// What to do about a `409` (P7, D23).
+/// What to do about a `409`.
 ///
 /// **The rule is stated once and encoded, not written down for six tools to re-derive:** retry
 /// is permitted only when the intent is independent of the state it lands on.
@@ -86,7 +86,7 @@ pub enum Existence {
 /// A field path inside a manifest, as `changed` reports it.
 pub type FieldPath = String;
 
-/// What a write did (§8.5).
+/// What a write did.
 ///
 /// `changed` is computed by diffing the pre-read against the result, which is what lets a tool
 /// report a no-op honestly instead of claiming a write it did not make.
@@ -98,14 +98,14 @@ pub struct WriteOutcome {
     /// Which field paths actually differ, in document order.
     pub changed: Vec<FieldPath>,
 
-    /// Whether the request was retried — always visible, never inferred (§8.1).
+    /// Whether the request was retried — always visible, never inferred.
     pub retried: bool,
 
     /// Whatever the engine warned about.
     pub warnings: Vec<EngineWarning>,
 
     /// The object as the last read found it; `None` on a create. For a tool whose report compares
-    /// before and after (T12).
+    /// before and after (`apply_item_type`).
     pub before: Option<Value>,
 
     /// The object as the engine stored it.
@@ -164,7 +164,7 @@ pub fn merge_patch(target: &mut Value, patch: &Value) {
     }
 }
 
-/// Removes the fields a `PUT` would ignore or refuse (§8.5).
+/// Removes the fields a `PUT` would ignore or refuse.
 ///
 /// Leaving `customFields` in would be worse than a wasted field: the engine ignores it and
 /// warns, so the model would be told a write happened that did not.
@@ -226,7 +226,7 @@ fn collect_changes(prefix: &str, before: &Value, after: &Value, paths: &mut Vec<
     }
 }
 
-/// The one read-merge-write helper (P8, P7, P10, D29).
+/// The one read-merge-write helper.
 ///
 /// `apply` does: read (a `404` means create) → merge the patch → strip the fields a `PUT`
 /// ignores → write with the `resourceVersion` in the place this endpoint wants it → on a `409`,
@@ -259,7 +259,7 @@ impl<'a> WriteCycle<'a> {
     /// # Errors
     ///
     /// Every failure is already the contract's shape. A `409` the policy declines to retry is a
-    /// `conflict`; a write that failed after leaving is `unknown_outcome` (D20).
+    /// `conflict`; a write that failed after leaving is `unknown_outcome`.
     pub async fn apply(
         &self,
         address: &ItemAddress,
@@ -268,8 +268,8 @@ impl<'a> WriteCycle<'a> {
         self.run(address, patch, Existence::Any).await
     }
 
-    /// The same cycle for an **Item Type Definition** (T12), read and written raw (DR-86), with the
-    /// caller's expectation of whether it exists checked before anything is sent.
+    /// The same cycle for an **Item Type Definition**, read and written raw, with the caller's
+    /// expectation of whether it exists checked before anything is sent.
     ///
     /// # Errors
     ///
@@ -365,7 +365,7 @@ impl<'a> WriteCycle<'a> {
         })
     }
 
-    /// Puts the `resourceVersion` where this endpoint expects it (§8.5).
+    /// Puts the `resourceVersion` where this endpoint expects it.
     ///
     /// The query-parameter placement is applied by the operation rather than the body, so here
     /// it means only *"leave it out of the manifest"*.
@@ -426,7 +426,7 @@ impl Resource for ItemAddress {
 }
 
 /// A definition is read and written **raw**: the typed model does not declare every field a
-/// version may carry, and `spec.versions` is replaced whole (DR-86).
+/// version may carry, and `spec.versions` is replaced whole.
 impl Resource for ItemTypeAddress {
     async fn read(&self, engine: &EngineClient) -> Result<Value, ToolError> {
         Ok(engine.get_item_type_definition(self).await?.value)
@@ -448,8 +448,8 @@ impl Resource for ItemTypeAddress {
 ///
 /// The engine's `UPDATE` runs even when nothing differs, so `resourceVersion` (Postgres `xmin`)
 /// and `metadata.updateTimestamp` move on **every** `PUT`. Diffing them would make a no-op write
-/// indistinguishable from a real one, which is the one thing `changed` exists to tell apart
-/// (T8-D7). What is stripped is exactly what a write cannot set, so nothing the caller could have
+/// indistinguishable from a real one, which is the one thing `changed` exists to tell apart.
+/// What is stripped is exactly what a write cannot set, so nothing the caller could have
 /// changed is hidden.
 fn comparable(manifest: &Value) -> Value {
     let mut manifest = manifest.clone();

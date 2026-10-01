@@ -18,7 +18,7 @@
 use std::time::Duration;
 use tokio::time::{Instant, error::Elapsed, timeout};
 
-/// The wall-clock budget for one whole tool call (§5.5, §6.4).
+/// The wall-clock budget for one whole tool call.
 ///
 /// Set once per call from `tools.callDeadlineSeconds` and consulted by `EngineClient` before
 /// every request, so **`engine.timeoutMs` bounds one hop and this bounds the whole call**:

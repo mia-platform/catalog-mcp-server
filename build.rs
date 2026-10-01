@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// Generates `schemas/config.schema.json` from the `configuration` crate (D40), so the chart's
+// Generates `schemas/config.schema.json` from the `configuration` crate, so the chart's
 // own `values.schema.json` can point at a schema nobody maintains by hand.
 
 /// Writes the JSON Schema of [`configuration::Config`] to `schemas/config.schema.json`.

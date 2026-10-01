@@ -21,7 +21,7 @@ use configuration::tools::RateLimitConfig;
 use rstest::{fixture, rstest};
 use std::time::{Duration, Instant};
 
-/// A fictional tenant, per D39.
+/// A fictional tenant: test data never names a real one.
 fn mock_tenant(name: &str) -> TenantKey {
     TenantKey {
         organization: "my-org".to_string(),
@@ -190,14 +190,13 @@ fn test_the_retry_hint_is_usable() {
 /// **Every caller without a usable ACL context shares one bucket.**
 ///
 /// `TenantKey` is what the limiter keys on, and an absent or malformed context decodes to
-/// `unknown/unknown` (§7.2, D47) — so two different unidentified callers are one tenant as far
+/// `unknown/unknown` — so two different unidentified callers are one tenant as far
 /// as the limiter is concerned, and either can exhaust the other's budget.
 ///
-/// That is a consequence of keying on tenancy rather than on the caller, which is what §6.4
-/// asks for. It is pinned here rather than left to be discovered: on the gateway path every
+/// That is a consequence of keying on tenancy rather than on the caller, which is what the
+/// limiter is for. It is pinned here rather than left to be discovered: on the gateway path every
 /// request carries a context, so the shared bucket is only reachable from the in-cluster path —
-/// which §7.1 already describes as trusted-network and §13.7 already wants a NetworkPolicy in
-/// front of.
+/// which is treated as a trusted network and is meant to sit behind a NetworkPolicy.
 #[rstest]
 fn test_every_unidentified_caller_shares_one_bucket(mock_limiter: RateLimiter) {
     let unknown = TenantKey::default();

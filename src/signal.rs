@@ -40,7 +40,7 @@ pub fn shutdown_signal() -> impl Future<Output = ()> + Send + 'static {
     }
 }
 
-/// Spawns the task that turns `SIGTERM` and ctrl-c into one broadcast (D42).
+/// Spawns the task that turns `SIGTERM` and ctrl-c into one broadcast.
 ///
 /// `SIGTERM` is the one Kubernetes sends; handling only ctrl-c, as the previous server did,
 /// means every rollout kills in-flight requests.

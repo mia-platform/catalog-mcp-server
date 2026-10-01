@@ -80,7 +80,7 @@ impl EngineClient {
     }
 
     /// `GET /{group}/{version}/items/{family}` with the metadata-only projection — one family's
-    /// items, which is what a search restricted to a `kind` wants (T2-D2).
+    /// items, which is what a search restricted to a `kind` wants.
     pub async fn list_family_items_partial(
         &self,
         family: &FamilyAddress,
@@ -107,7 +107,7 @@ impl EngineClient {
     /// `GET /items/count` — how many items match across every type.
     ///
     /// Takes the **same** [`ListQuery`] as the listing it counts, so a count built from one
-    /// query cannot disagree with the page it describes (T2 §5). Only `rawq` is sent.
+    /// query cannot disagree with the page it describes. Only `rawq` is sent.
     pub async fn count_items(&self, query: &ListQuery) -> Result<EngineResponse<Count>, ToolError> {
         let mut url = self.url(["items", COUNT_SEGMENT])?;
         query.apply(&mut url, COUNT_ITEMS.query);

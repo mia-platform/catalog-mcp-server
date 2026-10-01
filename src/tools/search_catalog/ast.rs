@@ -15,8 +15,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// T2 §4 — the parameters → `Predicate` mapping, which is T2's **entire** contribution to the
-// query translator. Encoding, limits, splitting and base64 are the core's (§8.8).
+// The parameters → `Predicate` mapping, which is this tool's **entire** contribution to the query
+// translator. Encoding, limits, splitting and base64 are the core's.
 
 use catalog_client::{
     FieldPath, Predicate, QueryValue, RegexLiteral, ToolError, query::MAX_BRANCH_CHILDREN,
@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 /// The fields free text is matched against, in the order they are emitted.
 ///
 /// `metadata.tags` is an array, and the engine matches a pattern against **any element** of it
-/// (`EXISTS … unnest(…) … ~*`, T2-P2) — which is what lets one `matches` cover a tag list.
+/// (`EXISTS … unnest(…) … ~*`) — which is what lets one `matches` cover a tag list.
 const QUERY_FIELDS: [&str; 3] = ["metadata.name", "metadata.title", "metadata.tags"];
 
 /// The field-path prefix a label key is appended to.
@@ -42,14 +42,14 @@ pub const LABEL_PATH_PREFIX: &str = "metadata.labels.";
 ///   across several `rawq` parameters.
 /// - **when that `and` would be wider than the core's [`MAX_BRANCH_CHILDREN`]**, the `eq`s are
 ///   grouped into nested `and`s of at most that many, after the query's `or`. `query` plus 20
-///   labels plus 20 fields — all within T2's own bounds — would otherwise be refused for width
-///   (F-12). A conjunction of conjunctions is the same search, and the top-level `and` stays
+///   labels plus 20 fields — all within the tool's own bounds — would otherwise be refused for
+///   width. A conjunction of conjunctions is the same search, and the top-level `and` stays
 ///   splittable. A search that fits keeps exactly the shape it always had, so its `rawq` and its
 ///   cursor fingerprint do not change.
 ///
 /// **Nothing supplied is not an error**: it yields `None`, and no `rawq` is sent at all — *"what
 /// is in the catalog?"* is a legitimate first question. `kind` is never a predicate: it selects
-/// the endpoint (T2-D2), and repeating it in every `rawq` would only cost bytes.
+/// the endpoint, and repeating it in every `rawq` would only cost bytes.
 ///
 /// `BTreeMap` iteration makes the result independent of the order the model wrote its keys in,
 /// so two identical searches produce byte-identical `rawq` and the same cursor fingerprint.

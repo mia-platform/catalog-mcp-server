@@ -17,23 +17,23 @@
  */
 use serde::Deserialize;
 
-/// Default wall-clock budget for one `tools/call`, in seconds (§6.4): inside a typical
-/// client tool-call timeout, and what bounds T4's poll.
+/// Default wall-clock budget for one `tools/call`, in seconds: inside a typical
+/// client tool-call timeout, and what bounds `run_compliance_evaluation`'s poll.
 pub static DEFAULT_CALL_DEADLINE_SECONDS: u64 = 25;
 
-/// Default `ttlMs` advertised with `tools/list` (D13). The set changes only on deploy.
+/// Default `ttlMs` advertised with `tools/list`. The set changes only on deploy.
 pub static DEFAULT_TOOLS_LIST_TTL_MS: u64 = 3_600_000;
 
 /// Whether the per-tenant limiter runs when the configuration does not say.
 ///
 /// **Off in v1, by the owner's decision of 24 Sep 2026**, and a deliberate departure from the
-/// specification's *"Servers MUST … Rate limit tool invocations"* (§6.4). The previous server had
+/// specification's *"Servers MUST … Rate limit tool invocations"*. The previous server had
 /// no limiting anywhere and neither does the gateway, so this is parity with what production has
 /// always run. The limiter and its `rate_limited` error stay, so an environment can turn it on
 /// without a release.
 pub static DEFAULT_RATE_LIMIT_ENABLED: bool = false;
 
-/// Default per-tenant call allowance per minute, applied only when the limiter is enabled (§6.4).
+/// Default per-tenant call allowance per minute, applied only when the limiter is enabled.
 pub static DEFAULT_PER_TENANT_CALLS_PER_MINUTE: u32 = 120;
 
 /// Default burst capacity of the per-tenant token bucket.
@@ -54,7 +54,7 @@ pub static DEFAULT_AUDIT_LIMIT: u32 = 25;
 /// Default time a compliance evaluation is waited on, in seconds.
 pub static DEFAULT_COMPLIANCE_WAIT_SECONDS: u64 = 20;
 
-/// Default ceiling on the bytes a caller may send us in one write (NFR-10).
+/// Default ceiling on the bytes a caller may send us in one write.
 pub static DEFAULT_MAX_WRITE_BYTES: usize = 262_144;
 
 /// Returns [`DEFAULT_CALL_DEADLINE_SECONDS`].
@@ -112,7 +112,7 @@ pub fn default_max_write_bytes() -> usize {
     DEFAULT_MAX_WRITE_BYTES
 }
 
-/// The per-tenant token bucket of §6.4. Buckets are per replica, so the effective cluster
+/// The per-tenant token bucket. Buckets are per replica, so the effective cluster
 /// limit is `replicas × rate`.
 ///
 /// **Off by default in v1**: it limits nothing unless `enabled` is set to `true`.
@@ -146,10 +146,10 @@ impl Default for RateLimitConfig {
     }
 }
 
-/// Every tunable the tool analyses marked as a guess (§11). They live here, not in the code,
+/// Every tunable the tool analyses marked as a guess. They live here, not in the code,
 /// because the measurement exercise will change them and a config change is not a release.
 ///
-/// **No response ceilings are among them** — there are none (D34).
+/// **No response ceilings are among them** — there are none.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -195,10 +195,10 @@ impl Default for ToolDefaults {
     }
 }
 
-/// What bounds a tool call and what the tool set advertises (§11).
+/// What bounds a tool call and what the tool set advertises.
 ///
 /// `tools_list_ttl_ms` sits here rather than under `transport` because it is a property of the
-/// tool set (D13), not of the wire.
+/// tool set, not of the wire.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]

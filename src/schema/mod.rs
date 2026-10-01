@@ -94,7 +94,7 @@ const INTEGER_FORMATS: [(&str, i128, i128); 8] = [
 ];
 
 /// Minifies a `schemars`-derived input schema into the form both `list_tools` and `get_tool`
-/// serve (D17).
+/// serve.
 ///
 /// The SDK already strips the top-level `title` and `description`. Four things remain, and this
 /// is the **one** place they are done, because `get_tool` feeds the SDK's `Mcp-Param-*`
@@ -107,11 +107,11 @@ const INTEGER_FORMATS: [(&str, i128, i128); 8] = [
 /// 5. Keys are sorted at every depth.
 /// 6. An integer's `format` is dropped, with any `minimum`/`maximum` that only restates that Rust
 ///    type's range (`uint16` → `0…65535`): the storage width of the field says nothing about
-///    what the tool accepts, which its description states (DR-49, F-10).
+///    what the tool accepts, which its description states.
 /// 7. An **optional** argument does not also declare `null`: `["string","null"]` becomes
 ///    `"string"`, and `anyOf: [X, {"type":"null"}]` becomes `X`. Being absent from `required`
 ///    already says the argument may be left out, which is what `Option` means here; serde still
-///    accepts an explicit `null`, so no call that worked stops working (F-10).
+///    accepts an explicit `null`, so no call that worked stops working.
 /// 8. A `"default": null` is dropped. `schemars` emits it for every `#[serde(default)]` field
 ///    whose type serialises to `null`; an absent field defaulting to "nothing" is what optional
 ///    already means.

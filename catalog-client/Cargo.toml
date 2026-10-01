@@ -9,8 +9,8 @@ publish = false
 
 [features]
 default = []
-# The mock engine and its fixture library (§12.5), so the binary crate's tests can use the same
-# one rather than rebuilding a worse one per wave.
+# The mock engine and its fixture library, so the binary crate's tests can use the same one
+# rather than each rebuilding a worse one.
 testing = ["dep:wiremock"]
 
 [dependencies]

@@ -174,7 +174,7 @@ async fn deletes(engine: &MockEngine) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T13-D2, T13-D3 — the two-phase refusal, first. No refusal path may issue a `DELETE`.
+// The two-phase refusal, first. No refusal path may issue a `DELETE`.
 // ---------------------------------------------------------------------------------------------
 
 /// Without `expected_items`, a type with items is refused — as an answer, with the count and the
@@ -283,8 +283,8 @@ async fn test_the_count_is_rechecked_when_a_number_is_given() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// DR-107 — the scope is every item under every declared version, and a count that cannot be made
-// stops the delete.
+// The scope is every item under every declared version, and a count that cannot be made stops the
+// delete.
 // ---------------------------------------------------------------------------------------------
 
 /// Items under every served version are summed; items under a version no longer served are
@@ -363,7 +363,7 @@ async fn test_a_failed_count_deletes_nothing(#[case] status: u16, #[case] code: 
 }
 
 // ---------------------------------------------------------------------------------------------
-// T13-D5 — the warning path, shared with T9 and T12.
+// The warning path, shared with `delete_item` and `apply_item_type`.
 // ---------------------------------------------------------------------------------------------
 
 /// A `204` with the cascade warning: the type is gone, and orphans may remain — both said.
@@ -393,7 +393,7 @@ async fn test_a_failed_cascade_is_reported_beside_the_delete() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — the remaining rows.
+// The remaining error rows.
 // ---------------------------------------------------------------------------------------------
 
 /// A failure after the `DELETE` left may have landed; one on the count or the lookup did not.
@@ -441,7 +441,7 @@ async fn test_a_failed_lookup_is_catalog_unavailable() {
     assert!(deletes(&engine).await.is_empty());
 }
 
-/// T13-D4 — a `409` is reported once, never retried.
+/// A `409` is reported once, never retried.
 #[rstest]
 #[tokio::test]
 async fn test_a_conflict_is_reported_not_retried() {
@@ -553,7 +553,7 @@ async fn test_a_type_without_a_resource_version_is_not_deleted() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// NFR-10 — arguments checked before anything reaches the engine.
+// Arguments checked before anything reaches the engine.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]

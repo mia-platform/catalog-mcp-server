@@ -17,7 +17,7 @@
  */
 use serde::Deserialize;
 
-/// Default timeout for the readiness engine probe, in milliseconds (D43).
+/// Default timeout for the readiness engine probe, in milliseconds.
 pub static DEFAULT_ENGINE_PROBE_TIMEOUT_MS: u64 = 2_000;
 
 /// Returns `true`.
@@ -30,7 +30,7 @@ pub fn default_engine_probe_timeout_ms() -> u64 {
     DEFAULT_ENGINE_PROBE_TIMEOUT_MS
 }
 
-/// What `/-/ready` checks (D43).
+/// What `/-/ready` checks.
 ///
 /// `/-/healthz` takes nothing from here: liveness never calls the engine, because a dependency
 /// outage must not get the pod restarted.

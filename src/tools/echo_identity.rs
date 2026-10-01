@@ -35,10 +35,10 @@ const TOOL_DESCRIPTION: &str = "Report the tenant this call reached the tool wit
 #[serde(deny_unknown_fields)]
 pub struct EchoIdentityInput {}
 
-/// **A test-only probe, never registered in production** (F-10). It is what `hello` was during
-/// Step 1 (§13.2): a tool with no catalog logic behind it, reporting the identity that reached
-/// it, so the handler, both transport eras and the identity hook can be tested without an
-/// engine. The shipped set is the catalog tools alone.
+/// **A test-only probe, never registered in production**. It is what `hello` was before the catalog
+/// tools existed: a tool with no catalog logic behind it, reporting the identity that reached it,
+/// so the handler, both transport eras and the identity hook can be tested without an engine. The
+/// shipped set is the catalog tools alone.
 pub struct EchoIdentity;
 
 impl Tool for EchoIdentity {

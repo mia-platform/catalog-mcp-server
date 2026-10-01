@@ -27,8 +27,8 @@ pub static DEFAULT_HTTP_PORT: u16 = 8000;
 /// Default path the MCP service is mounted at — what the gateway already routes.
 pub static DEFAULT_MCP_PATH: &str = "/mcp";
 
-/// Default maximum accepted POST body, a deliberate tightening of the SDK's 4 MiB
-/// (§6.4): a tool argument set is kilobytes, and anything larger is abuse.
+/// Default maximum accepted POST body, a deliberate tightening of the SDK's 4 MiB:
+/// a tool argument set is kilobytes, and anything larger is abuse.
 pub static DEFAULT_MAX_BODY_BYTES: usize = 1_048_576;
 
 /// Returns [`DEFAULT_IP_ADDR`].
@@ -61,11 +61,11 @@ fn ip_addr_json_schema(_: &mut ::schemars::SchemaGenerator) -> ::schemars::Schem
     })
 }
 
-/// How the HTTP listener is bound and what the transport accepts (§11).
+/// How the HTTP listener is bound and what the transport accepts.
 ///
 /// `allowed_hosts` has **no usable default**: the SDK's own default is loopback-only, so a
 /// remote deployment answers every request `403 Forbidden: Host header is not allowed` until
-/// the list is set. Validation therefore refuses an empty list before the listener binds (D11).
+/// the list is set. Validation therefore refuses an empty list before the listener binds.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -89,7 +89,7 @@ pub struct ServerConfig {
     pub allowed_hosts: Vec<String>,
 
     /// Browser origins accepted in the inbound `Origin` header. Empty leaves `Origin`
-    /// validation switched off, which is what the in-cluster client needs (D11).
+    /// validation switched off, which is what the in-cluster client needs.
     #[serde(default, rename = "allowedOrigins")]
     pub allowed_origins: Vec<String>,
 

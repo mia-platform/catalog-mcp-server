@@ -63,7 +63,7 @@ const CALL_BUDGET: Duration = Duration::from_secs(25);
 /// or the encoding moves it.
 const GOLDEN_RAWQ: &str = "eyJhbmQiOlt7Im9yIjpbeyJtZXRhZGF0YS5uYW1lIjp7Im1hdGNoZXMiOiIvZ2F0ZXdheS9pIn19LHsibWV0YWRhdGEudGl0bGUiOnsibWF0Y2hlcyI6Ii9nYXRld2F5L2kifX0seyJtZXRhZGF0YS50YWdzIjp7Im1hdGNoZXMiOiIvZ2F0ZXdheS9pIn19XX0seyJtZXRhZGF0YS5sYWJlbHMuZW52Ijp7ImVxIjoicHJvZCJ9fV19";
 
-/// The recorded size of a realistic full page (T2 §7). Regression detection, not a limit.
+/// The recorded size of a realistic full page. Regression detection, not a limit.
 const RECORDED_FULL_PAGE_BYTES: usize = 8_061;
 
 /// How far the full-page golden may drift.
@@ -226,7 +226,7 @@ fn names(payload: &Value) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §4 — parameters → AST.
+// Parameters → AST.
 // ---------------------------------------------------------------------------------------------
 
 /// `query` becomes an `or` of three `matches`, one literal shared, inside the `and` envelope.
@@ -292,7 +292,7 @@ fn mock_entries(prefix: &str, n: usize) -> BTreeMap<String, String> {
         .collect()
 }
 
-/// F-12 — the widest searches T2's own bounds accept build, validate and encode: no combinator
+/// The widest searches the tool's own bounds accept build, validate and encode: no combinator
 /// is wider than the core's 20, however many labels and fields there are.
 #[rstest]
 #[case::query_and_twenty_labels(true, MAX_FILTER_ENTRIES, 0)]
@@ -385,7 +385,7 @@ fn test_key_order_does_not_change_the_rawq_or_the_fingerprint() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §5 — the engine calls: path selection, projection, no `rawq` when there is nothing to send.
+// The engine calls: path selection, projection, no `rawq` when there is nothing to send.
 // ---------------------------------------------------------------------------------------------
 
 /// A search with no parameters returns the first page, sends no `rawq`, and does not error.
@@ -443,7 +443,7 @@ async fn test_kind_selects_the_family_endpoint() {
     assert_eq!(rawq.len(), 1);
     assert!(
         !listing.query.contains("field="),
-        "T2-D1: rawq only, no field shortcut"
+        "rawq only, no field shortcut"
     );
     assert!(
         !String::from_utf8(
@@ -479,7 +479,7 @@ async fn test_a_row_is_projected_from_the_partial_metadata() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T2-D5 — `total` is conditional.
+// `total` is conditional.
 // ---------------------------------------------------------------------------------------------
 
 /// A full page pays for a count, with the **identical** `rawq`.
@@ -597,7 +597,7 @@ async fn test_a_later_partial_page_totals_every_page() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T2-D3 — `fields` validation differs by path.
+// `fields` validation differs by path.
 // ---------------------------------------------------------------------------------------------
 
 /// The global endpoint accepts any `spec.` path.
@@ -670,7 +670,7 @@ async fn test_a_metadata_field_is_accepted_with_a_kind() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — the cursor.
+// The cursor.
 // ---------------------------------------------------------------------------------------------
 
 /// A cursor continues the listing it came from, and a `kind` search does not resolve again.
@@ -809,7 +809,7 @@ async fn test_a_global_cursor_cannot_continue_a_kind_search() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T2-D6 — clamp and echo; T2-D7 — the page is never shortened.
+// Clamp and echo; the page is never shortened.
 // ---------------------------------------------------------------------------------------------
 
 /// `limit` is clamped into the engine's range and echoed **only** when the clamp changed it.
@@ -872,7 +872,7 @@ async fn test_the_page_is_never_shortened() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §8 — every row, asserting `code` **and** `remedy`.
+// Every error row, asserting `code` **and** `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 /// A `400` on the `rawq` we built is our defect: the model never supplies `rawq`.
@@ -1192,7 +1192,7 @@ async fn test_an_empty_result_echoes_the_filters() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §7 — the byte golden: regression detection, not a limit.
+// The byte golden: regression detection, not a limit.
 // ---------------------------------------------------------------------------------------------
 
 /// A realistic full page — the default 50 rows, each with a title, a family and labels —
@@ -1223,7 +1223,7 @@ async fn test_a_realistic_full_page_serialises_to_its_recorded_size() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// DR-80 — a kind is unique per group, not per tenant.
+// A kind is unique per group, not per tenant.
 // ---------------------------------------------------------------------------------------------
 
 /// Two types sharing `Service`, in different groups.

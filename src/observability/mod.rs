@@ -23,7 +23,7 @@ pub const MCP_TOOL_CALLS_TOTAL: &str = "mcp_tool_calls_total";
 /// How long a tool call took.
 pub const MCP_TOOL_DURATION_SECONDS: &str = "mcp_tool_duration_seconds";
 
-/// How many bytes a tool answered with. **Observation, never enforcement** (D34).
+/// How many bytes a tool answered with. **Observation, never enforcement.**
 pub const MCP_RESPONSE_BYTES: &str = "mcp_response_bytes";
 
 /// How many engine requests one tool call bought.
@@ -32,7 +32,8 @@ pub const MCP_RESPONSE_BYTES: &str = "mcp_response_bytes";
 /// list below stays the one place every metric is enumerated.
 pub use catalog_client::client::{MCP_ENGINE_DURATION_SECONDS, MCP_ENGINE_REQUESTS_TOTAL};
 
-/// Protocol errors the transport rejected before any handler ran (§10's stated asymmetry).
+/// Protocol errors the transport rejected before any handler ran, counted by the tower
+/// layer because no `mcp.request` span exists for them.
 pub const MCP_PROTOCOL_ERRORS_TOTAL: &str = "mcp_protocol_errors_total";
 
 /// The size of the prebuilt `tools/list` payload. **The headline metric of the whole rewrite**,
@@ -52,7 +53,7 @@ pub const ALL_METRICS: &[&str] = &[
     MCP_TOOLS_LIST_BYTES,
 ];
 
-/// What a tool call ended as, as the `outcome` label spells it (§10).
+/// What a tool call ended as, as the `outcome` label spells it.
 ///
 /// `protocol_error` is deliberately **not** here: the transport rejects those before any handler
 /// runs, so no `mcp.request` span exists for them and the handler could never set it. They are
@@ -86,7 +87,7 @@ pub const REMEDY_NONE: &str = "none";
 ///
 /// Registering the metric families up front means `/-/metrics` reports all seven from the first
 /// scrape rather than only the ones that happen to have fired — which is what makes a dashboard
-/// built against it stable, and what §13.4's gate asserts.
+/// built against it stable, and what the observability tests assert.
 ///
 /// # Errors
 ///

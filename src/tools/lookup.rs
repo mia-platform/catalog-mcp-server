@@ -15,8 +15,8 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// Finding the item a tool was given by name (T3 §4, T3-D6), shared by every tool that addresses one
-// item: `describe_item` reads it, `delete_item` destroys it (T9-D7). One implementation, because
+// Finding the item a tool was given by name, shared by every tool that addresses one item:
+// `describe_item` reads it, `delete_item` destroys it. One implementation, because
 // the rule it enforces — **never guess** — must mean the same on a read and on a delete.
 
 use catalog_client::{
@@ -26,20 +26,20 @@ use catalog_client::{
 use serde::Serialize;
 use serde_json::json;
 
-/// The kindless name probe's page (T3 §4): **two**, because one row cannot tell *"unique"* from
+/// The kindless name probe's page: **two**, because one row cannot tell *"unique"* from
 /// *"the first of several"*, and two is all it takes to know which.
 const NAME_PROBE_LIMIT: u32 = 2;
 
-/// How many candidates an ambiguous name is answered with, fetched only on that branch (T3-D6).
+/// How many candidates an ambiguous name is answered with, fetched only on that branch.
 pub(crate) const MAX_AMBIGUOUS_CANDIDATES: u32 = 10;
 
-/// How many near matches a name that matches nothing is answered with (T3 §7).
+/// How many near matches a name that matches nothing is answered with.
 pub(crate) const MAX_NEAR_MATCHES: u32 = 5;
 
 /// The field the kindless lookup matches on.
 const NAME_FIELD: &str = "metadata.name";
 
-/// One candidate for an ambiguous or unknown name (T3-D6).
+/// One candidate for an ambiguous or unknown name.
 #[derive(Serialize)]
 struct Candidate {
     #[serde(rename = "name")]
@@ -70,7 +70,7 @@ pub(crate) async fn resolve(
 ) -> Result<ItemAddress, ToolError> {
     match kind {
         // An unknown `kind` is answered with near matches, and a shared one with its candidates,
-        // by the core (T2-D9, DR-80).
+        // by the core.
         Some(kind) => {
             let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
 
@@ -85,7 +85,7 @@ pub(crate) async fn resolve(
     }
 }
 
-/// The kindless path (T3 §4, T3-D6): a two-row probe on `metadata.name`.
+/// The kindless path: a two-row probe on `metadata.name`.
 ///
 /// One row is the item. Two are an ambiguity, **never** a guess — silently picking one would have
 /// the model act confidently against the wrong item — so a wider fetch collects the candidates, on
@@ -134,7 +134,7 @@ async fn resolve_by_name(
 }
 
 /// The `not_found` for a name that matches no item, with near matches when a substring search
-/// finds any (T3 §7) — also what `delete_item` answers when its pre-read finds nothing (T9 §6).
+/// finds any — also what `delete_item` answers when its pre-read finds nothing.
 pub(crate) async fn no_such_item(engine: &EngineClient, name: &str) -> ToolError {
     let error = ToolError::new(
         codes::NOT_FOUND,

@@ -30,22 +30,22 @@ use rmcp::model::ToolAnnotations;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 
-/// T6's `fields` mode (DR-86): the schema of just the fields an agent is about to change.
+/// The `fields` mode: the schema of just the fields an agent is about to change.
 mod fields;
 
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "get_item_schema";
 
-/// What the tool does (DR-86). Full by default — creating an item and editing the type both need
+/// What the tool does. Full by default — creating an item and editing the type both need
 /// the whole thing — and `fields` for a change to an existing item.
 const TOOL_DESCRIPTION: &str = "Returns one catalog type's definition, including its items' \
      schema. Call it before creating an item or editing the type; to change an item, pass \
      `fields` for just those fields' schema.";
 
-/// The longest `kind`, in bytes (T6 §3).
+/// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
 
-/// The longest `version`, in bytes (T6 §3).
+/// The longest `version`, in bytes.
 pub const MAX_VERSION_BYTES: usize = 64;
 
 /// The most `fields` one call may ask for.
@@ -68,7 +68,8 @@ const METADATA_NOISE: [&str; 6] = [
     "updateTimestamp",
 ];
 
-/// Arguments for `get_item_schema` (T6 §3, DR-80, DR-86).
+/// Arguments for `get_item_schema`: the type, optionally its group and version, and optionally
+/// the fields whose schema alone is wanted.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
@@ -90,11 +91,12 @@ pub struct GetItemSchemaInput {
     pub fields: Option<Vec<String>>,
 }
 
-/// The default answer: the **whole** definition (DR-86).
+/// The default answer: the **whole** definition.
 ///
-/// `spec` is the engine's, untouched — every version with its flags, selectable fields in their real
-/// shape, history and audit settings — because a model that edits the type with T12 rebuilds
-/// arrays like `versions` from this, and anything missing here would be erased by that edit.
+/// `spec` is the engine's, untouched — every version with its flags, selectable fields in their
+/// real shape, history and audit settings — because a model that edits the type with
+/// `apply_item_type` rebuilds arrays like `versions` from this, and anything missing here would be
+/// erased by that edit.
 #[derive(Serialize)]
 struct FullDefinition {
     #[serde(rename = "kind")]
@@ -110,7 +112,7 @@ struct FullDefinition {
     #[serde(rename = "version")]
     version: String,
 
-    /// The definition's own name, `<family>.<group>` — FR-10's key.
+    /// The definition's own name, `<family>.<group>`.
     #[serde(rename = "name")]
     name: String,
 
@@ -123,7 +125,7 @@ struct FullDefinition {
 }
 
 /// The `fields` answer: the schema of each requested field of the selected version, and the
-/// definitions they reference (DR-86).
+/// definitions they reference.
 #[derive(Serialize)]
 struct FieldsAnswer {
     #[serde(rename = "kind")]
@@ -146,17 +148,17 @@ struct FieldsAnswer {
     defs: Map<String, Value>,
 }
 
-/// T6 · `get_item_schema` — one type's definition, whole, or the schema of chosen fields.
+/// `get_item_schema` — one type's definition, whole, or the schema of chosen fields.
 ///
-/// **One** engine call — the core's `kind` lookup (T6-D1) — and no reshaping of what the engine
-/// returned beyond removing routing data. Nothing is capped, depth-limited or elided (D34); a
+/// **One** engine call — the core's `kind` lookup — and no reshaping of what the engine
+/// returned beyond removing routing data. Nothing is capped, depth-limited or elided; a
 /// `fields` subset is asked for explicitly and is never a quieter version of the whole.
 pub struct GetItemSchema;
 
 impl Tool for GetItemSchema {
     type Input = GetItemSchemaInput;
 
-    /// `readOnlyHint: true`; every other hint is the specification's default (D16).
+    /// `readOnlyHint: true`; every other hint is the specification's default.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<GetItemSchemaInput>(
             TOOL_NAME,
@@ -172,9 +174,8 @@ impl Tool for GetItemSchema {
     ) -> Result<ToolOutput, ToolError> {
         validate(&input)?;
 
-        // An unknown kind comes back with near matches (T2-D9), a shared one with its candidates
-        // (DR-80), and two rows for one `(group, kind)` as a `server_defect` (T6-D2) — all the
-        // core's.
+        // An unknown kind comes back with near matches, a shared one with its candidates, and two
+        // rows for one `(group, kind)` as a `server_defect` — all the core's.
         let document = find_item_type_document_or_suggest(
             context.engine(),
             &input.kind,
@@ -182,7 +183,7 @@ impl Tool for GetItemSchema {
         )
         .await?;
 
-        // The core's rule, and its `unaddressable_type` when nothing is served (D30).
+        // The core's rule, and its `unaddressable_type` when nothing is served.
         let coordinates = coordinates_of(&document.definition, &input.kind)?;
         let version = select_version(
             &document.definition,
@@ -225,7 +226,7 @@ impl Tool for GetItemSchema {
     }
 }
 
-/// NFR-10 — T6 §3's bounds and `fields`', checked before anything reaches the engine.
+/// The input bounds and `fields`', checked before anything reaches the engine.
 fn validate(input: &GetItemSchemaInput) -> Result<(), ToolError> {
     if input.kind.is_empty() || input.kind.len() > MAX_KIND_BYTES {
         return Err(invalid(
@@ -292,7 +293,7 @@ fn invalid(parameter: &str, message: String) -> ToolError {
         .with_details(json!({ "field": parameter }))
 }
 
-/// The version to report and to read `fields` from (T6-D8).
+/// The version to report and to read `fields` from.
 ///
 /// Absent: the one the core's rule selected. Given: it must exist **and** be served, or it is an
 /// error naming the versions that are — **never** silently substituted.
@@ -341,7 +342,7 @@ fn version_schema<'a>(raw: &'a Value, version: &str) -> Option<&'a Value> {
         .get(OPENAPI_SCHEMA_KEY)
 }
 
-/// The whole definition, minus routing data (DR-86).
+/// The whole definition, minus routing data.
 fn full_definition(
     document: ItemTypeDocument,
     version: String,
@@ -365,8 +366,8 @@ fn full_definition(
         .map(Value::Object);
 
     // Only `metadata` and `spec` are carried over. The document's own `apiVersion` and `kind`
-    // describe the *definition* resource, not the type, and `resourceVersion` is T12's to read for
-    // itself (T12-D8) — so all three are dropped by construction.
+    // describe the *definition* resource, not the type, and `resourceVersion` is
+    // `apply_item_type`'s to read for itself — so all three are dropped by construction.
     FullDefinition {
         kind: document.definition.spec.names.kind.clone(),
         group,

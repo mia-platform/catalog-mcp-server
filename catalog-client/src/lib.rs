@@ -15,51 +15,51 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// The typed client for `catalog-engine` (§8).
+// The typed client for `catalog-engine`.
 //
-// **One typed client, one place** (D24). It owns every URL, query parameter, header, projection
+// **One typed client, one place**. It owns every URL, query parameter, header, projection
 // and status-code mapping, so no tool builds a URL or reads a header. It is a separate crate
 // because it is the half with a second consumer already visible — `ai-foundry-bff` re-describes
 // Catalog models today — and because it is the half whose correctness is domain-critical and
 // worth testing without a server in the way.
 
-/// Where an item lives, validated against the engine's own regexes (§8.1).
+/// Where an item lives, validated against the engine's own regexes.
 pub mod address;
 
-/// The HTTP client, its timeouts, the retry policy and the deadline (§8.1).
+/// The HTTP client, its timeouts, the retry policy and the deadline.
 pub mod client;
 
-/// The tool-error contract: `Remedy`, `ToolError` and the status mapping (§8.4, D19).
+/// The tool-error contract: `Remedy`, `ToolError` and the status mapping.
 pub mod error;
 
-/// The caller's forwarded identity (§7.4, D26, D45).
+/// The caller's forwarded identity.
 pub mod identity;
 
 /// The engine's wire models.
 pub mod models;
 
-/// Pages, engine cursors and the opaque cursors we mint (§8.2, D32).
+/// Pages, engine cursors and the opaque cursors we mint.
 pub mod pagination;
 
-/// `Accept` projections, and the grouping that makes an invalid pair unconstructible (§8.2).
+/// `Accept` projections, and the grouping that makes an invalid pair unconstructible.
 pub mod projection;
 
-/// The `query → rawq` translator: AST, four operators, limits, splitting (§8.8, D33).
+/// The `query → rawq` translator: AST, four operators, limits, splitting.
 pub mod query;
 
-/// `kind → {group, version, family}`, and the served-version rule (§8.6, P9, D30).
+/// `kind → {group, version, family}`, and the served-version rule.
 pub mod resolve;
 
-/// One `Warning: 299 - "…"` parser, for every response (§8.3, P6, D28).
+/// One `Warning: 299 - "…"` parser, for every response.
 pub mod warning;
 
-/// The one read-merge-write helper: RFC 7396, the conflict rule, the diff (§8.5, D23, D29).
+/// The one read-merge-write helper: RFC 7396, the conflict rule, the diff.
 pub mod write;
 
-/// One module-level function per engine operation the tools use (§8.1).
+/// One module-level function per engine operation the tools use.
 pub mod ops;
 
-/// The mock engine and its fixture library (§12.5). Behind the `testing` feature.
+/// The mock engine and its fixture library. Behind the `testing` feature.
 #[cfg(feature = "testing")]
 pub mod testing;
 

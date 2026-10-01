@@ -188,7 +188,7 @@ async fn mock_update(written: Value) -> MockEngine {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T8-D1 — the wipe regression, first. If this ever fails, someone "simplified" the read away.
+// The wipe regression, first. If this ever fails, someone "simplified" the read away.
 // ---------------------------------------------------------------------------------------------
 
 /// A patch naming one spec field leaves **all six** metadata fields where they were. A `PUT` is a
@@ -227,7 +227,7 @@ async fn test_a_spec_patch_preserves_every_metadata_field() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T8-D2 — how the merge is used: null deletes, lists replace, `{}` is nothing.
+// How the merge is used: null deletes, lists replace, `{}` is nothing.
 // ---------------------------------------------------------------------------------------------
 
 /// `null` removes one label and leaves the others.
@@ -253,7 +253,7 @@ async fn test_null_deletes_one_label() {
 }
 
 /// An explicit `null` reaches the merge as a deletion; serde's own `Option` handling would have
-/// turned it into "not mentioned" and silently kept the title (DR-92).
+/// turned it into "not mentioned" and silently kept the title.
 #[rstest]
 #[tokio::test]
 async fn test_null_deletes_the_title() {
@@ -329,7 +329,7 @@ async fn test_a_literal_wipe_needs_explicit_nulls() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T8-D4 — `customFields`.
+// `customFields`.
 // ---------------------------------------------------------------------------------------------
 
 /// Top-level `customFields` is not an argument at all, and is refused by name before the tool
@@ -398,7 +398,7 @@ async fn test_custom_fields_from_the_pre_read_are_stripped() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T8-D3 — `409`: once is resolved by re-reading, twice is reported.
+// `409`: once is resolved by re-reading, twice is reported.
 // ---------------------------------------------------------------------------------------------
 
 /// One conflict resolves with `retried: true`, and the second attempt carries the
@@ -579,11 +579,11 @@ async fn test_a_no_op_reports_nothing_changed() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — every row, `code` and `remedy`.
+// Every error row, `code` and `remedy`.
 // ---------------------------------------------------------------------------------------------
 
 /// A schema violation names the offending field in `details.path` and points at the rules of
-/// **just** the fields that failed (DR-86).
+/// **just** the fields that failed.
 #[rstest]
 #[tokio::test]
 async fn test_a_schema_violation_names_the_field_and_its_rules() {
@@ -685,7 +685,7 @@ async fn test_an_unknown_kind_returns_candidates() {
     assert!(requests_on_item(&engine, Method::PUT).await.is_empty());
 }
 
-/// A type with no served version cannot be addressed, so nothing is read or written (D30).
+/// A type with no served version cannot be addressed, so nothing is read or written.
 #[rstest]
 #[tokio::test]
 async fn test_a_type_with_no_served_version_is_unaddressable() {
@@ -710,7 +710,7 @@ async fn test_a_type_with_no_served_version_is_unaddressable() {
 }
 
 /// A failure **after** the `PUT` left may have committed: `unknown_outcome`, never a clean
-/// failure (D20).
+/// failure.
 #[rstest]
 #[case::internal_error(500)]
 #[case::bad_gateway(502)]
@@ -785,7 +785,7 @@ async fn test_an_exhausted_deadline_dispatches_nothing() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// NFR-10 — arguments checked before anything reaches the engine.
+// Arguments checked before anything reaches the engine.
 // ---------------------------------------------------------------------------------------------
 
 /// A malformed argument is refused naming itself, and costs no engine call.

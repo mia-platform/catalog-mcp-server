@@ -19,7 +19,7 @@ use crate::registry::{PER_TOOL_ALLOWANCE, Registry};
 use rstest::{fixture, rstest};
 use serde_json::Value;
 
-/// Words that must never appear anywhere in a tool's advertised surface (D21, NFR-01).
+/// Words that must never appear anywhere in a tool's advertised surface.
 ///
 /// The ACL context, the bearer token and the principal id exist only in the request-scoped
 /// identity, which a tool receives as an opaque capability it cannot address. With hand-written
@@ -37,7 +37,7 @@ const FORBIDDEN_SCHEMA_TERMS: &[&str] = &[
     "x-mia",
 ];
 
-/// Where a tool's minified input schema is recorded, byte for byte (D17).
+/// Where a tool's minified input schema is recorded, byte for byte.
 const GOLDEN_DIR: &str = "src/schema/golden";
 
 #[fixture]
@@ -61,7 +61,7 @@ fn test_tool_order_is_deterministic(mock_registry: Registry) {
     assert_eq!(names, sorted);
 }
 
-/// D22 — one registry, one payload, and `get_tool` answers for everything in it.
+/// One registry, one payload, and `get_tool` answers for everything in it.
 #[rstest]
 fn test_every_listed_tool_is_retrievable(mock_registry: Registry) {
     for tool in mock_registry.tools() {
@@ -73,7 +73,7 @@ fn test_every_listed_tool_is_retrievable(mock_registry: Registry) {
     }
 }
 
-/// D17 — `get_tool` feeds the SDK's `Mcp-Param-*` validation, so it must serve **byte-for-byte**
+/// `get_tool` feeds the SDK's `Mcp-Param-*` validation, so it must serve **byte-for-byte**
 /// what `list_tools` served. Two sources for one schema would diverge silently.
 #[rstest]
 fn test_get_tool_schema_is_byte_identical_to_the_listed_one(mock_registry: Registry) {
@@ -91,7 +91,7 @@ fn test_get_tool_schema_is_byte_identical_to_the_listed_one(mock_registry: Regis
     }
 }
 
-/// D15 — the measured headline defect of the previous server was 37 519 B of identical
+/// The measured headline defect of the previous server was 37 519 B of identical
 /// `outputSchema`: 33 % of the payload, zero information. This gets a test, not a convention.
 #[rstest]
 fn test_no_tool_advertises_an_output_schema(mock_registry: Registry) {
@@ -107,8 +107,9 @@ fn test_no_tool_advertises_an_output_schema(mock_registry: Registry) {
     }
 }
 
-/// D21 — asserted by walking every registered schema, so a header parameter cannot be
-/// reintroduced without failing CI. This is the ACL hole the rewrite exists to close.
+/// No schema may mention an identity or a header, asserted by walking every registered schema
+/// so that a header parameter cannot be reintroduced without failing CI. This is the ACL hole
+/// the rewrite exists to close.
 #[rstest]
 fn test_no_schema_mentions_an_identity_or_a_header(mock_registry: Registry) {
     for tool in mock_registry.tools() {
@@ -126,7 +127,7 @@ fn test_no_schema_mentions_an_identity_or_a_header(mock_registry: Registry) {
     }
 }
 
-/// D17 — every emitted schema is asserted byte-for-byte against a golden file, so a change to
+/// Every emitted schema is asserted byte-for-byte against a golden file, so a change to
 /// the minifier or to an input type shows up as a reviewable diff.
 ///
 /// Regenerate deliberately with `UPDATE_GOLDEN=1 cargo test`.
@@ -157,7 +158,7 @@ fn test_minified_schemas_match_their_goldens(mock_registry: Registry) {
     }
 }
 
-/// D12, §9 — the one hard limit, on a payload we author. It scales with the tool count so that
+/// The one hard limit, on a payload we author. It scales with the tool count so that
 /// functionality growing raises the budget automatically and can never create pressure to cut a
 /// tool; only bloat — more bytes for the same tools — fails.
 #[rstest]
@@ -166,7 +167,8 @@ fn test_tools_list_payload_is_inside_its_budget(mock_registry: Registry) {
     let budget = mock_registry.byte_budget();
 
     // Printed whether the check passes or fails, so growth is always attributable and the review
-    // question is "T4 grew 312 bytes, is it earning that?" rather than "the payload is too big".
+    // question is "`run_compliance_evaluation` grew 312 bytes, is it earning that?" rather than
+    // "the payload is too big".
     println!(
         "tools/list: {bytes} B of {budget} B ({} tools x {PER_TOOL_ALLOWANCE} B)",
         mock_registry.tools().len()
@@ -190,7 +192,7 @@ fn test_byte_budget_scales_with_the_tool_count(mock_registry: Registry) {
 }
 
 // ---------------------------------------------------------------------------------------------
-// F-11 — `additionalProperties: false` is enforced: every documented argument is accepted, and
+// `additionalProperties: false` is enforced: every documented argument is accepted, and
 // nothing else is.
 // ---------------------------------------------------------------------------------------------
 

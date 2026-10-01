@@ -42,13 +42,13 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
 
     let cli = Cli::parse_args();
 
-    // Loaded, parsed **and validated** synchronously, before the runtime exists (D40): a
+    // Loaded, parsed **and validated** synchronously, before the runtime exists: a
     // configuration that would fail later must not get as far as binding a listener.
     let config = configuration::load(&cli.config_folder)?;
     tracing::debug!(?config, "service configuration loaded");
 
-    // Multi-thread, unlike the engine and the previous server: T3's fan-out and T4's poll loop
-    // are the workload this runtime is sized for (§3.2).
+    // Multi-thread, unlike the engine and the previous server: `describe_item`'s fan-out and
+    // `run_compliance_evaluation`'s poll loop are the workload this runtime is sized for.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_io()
         .enable_time()

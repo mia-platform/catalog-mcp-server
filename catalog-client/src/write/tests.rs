@@ -32,7 +32,7 @@ use wiremock::{
 };
 
 // ---------------------------------------------------------------------------------------------
-// RFC 7396 Appendix A, transcribed. The RFC's own table is the test list (§8.5, D29).
+// RFC 7396 Appendix A, transcribed. The RFC's own table is the test list.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]
@@ -346,7 +346,7 @@ async fn test_a_missing_object_is_created() {
     assert!(outcome.created);
 }
 
-/// D23 — `RetryOnce` re-reads and re-applies **once**, and says that it did.
+/// `RetryOnce` re-reads and re-applies **once**, and says that it did.
 #[rstest]
 #[tokio::test]
 async fn test_a_conflict_is_retried_once_under_retry_once() {
@@ -393,7 +393,7 @@ async fn test_a_conflict_is_retried_once_under_retry_once() {
     assert_eq!(outcome.changed, vec!["metadata.title"]);
 }
 
-/// D23 — `Report` does not retry. The caller's intent was formed against the state they read,
+/// `Report` does not retry. The caller's intent was formed against the state they read,
 /// and landing it on a different one is not the same act.
 #[rstest]
 #[tokio::test]
@@ -487,7 +487,7 @@ async fn test_the_resource_version_is_kept_out_of_the_body_when_it_belongs_in_th
     assert!(sent_body(&engine).await.get("resourceVersion").is_none());
 }
 
-/// D20 — a `500` on the write is `unknown_outcome`, never a clean failure.
+/// A `500` on the write is `unknown_outcome`, never a clean failure.
 #[rstest]
 #[tokio::test]
 async fn test_a_500_on_the_write_may_have_succeeded() {
@@ -553,12 +553,12 @@ async fn test_write_warnings_reach_the_outcome() {
     assert_eq!(
         outcome.warnings[0].read_only_field(),
         Some("spec.group"),
-        "T12 derives its `ignored` list from exactly this"
+        "`apply_item_type` derives its `ignored` list from exactly this"
     );
 }
 
 // ---------------------------------------------------------------------------------------------
-// Item Type Definitions (T12): raw both ways, and the create/update expectation.
+// Item Type Definitions: raw both ways, and the create/update expectation.
 // ---------------------------------------------------------------------------------------------
 
 /// The definition's path in the fixtures.
@@ -575,7 +575,7 @@ fn mock_stored_type() -> Value {
     itd
 }
 
-/// DR-86 — a field the typed model does not know survives the round trip into the write.
+/// A field the typed model does not know survives the round trip into the write.
 #[rstest]
 #[tokio::test]
 async fn test_a_definition_is_written_back_raw() {

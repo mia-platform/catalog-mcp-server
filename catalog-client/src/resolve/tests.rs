@@ -45,7 +45,7 @@ fn chosen(versions: &[TypeVersion]) -> Option<&str> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The served-version rule (§8.6, from T1).
+// The served-version rule.
 // ---------------------------------------------------------------------------------------------
 
 /// The case that is true of all 68 shipped types today: one served `v1`.
@@ -156,7 +156,7 @@ async fn test_a_kind_resolves_to_its_coordinates() {
 }
 
 /// **One request, and it is a point lookup** — `field=spec.names.kind=<kind>&limit=1`, tenant
-/// scoped by construction (D30).
+/// scoped by construction.
 #[rstest]
 #[tokio::test]
 async fn test_the_lookup_is_one_tenant_scoped_point_query() {
@@ -191,8 +191,8 @@ async fn test_the_lookup_is_one_tenant_scoped_point_query() {
         .map(|(key, value)| (key.into_owned(), value.into_owned()))
         .collect();
 
-    // Without a group, every type sharing the kind must come back to be offered as a candidate
-    // (DR-80); the exact `(group, kind)` lookup asks for two instead (T6-D2), pinned below.
+    // Without a group, every type sharing the kind must come back to be offered as a candidate;
+    // the exact `(group, kind)` lookup asks for two instead, pinned below.
     assert!(pairs.contains(&("limit".to_string(), "20".to_string())));
     assert!(pairs.contains(&("field".to_string(), "spec.names.kind=Service".to_string())));
     // Tenancy comes from the forwarded header, not from a query parameter of ours.
@@ -280,7 +280,7 @@ async fn test_an_engine_failure_is_not_reported_as_a_missing_kind() {
     assert_eq!(error.code, codes::CATALOG_UNAVAILABLE);
 }
 
-/// T1-D4 — the lean listing model reaches **the same** rule, not a copy of it.
+/// The lean listing model reaches **the same** rule, not a copy of it.
 #[rstest]
 fn test_the_lean_model_is_selected_by_the_same_rule() {
     let lean = [
@@ -319,7 +319,7 @@ fn mock_shared_service() -> serde_json::Value {
     )
 }
 
-/// DR-80 — a kind is unique per group, not per tenant. A shared kind with no `group` is answered
+/// A kind is unique per group, not per tenant. A shared kind with no `group` is answered
 /// with the candidates, **never** a pick.
 #[rstest]
 #[tokio::test]
@@ -443,7 +443,7 @@ async fn test_a_kind_outside_its_group_names_the_groups_it_is_in() {
     );
 }
 
-/// T6-D2 — two rows for one `(group, kind)` break the engine's own constraint: `server_defect`,
+/// Two rows for one `(group, kind)` break the engine's own constraint: `server_defect`,
 /// and **neither** is picked.
 #[rstest]
 #[tokio::test]

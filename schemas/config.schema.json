@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "Config",
-  "description": "The whole service configuration (§11).",
+  "description": "The whole service configuration.",
   "type": "object",
   "properties": {
     "server": {
@@ -71,7 +71,7 @@
   },
   "definitions": {
     "ServerConfig": {
-      "description": "How the HTTP listener is bound and what the transport accepts (§11).\n\n`allowed_hosts` has **no usable default**: the SDK's own default is loopback-only, so a\nremote deployment answers every request `403 Forbidden: Host header is not allowed` until\nthe list is set. Validation therefore refuses an empty list before the listener binds (D11).",
+      "description": "How the HTTP listener is bound and what the transport accepts.\n\n`allowed_hosts` has **no usable default**: the SDK's own default is loopback-only, so a\nremote deployment answers every request `403 Forbidden: Host header is not allowed` until\nthe list is set. Validation therefore refuses an empty list before the listener binds.",
       "type": "object",
       "properties": {
         "ip": {
@@ -102,7 +102,7 @@
           "default": []
         },
         "allowedOrigins": {
-          "description": "Browser origins accepted in the inbound `Origin` header. Empty leaves `Origin`\nvalidation switched off, which is what the in-cluster client needs (D11).",
+          "description": "Browser origins accepted in the inbound `Origin` header. Empty leaves `Origin`\nvalidation switched off, which is what the in-cluster client needs.",
           "type": "array",
           "items": {
             "type": "string"
@@ -119,7 +119,7 @@
       }
     },
     "EngineConfig": {
-      "description": "Where `catalog-engine` is reached, and how patiently (§11).\n\n`base_url` always points at the **API gateway**, never at the engine `Service`: every\noutbound call has to traverse `ext_authz` so the server can never do more than its caller\ncould do itself (D27, D48). Validation refuses a `base_url` that addresses the engine\ndirectly.",
+      "description": "Where `catalog-engine` is reached, and how patiently.\n\n`base_url` always points at the **API gateway**, never at the engine `Service`: every\noutbound call has to traverse `ext_authz` so the server can never do more than its caller\ncould do itself. Validation refuses a `base_url` that addresses the engine\ndirectly.",
       "type": "object",
       "properties": {
         "baseUrl": {
@@ -147,7 +147,7 @@
           "default": 1000
         },
         "maxRetries": {
-          "description": "Maximum retry attempts for a request the §8.1 policy classifies as retryable.",
+          "description": "Maximum retry attempts for a request the retry policy classifies as retryable.",
           "type": "integer",
           "format": "uint8",
           "minimum": 0,
@@ -157,7 +157,7 @@
       }
     },
     "AuthConfig": {
-      "description": "The identity posture and the canonical resource identifiers (§7.3).\n\nThe Protected Resource Metadata document is served by Envoy, not by this process, so\n`resource` exists to match Envoy's string exactly rather than to be published from here.",
+      "description": "The identity posture and the canonical resource identifiers.\n\nThe Protected Resource Metadata document is served by Envoy, not by this process, so\n`resource` exists to match Envoy's string exactly rather than to be published from here.",
       "type": "object",
       "properties": {
         "mode": {
@@ -181,22 +181,22 @@
       }
     },
     "AuthMode": {
-      "description": "What the server does with the caller's identity (§7.2).\n\n`ResourceServer` is accepted by the schema — the value and this variant exist so the\ndecision is additive — but **refused by validation in v1** (D46): starting up and silently\nbehaving as `Gateway` is how a trust boundary quietly stops existing.",
+      "description": "What the server does with the caller's identity.\n\n`ResourceServer` is accepted by the schema — the value and this variant exist so the\ndecision is additive — but **refused by validation in v1**: starting up and silently\nbehaving as `Gateway` is how a trust boundary quietly stops existing.",
       "oneOf": [
         {
-          "description": "Extract, never reject: the gateway has already authenticated and authorized (D47).",
+          "description": "Extract, never reject: the gateway has already authenticated and authorized.",
           "type": "string",
           "const": "gateway"
         },
         {
-          "description": "Validate the bearer token ourselves. Not implemented in v1 — see P-C3.",
+          "description": "Validate the bearer token ourselves. Not implemented in v1.",
           "type": "string",
           "const": "resource-server"
         }
       ]
     },
     "ToolsConfig": {
-      "description": "What bounds a tool call and what the tool set advertises (§11).\n\n`tools_list_ttl_ms` sits here rather than under `transport` because it is a property of the\ntool set (D13), not of the wire.",
+      "description": "What bounds a tool call and what the tool set advertises.\n\n`tools_list_ttl_ms` sits here rather than under `transport` because it is a property of the\ntool set, not of the wire.",
       "type": "object",
       "properties": {
         "callDeadlineSeconds": {
@@ -232,7 +232,7 @@
       }
     },
     "RateLimitConfig": {
-      "description": "The per-tenant token bucket of §6.4. Buckets are per replica, so the effective cluster\nlimit is `replicas × rate`.\n\n**Off by default in v1**: it limits nothing unless `enabled` is set to `true`.",
+      "description": "The per-tenant token bucket. Buckets are per replica, so the effective cluster\nlimit is `replicas × rate`.\n\n**Off by default in v1**: it limits nothing unless `enabled` is set to `true`.",
       "type": "object",
       "properties": {
         "enabled": {
@@ -257,7 +257,7 @@
       }
     },
     "ToolDefaults": {
-      "description": "Every tunable the tool analyses marked as a guess (§11). They live here, not in the code,\nbecause the measurement exercise will change them and a config change is not a release.\n\n**No response ceilings are among them** — there are none (D34).",
+      "description": "Every tunable the tool analyses marked as a guess. They live here, not in the code,\nbecause the measurement exercise will change them and a config change is not a release.\n\n**No response ceilings are among them** — there are none.",
       "type": "object",
       "properties": {
         "searchLimit": {
@@ -305,7 +305,7 @@
       }
     },
     "ResponseConfig": {
-      "description": "How a tool result is rendered (§11).\n\n`structured_content` stays **off** (D15): returning every result twice — as text and as\nstructured content — doubles the metric this project exists to reduce. It is a switch, not\na design choice, so a client that needs it can have it without a release.",
+      "description": "How a tool result is rendered.\n\n`structured_content` stays **off**: returning every result twice — as text and as\nstructured content — doubles the metric this project exists to reduce. It is a switch, not\na design choice, so a client that needs it can have it without a release.",
       "type": "object",
       "properties": {
         "structuredContent": {
@@ -316,7 +316,7 @@
       }
     },
     "TransportConfig": {
-      "description": "The SDK transport knobs, every one of them read from configuration rather than hardcoded\n(§6.1).\n\n`legacy_session_mode` stays **on** because our only client today is handshake-era (D2);\nrequests that negotiate `2026-07-28` are served statelessly regardless. `json_response`\nonly *prefers* JSON — the transport falls back to SSE by itself when a handler emits a\nnotification before its result (D9).",
+      "description": "The SDK transport knobs, every one of them read from configuration rather than hardcoded.\n\n`legacy_session_mode` stays **on** because our only client today is handshake-era;\nrequests that negotiate `2026-07-28` are served statelessly regardless. `json_response`\nonly *prefers* JSON — the transport falls back to SSE by itself when a handler emits a\nnotification before its result.",
       "type": "object",
       "properties": {
         "legacySessionMode": {
@@ -339,7 +339,7 @@
       }
     },
     "HealthConfig": {
-      "description": "What `/-/ready` checks (D43).\n\n`/-/healthz` takes nothing from here: liveness never calls the engine, because a dependency\noutage must not get the pod restarted.",
+      "description": "What `/-/ready` checks.\n\n`/-/healthz` takes nothing from here: liveness never calls the engine, because a dependency\noutage must not get the pod restarted.",
       "type": "object",
       "properties": {
         "readinessChecksEngine": {
@@ -357,7 +357,7 @@
       }
     },
     "ObservabilityConfig": {
-      "description": "What the server reports about itself (§10).",
+      "description": "What the server reports about itself.",
       "type": "object",
       "properties": {
         "metricsEnabled": {

@@ -34,7 +34,7 @@ use std::{
 use tracing::Instrument;
 use url::Url;
 
-/// The wall-clock budget bounding one whole tool call (§5.5, §6.4).
+/// The wall-clock budget bounding one whole tool call.
 pub mod deadline;
 
 pub use deadline::Deadline;
@@ -46,10 +46,10 @@ const RETRY_BACKOFF: Duration = Duration::from_millis(100);
 /// `5xx` whose body always reads *"Something went wrong"*.
 const ENGINE_REQUEST_ID_HEADER: &str = "x-request-id";
 
-/// How many engine requests one tool call bought (§10).
+/// How many engine requests one tool call bought.
 pub const MCP_ENGINE_REQUESTS_TOTAL: &str = "mcp_engine_requests_total";
 
-/// How long an engine request took (§10).
+/// How long an engine request took.
 pub const MCP_ENGINE_DURATION_SECONDS: &str = "mcp_engine_duration_seconds";
 
 /// The engine's error body: `{"status", "error", "message"}` — not RFC 7807.
@@ -61,7 +61,7 @@ struct EngineErrorBody {
 
 /// What every engine call returns: the value, plus the warnings that came with it.
 ///
-/// **Every engine response passes through the warning parser** (P6, D28), which is why warnings
+/// **Every engine response passes through the warning parser**, which is why warnings
 /// are on this type rather than on the operations that happen to remember them.
 #[derive(Clone, Debug)]
 pub struct EngineResponse<T> {
@@ -73,9 +73,9 @@ pub struct EngineResponse<T> {
 }
 
 /// What one call heard from the engine besides its bodies: whether it reached for the engine at
-/// all, and every `Warning` the engine attached (D28).
+/// all, and every `Warning` the engine attached.
 ///
-/// **The runtime, not the tool, puts these on the result** (§5.5). One record is created per
+/// **The runtime, not the tool, puts these on the result**. One record is created per
 /// call by [`EngineClientFactory::bind`] and shared by every clone of that call's
 /// [`EngineClient`], so a tool that fans out still reports what each response carried, and no
 /// tool author can forget to. The engine attaches warnings in a middleware around its whole
@@ -118,7 +118,7 @@ impl CallWarnings {
     }
 
     /// How many HTTP requests this call has sent the engine, retries included: `mcp.request`'s
-    /// `engine.calls` (§10).
+    /// `engine.calls`.
     pub fn engine_calls(&self) -> u32 {
         self.with_state(|state| state.requests)
     }
@@ -155,7 +155,7 @@ impl CallWarnings {
     }
 }
 
-/// The §8.1 retry policy. **A policy, not a number.**
+/// The engine retry policy. **A policy, not a number.**
 #[derive(Clone, Copy, Debug)]
 pub struct RetryPolicy {
     /// How many retries are permitted at most (`engine.maxRetries`, default 1).
@@ -169,7 +169,7 @@ pub struct RetryPolicy {
 }
 
 impl RetryPolicy {
-    /// Whether this failure may be retried, given everything §8.1 requires.
+    /// Whether this failure may be retried, given everything the policy requires.
     ///
     /// All four conditions must hold: the request is idempotent by construction; the failure is
     /// a connect error, a read timeout or a `502`/`503`/`504` — **never a `500`**, which the
@@ -194,7 +194,8 @@ impl RetryPolicy {
     }
 }
 
-/// Why a request failed, at the granularity the retry policy and D20 care about.
+/// Why a request failed, at the granularity the retry policy and the dispatched-write rule care
+/// about.
 ///
 /// The split between [`Self::Connect`] and [`Self::Timeout`] is not cosmetic: it is the whole of
 /// what separates *"the write never left"* from *"the write may have taken effect"*.
@@ -211,7 +212,7 @@ pub enum FailureKind {
 }
 
 impl FailureKind {
-    /// Whether §8.1 permits a retry of this failure, ignoring every other condition.
+    /// Whether the retry policy permits a retry of this failure, ignoring every other condition.
     ///
     /// `500` is deliberately absent: the engine emits it for application faults, and an
     /// application fault may have committed.
@@ -222,7 +223,7 @@ impl FailureKind {
         }
     }
 
-    /// Whether a **write** that met this failure may already have been applied (D20).
+    /// Whether a **write** that met this failure may already have been applied.
     ///
     /// A connect failure is the one case where the answer is no: the request never left. Every
     /// other failure leaves the outcome unknowable from here, and reporting it as a clean
@@ -239,7 +240,7 @@ pub enum Intent {
     Read,
 
     /// A write or a delete. Retryable only when the conflict policy has classified it so
-    /// (D23), and a failure after dispatch is `unknown_outcome` (D20).
+    /// so, and a failure after dispatch is `unknown_outcome`.
     Write {
         /// Whether the write cycle classified this call as safe to repeat.
         retryable: bool,
@@ -265,10 +266,10 @@ impl Intent {
     }
 }
 
-/// The process-wide half of the client: one connection pool, one base URL, one policy (§8.1).
+/// The process-wide half of the client: one connection pool, one base URL, one policy.
 ///
 /// Built once at startup and cloned per request into an [`EngineClient`]. There is **no ambient
-/// identity and no default ACL context** (D25): a request cannot be made from this alone.
+/// identity and no default ACL context**: a request cannot be made from this alone.
 #[derive(Clone, Debug)]
 pub struct EngineClientFactory {
     http: reqwest::Client,
@@ -280,8 +281,8 @@ impl EngineClientFactory {
     /// Builds the process-wide client.
     ///
     /// `base_url` and `api_prefix` are joined **once**, here, with `url::Url` — never
-    /// string-concatenated (D24). Both timeouts are explicit and always set: a client without
-    /// them is the habit this plan names as one worth not copying from the engine.
+    /// string-concatenated. Both timeouts are explicit and always set: a client without them is
+    /// an engine habit worth not copying.
     pub fn new(
         base_url: &str,
         api_prefix: &str,
@@ -307,7 +308,7 @@ impl EngineClientFactory {
         })
     }
 
-    /// Binds the shared client to one caller's identity and one call's deadline (D25).
+    /// Binds the shared client to one caller's identity and one call's deadline.
     pub fn bind(&self, identity: Arc<CallerIdentity>, deadline: Deadline) -> EngineClient {
         EngineClient {
             http: self.http.clone(),
@@ -325,7 +326,7 @@ impl EngineClientFactory {
         &self.base
     }
 
-    /// Whether the engine is reachable through the configured base URL, for `/-/ready` (D43).
+    /// Whether the engine is reachable through the configured base URL, for `/-/ready`.
     ///
     /// **Reachable** means an HTTP response arrived within `timeout` and was not a `5XX`; a
     /// transport error, a timeout or a `5XX` is unreachable. The probe carries **no caller
@@ -369,21 +370,21 @@ fn join_base(base_url: &str, api_prefix: &str) -> anyhow::Result<Url> {
     Ok(base)
 }
 
-/// The W3C `traceparent` header (§10).
+/// The W3C `traceparent` header.
 pub const TRACEPARENT_HEADER: HeaderName = HeaderName::from_static("traceparent");
 
-/// The W3C `tracestate` header (§10).
+/// The W3C `tracestate` header.
 pub const TRACESTATE_HEADER: HeaderName = HeaderName::from_static("tracestate");
 
-/// The W3C `baggage` header (§10).
+/// The W3C `baggage` header.
 pub const BAGGAGE_HEADER: HeaderName = HeaderName::from_static("baggage");
 
-/// The W3C trace context of one MCP call, as its `_meta` carried it (§10, SEP-414).
+/// The W3C trace context of one MCP call, as its `_meta` carried it (SEP-414).
 ///
 /// **Not** part of [`CallerIdentity`]: these are headers this server *sets* on every engine
-/// request, read from the JSON-RPC body, not inbound HTTP headers it forwards. D26's allowlist —
-/// and therefore what `forwarded()` means — is unchanged by it. A value that is not a valid
-/// header is dropped rather than sent mangled.
+/// request, read from the JSON-RPC body, not inbound HTTP headers it forwards. The forwarding
+/// allowlist — and therefore what `forwarded()` means — is unchanged by it. A value that is not a
+/// valid header is dropped rather than sent mangled.
 #[derive(Clone, Debug, Default)]
 pub struct TraceContext {
     headers: HeaderMap,
@@ -408,12 +409,12 @@ impl TraceContext {
     }
 }
 
-/// The request-scoped client: one caller, one deadline, one set of forwarded headers (D25).
+/// The request-scoped client: one caller, one deadline, one set of forwarded headers.
 ///
 /// **There is no API here that takes a `HeaderMap`.** Every request method applies the caller's
 /// forwarded headers itself, so no operation — and therefore no tool — can construct a request
-/// that omits the identity pair. That is how NFR-11 is met by construction rather than by
-/// convention (§7.4).
+/// that omits the identity pair. That is how identity propagation is guaranteed by construction
+/// rather than by convention.
 #[derive(Clone, Debug)]
 pub struct EngineClient {
     http: reqwest::Client,
@@ -426,13 +427,13 @@ pub struct EngineClient {
 }
 
 impl EngineClient {
-    /// Sets the W3C trace context every request of this call carries (§10).
+    /// Sets the W3C trace context every request of this call carries.
     pub fn with_trace_context(mut self, trace: TraceContext) -> Self {
         self.trace = trace;
         self
     }
 
-    /// Everything this call's engine responses warned about, for the runtime to render (D28).
+    /// Everything this call's engine responses warned about, for the runtime to render.
     pub fn call_warnings(&self) -> &CallWarnings {
         &self.warnings
     }
@@ -472,11 +473,11 @@ impl EngineClient {
         Ok(url)
     }
 
-    /// Issues one `GET` and deserialises its body, applying the whole §8.1 policy.
+    /// Issues one `GET` and deserialises its body, applying the whole retry policy.
     ///
     /// Reads are idempotent by construction, which is the first of the four retry conditions.
     /// `origin` says whose fault a `400` would be: the operation knows what it put in the
-    /// request, and the client cannot tell from the response (§8.4).
+    /// request, and the client cannot tell from the response.
     pub async fn get_json<T: DeserializeOwned>(
         &self,
         operation: &'static OperationSpec,
@@ -494,8 +495,8 @@ impl EngineClient {
     /// Issues one `PUT` and deserialises the object the engine stored.
     ///
     /// **Retried only when the conflict policy says the intent is independent of the state it
-    /// lands on** (D23), and a failure after the request left is `unknown_outcome` rather than a
-    /// clean failure (D20).
+    /// lands on**, and a failure after the request left is `unknown_outcome` rather than a
+    /// clean failure.
     pub async fn put_json<T: DeserializeOwned>(
         &self,
         operation: &'static OperationSpec,
@@ -518,8 +519,8 @@ impl EngineClient {
 
     /// Issues one `DELETE`, whose success carries no body — only the warnings the engine attached.
     ///
-    /// Never retried: a delete that may have landed is `unknown_outcome` (D20), and whether a
-    /// repeat is safe is not a property of the request (D23).
+    /// Never retried: a delete that may have landed is `unknown_outcome`, and whether a
+    /// repeat is safe is not a property of the request.
     pub async fn delete_empty(
         &self,
         operation: &'static OperationSpec,
@@ -561,9 +562,9 @@ impl EngineClient {
         })
     }
 
-    /// Issues one request, retrying once when — and only when — §8.1 permits it.
+    /// Issues one request, retrying once when — and only when — the retry policy permits it.
     ///
-    /// One `engine.request` span per attempt (§10), carrying the **path template** rather than
+    /// One `engine.request` span per attempt, carrying the **path template** rather than
     /// the interpolated one — an item name in a span label is unbounded cardinality, and the
     /// template is what an operator actually groups by.
     async fn send(
@@ -657,7 +658,7 @@ impl EngineClient {
                     spec.upstream,
                 );
 
-                // §8.4 — a defect of ours is logged loudly; the model is only told it is not
+                // A defect of ours is logged loudly; the model is only told it is not
                 // its fault.
                 if error.code == codes::SERVER_DEFECT {
                     tracing::error!(
@@ -680,9 +681,9 @@ impl EngineClient {
     async fn attempt(&self, request: &Request) -> Result<RawResponse, Attempt> {
         let builder = request
             .build(&self.http)
-            // The D26 allowlist, applied here and nowhere else.
+            // The forwarding allowlist, applied here and nowhere else.
             .headers(self.identity.forwarded().clone())
-            // Set by this server from the call's `_meta`, not forwarded (§10).
+            // Set by this server from the call's `_meta`, not forwarded.
             .headers(self.trace.headers.clone());
 
         let bounded = self.deadline.bounded(builder.send());
@@ -758,7 +759,7 @@ impl EngineClient {
     /// Turns a classified failure into the contract's error shape.
     ///
     /// A timeout is split by **whose** clock ran out. When the call's deadline has expired it is
-    /// `deadline_exceeded` (§5.5 rule 4) — the budget was ours, and the catalog may be perfectly
+    /// `deadline_exceeded` — the budget was ours, and the catalog may be perfectly
     /// healthy. Only a hop that timed out with budget left is the catalog failing to answer.
     fn to_tool_error(
         &self,
@@ -874,7 +875,7 @@ fn engine_request_id(headers: &HeaderMap) -> Option<String> {
         .map(str::to_string)
 }
 
-/// 100 ms with full jitter (§8.1).
+/// 100 ms with full jitter.
 ///
 /// Derived from the wall clock and the attempt number rather than from a random-number
 /// dependency: the only thing jitter has to achieve here is that two replicas retrying the same

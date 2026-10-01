@@ -22,7 +22,7 @@ pub fn default_metrics_enabled() -> bool {
     true
 }
 
-/// What the server reports about itself (§10).
+/// What the server reports about itself.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]

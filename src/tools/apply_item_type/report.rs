@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// What a type write did beyond `changed` (T12 §5): the fields it did not apply, whether the items'
+// What a type write did beyond `changed`: the fields it did not apply, whether the items'
 // schema moved, which served versions went away, and the background work it started.
 
 use catalog_client::EngineWarning;
@@ -26,7 +26,7 @@ use std::collections::BTreeMap;
 /// Why a read-only field was not applied — the reason the model relays.
 pub(super) const READ_ONLY_REASON: &str = "read-only after creation";
 
-/// Why `spec.history` or `spec.audit` was not applied (T12-D3): not merely read-only, but out of
+/// Why `spec.history` or `spec.audit` was not applied: not merely read-only, but out of
 /// reach of every tool in this set.
 pub(super) const CREATE_ONLY_REASON: &str =
     "set only when the type is created; this tool cannot change it";
@@ -35,10 +35,10 @@ pub(super) const CREATE_ONLY_REASON: &str =
 /// `metadata.name` are its address.
 pub(super) const IDENTITY_REASON: &str = "identifies the type; set only when it is created";
 
-/// The two settings the engine applies on creation only (T12-D3).
+/// The two settings the engine applies on creation only.
 const CREATE_ONLY_FIELDS: [&str; 2] = ["spec.history", "spec.audit"];
 
-/// The background job every history-enabled creation starts (T12-D4).
+/// The background job every history-enabled creation starts.
 pub(super) const REVISION_BACKFILL_JOB: &str = "revision backfill";
 
 /// The job a history-enabled creation with a numeric retention starts: it deletes revisions.
@@ -47,7 +47,7 @@ pub(super) const RETENTION_TRIM_JOB: &str = "retention trim (may delete revision
 /// The retention policy that keeps everything, and so starts no trim.
 const RETAIN_ALL_POLICY: &str = "All";
 
-/// One field the write did not apply, and why (T12-D2).
+/// One field the write did not apply, and why.
 #[derive(Clone, Serialize)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub(super) struct Ignored {
@@ -75,7 +75,7 @@ impl Ignored {
 }
 
 /// `ignored`, from what this tool held back and what the engine reported ignoring — in that order,
-/// each field once (T12-D2).
+/// each field once.
 ///
 /// The engine's side comes from its `Warning: 299` headers through the core's named parser
 /// (`EngineWarning::read_only_field`); the headers themselves stay in `warnings`, verbatim, so a
@@ -133,13 +133,13 @@ pub(super) fn version_names(definition: &Value) -> Vec<String> {
         .collect()
 }
 
-/// T12-D5 — whether the schema items are validated against moved: a version's schema changed, or
+/// Whether the schema items are validated against moved: a version's schema changed, or
 /// a version was added or taken away.
 pub(super) fn schema_changed(before: &Value, after: &Value) -> bool {
     schemas(before) != schemas(after)
 }
 
-/// T12-D6 — the versions served before the write and not after it, whose items have lost their path.
+/// The versions served before the write and not after it, whose items have lost their path.
 pub(super) fn versions_removed(before: &Value, after: &Value) -> Vec<String> {
     let still_served = served_versions(after);
 
@@ -149,12 +149,12 @@ pub(super) fn versions_removed(before: &Value, after: &Value) -> Vec<String> {
         .collect()
 }
 
-/// T12-D4 — the asynchronous jobs a **creation** starts, named so a model does not report a settled
+/// The asynchronous jobs a **creation** starts, named so a model does not report a settled
 /// state.
 ///
 /// Empty on an update. The engine enqueues the same two jobs after every write of a history-enabled
 /// type, but on an update they are re-runs of work already done: `spec.history` cannot change
-/// through this tool, so nothing new is backfilled or trimmed (DR-104).
+/// through this tool, so nothing new is backfilled or trimmed.
 pub(super) fn background_jobs(created: bool, after: &Value) -> Vec<&'static str> {
     let history = after.get("spec").and_then(|spec| spec.get("history"));
     let enabled = history

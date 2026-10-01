@@ -222,7 +222,7 @@ fn mock_new_spec() -> Value {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T12-D2 — the `ignored` path, first. A `200` that dropped part of what was sent must say so.
+// The `ignored` path, first. A `200` that dropped part of what was sent must say so.
 // ---------------------------------------------------------------------------------------------
 
 /// Each read-only field the engine discarded is named in `ignored`, with its reason, and the
@@ -277,7 +277,7 @@ async fn test_nothing_ignored_is_an_empty_list() {
     assert_eq!(answer["changed"], json!(["spec.names.displaySingular"]));
 }
 
-/// T12-D3 — enabling history on an existing type is reported as out of reach, not as done.
+/// Enabling history on an existing type is reported as out of reach, not as done.
 #[rstest]
 #[tokio::test]
 async fn test_history_on_update_is_refused_informatively() {
@@ -307,7 +307,7 @@ async fn test_history_on_update_is_refused_informatively() {
     assert_eq!(answer["backgroundJobs"], json!([]));
 }
 
-/// DR-102 — the fields that address the type are held back and reported, not sent: the engine
+/// The fields that address the type are held back and reported, not sent: the engine
 /// would refuse the whole write over the name.
 #[rstest]
 #[tokio::test]
@@ -344,7 +344,7 @@ async fn test_the_types_address_is_held_back() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The merge: what the caller did not mention survives — `llmDescription` above all (A4).
+// The merge: what the caller did not mention survives — `llmDescription` above all.
 // ---------------------------------------------------------------------------------------------
 
 /// A `metadata`-only update leaves `spec.llmDescription`, and every version, where they were.
@@ -378,7 +378,7 @@ async fn test_llm_description_survives_a_metadata_only_update() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T12-D5, T12-D6 — the schema moved, a served version went away.
+// The schema moved, a served version went away.
 // ---------------------------------------------------------------------------------------------
 
 /// A changed schema is reported with the count of the items stored under the type, across every
@@ -433,7 +433,7 @@ async fn test_a_schema_change_is_reported_with_the_item_count() {
     assert!(decoded.contains(r#""kind""#), "{decoded}");
 }
 
-/// A failed count keeps the flag and says why the number is missing (T12 §4).
+/// A failed count keeps the flag and says why the number is missing.
 #[rstest]
 #[tokio::test]
 async fn test_a_failed_count_keeps_the_flag() {
@@ -459,7 +459,7 @@ async fn test_a_failed_count_keeps_the_flag() {
     );
 }
 
-/// A served version that is no longer served is named, with the items counted (T12-D6).
+/// A served version that is no longer served is named, with the items counted.
 #[rstest]
 #[tokio::test]
 async fn test_a_removed_served_version_is_reported() {
@@ -484,7 +484,7 @@ async fn test_a_removed_served_version_is_reported() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// The create path, and T12-D4's background jobs.
+// The create path, and its background jobs.
 // ---------------------------------------------------------------------------------------------
 
 /// A kind no type has, with a complete definition, is created — its address derived, its
@@ -542,7 +542,7 @@ async fn test_a_created_types_background_jobs_are_named(
     assert_eq!(answer["backgroundJobs"], json!(jobs));
 }
 
-/// An update of a history-enabled type starts nothing new, and says so (DR-104).
+/// An update of a history-enabled type starts nothing new, and says so.
 #[rstest]
 #[tokio::test]
 async fn test_an_update_starts_no_background_jobs() {
@@ -698,10 +698,10 @@ async fn test_a_create_over_another_kinds_name_writes_nothing() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — the remaining rows.
+// The remaining error rows.
 // ---------------------------------------------------------------------------------------------
 
-/// T12-D7 — a `409` is reported once, never retried.
+/// A `409` is reported once, never retried.
 #[rstest]
 #[tokio::test]
 async fn test_a_conflict_is_reported_not_retried() {
@@ -745,7 +745,7 @@ async fn test_an_invalid_schema_names_its_location() {
     assert_eq!(details["schemaPath"], json!("/properties/spec/type"));
 }
 
-/// A failure after the `PUT` left may have landed (D20); one on the pre-read wrote nothing.
+/// A failure after the `PUT` left may have landed; one on the pre-read wrote nothing.
 #[rstest]
 #[tokio::test]
 async fn test_the_two_5xx_sides_stay_apart() {
@@ -824,7 +824,7 @@ async fn test_a_core_kinds_items_are_not_miscounted() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// NFR-10 — arguments checked before anything reaches the engine.
+// Arguments checked before anything reaches the engine.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]

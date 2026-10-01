@@ -1,15 +1,15 @@
-# The e2e environment (§14): a real `catalog-engine` on a real database.
+# The e2e environment: a real `catalog-engine` on a real database.
 #
 # It is where the client is checked against the engine: there is no vendored OAS to test against,
 # by decision, so what the engine actually does is the contract. That includes two things no
 # document could express anyway — the `Warning: 299` header, which the OAS declares nowhere, and
 # the relationships endpoint's three response shapes, whose `200` body is typed as a free-form
-# object (§8.3, §12.3, §17.4).
+# object.
 #
 # The gateway is deliberately **absent**. In production every outbound call traverses it so
-# `ext_authz` re-authorizes the operation (D27, D48); here there is no policy to run, so the
+# `ext_authz` re-authorizes the operation; here there is no policy to run, so the
 # engine sees exactly the headers this client forwards — which is what makes the run a true test
-# of D26's propagation rather than of the policy's regeneration.
+# of the client's header propagation rather than of the policy's regeneration.
 
 name: catalog-mcp-server-e2e
 

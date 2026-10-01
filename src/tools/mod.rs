@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-/// T6 — one type's schema, whole, for an agent about to write an item of it. Wave 1.a.
+/// One type's schema, whole, for an agent about to write an item of it.
 pub mod get_item_schema;
 
 /// A test-only probe reporting the identity that reached it; never registered in production.
@@ -25,33 +25,31 @@ pub mod echo_identity;
 /// Argument checks shared by more than one tool.
 mod arguments;
 
-/// Finding one item from its name, and `kind` when given (T3-D6, T9-D7).
+/// Finding one item from its name, and `kind` when given.
 mod lookup;
 
-/// T8 — create or merge-patch one item, through the core's read-merge-write cycle. The first
-/// tool of wave 1.b.
+/// Create or merge-patch one item, through the core's read-merge-write cycle.
 pub mod apply_item;
 
-/// T12 — create or merge-patch one type definition, reporting what the engine ignored and what
-/// the change means for the items already stored. Wave 1.b.
+/// Create or merge-patch one type definition, reporting what the engine ignored and what the
+/// change means for the items already stored.
 pub mod apply_item_type;
 
-/// T13 — delete one type and every item of it, guarded by the item count. Closes wave 1.b.
+/// Delete one type and every item of it, guarded by the item count.
 pub mod delete_item_type;
 
-/// T9 — delete one item, reporting what went with it and a cascade that failed. Wave 1.b.
+/// Delete one item, reporting what went with it and a cascade that failed.
 pub mod delete_item;
 
-/// T3 — one item, what it is and what it is connected to, in one call. Wave 1.a.
+/// One item, what it is and what it is connected to, in one call.
 pub mod describe_item;
 
-/// T1 — every item type the caller can see, with the coordinates to address its items. The
-/// first tool of wave 1.a.
+/// Every item type the caller can see, with the coordinates to address its items.
 pub mod list_catalog_types;
 
-/// T2 — search the catalog by free text, type, labels and fields. Wave 1.a.
+/// Search the catalog by free text, type, labels and fields.
 pub mod search_catalog;
 
-/// The worked example of the contract freeze, and the cheapest end-to-end probe of the identity
-/// path in the whole tool set (§13.5, T11).
+/// The worked example of the tool contract, and the cheapest end-to-end probe of the identity
+/// path in the whole tool set.
 pub mod list_tenants;

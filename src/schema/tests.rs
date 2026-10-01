@@ -29,7 +29,7 @@ fn minify(schema: Value) -> Value {
     Value::Object(minify_input_schema(&object))
 }
 
-/// D17 — `$schema` is ~60 bytes per tool that the SDK keeps and the model cannot act on.
+/// `$schema` is ~60 bytes per tool that the SDK keeps and the model cannot act on.
 #[rstest]
 fn test_schema_dialect_is_dropped() {
     let minified = minify(json!({
@@ -155,7 +155,7 @@ fn test_nested_descriptions_are_kept() {
     );
 }
 
-/// D17 — a `$defs` entry used once is bytes spent on indirection and nothing else.
+/// A `$defs` entry used once is bytes spent on indirection and nothing else.
 #[rstest]
 fn test_single_use_defs_are_inlined_and_removed() {
     let minified = minify(json!({
@@ -246,7 +246,7 @@ fn test_recursive_defs_are_left_alone() {
     assert!(minified["$defs"]["Node"].is_object());
 }
 
-/// D17 — a parameterless tool minifies to exactly this, and nothing more.
+/// A parameterless tool minifies to exactly this, and nothing more.
 #[rstest]
 fn test_parameterless_tool_schema() {
     let minified = minify(json!({ "type": "object", "properties": {} }));

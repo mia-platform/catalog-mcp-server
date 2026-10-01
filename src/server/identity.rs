@@ -25,7 +25,7 @@ use catalog_client::{
 };
 use configuration::auth::{AuthConfig, AuthMode};
 
-/// What the layer **observed** on the inbound request (§6.2).
+/// What the layer **observed** on the inbound request.
 ///
 /// `MiaIdentity` and [`CallerIdentity`] are two stages of one thing, and the split is
 /// deliberate: this is what arrived, it knows nothing about the engine, and it is **infallible**
@@ -46,7 +46,7 @@ pub struct MiaIdentity {
     /// The `x-mia-principal-id` header exactly as received.
     pub principal_id: Option<String>,
 
-    /// The caller's bearer, wrapped so it cannot be logged (D45).
+    /// The caller's bearer, wrapped so it cannot be logged.
     pub bearer: Option<Sensitive<String>>,
 
     /// The `x-request-id` header, reused if present and minted by the layer above if not.
@@ -54,7 +54,8 @@ pub struct MiaIdentity {
 }
 
 impl MiaIdentity {
-    /// Reads the D26 allowlist off an inbound request. **Never fails, never rejects.**
+    /// Reads the allowlist of forwarded headers off an inbound request. **Never fails, never
+    /// rejects.**
     fn observe(request: &Request) -> Self {
         let header = |name: &http::HeaderName| -> Option<String> {
             request
@@ -77,7 +78,7 @@ impl MiaIdentity {
 }
 
 impl From<&MiaIdentity> for CallerIdentity {
-    /// One direction, no validation in either (§6.2).
+    /// One direction, no validation in either.
     fn from(observed: &MiaIdentity) -> Self {
         CallerIdentity::new(
             observed.acl_context.as_deref(),
@@ -92,9 +93,9 @@ impl From<&MiaIdentity> for CallerIdentity {
 }
 
 /// Reads the forwarded headers once, before the MCP service sees the request, and puts a typed
-/// [`MiaIdentity`] in the request's extensions (§6.2).
+/// [`MiaIdentity`] in the request's extensions.
 ///
-/// **It is an extractor, not a gate** (D47). It never returns a `401`, and an absent or
+/// **It is an extractor, not a gate.** It never returns a `401`, and an absent or
 /// malformed ACL context yields `acl: None` rather than a rejection. Doing it in a layer is
 /// still the right place — it keeps header handling out of the JSON-RPC path — but the only
 /// thing it decides is what to put in `Extensions`.
@@ -110,8 +111,8 @@ pub async fn identity_middleware(auth: AuthConfig, mut request: Request, next: N
         // value anyway.
         AuthMode::Gateway => {}
 
-        // Unreachable: config validation refuses `resource-server` before the listener binds
-        // (D46). The arm exists so that adding the mode is additive rather than a rewrite, and
+        // Unreachable: config validation refuses `resource-server` before the listener binds.
+        // The arm exists so that adding the mode is additive rather than a rewrite, and
         // so that a future contributor sees exactly where the validation branch goes.
         AuthMode::ResourceServer => {
             tracing::error!(
@@ -192,7 +193,7 @@ mod tests {
         assert!(identity.bearer.is_some());
     }
 
-    /// D47 — a malformed context is observed as `acl: None`, and the raw value is still carried
+    /// A malformed context is observed as `acl: None`, and the raw value is still carried
     /// so the engine sees exactly what the caller sent.
     #[rstest]
     fn test_a_malformed_acl_context_is_observed_without_a_rejection() {
@@ -214,7 +215,7 @@ mod tests {
         assert!(identity.bearer.is_none());
     }
 
-    /// D45 — the bearer never prints, even through the layer's own type.
+    /// The bearer never prints, even through the layer's own type.
     #[rstest]
     fn test_the_observed_bearer_is_redacted() {
         let request = mock_request(&[("authorization", "Bearer test-token")]);
@@ -224,7 +225,7 @@ mod tests {
         assert!(!format!("{identity:?}").contains("test-token"));
     }
 
-    /// §6.2 — one `From`, one direction, no validation in either.
+    /// One `From`, one direction, no validation in either.
     #[rstest]
     fn test_the_conversion_to_a_caller_identity_is_infallible_and_verbatim() {
         let acl = mock_acl_context();

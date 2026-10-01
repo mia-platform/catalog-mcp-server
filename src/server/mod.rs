@@ -31,7 +31,7 @@ use tower_http::{
 };
 
 mod health;
-/// The identity extractor layer: `MiaIdentity` into the request's extensions (§6.2, D47).
+/// The identity extractor layer: `MiaIdentity` into the request's extensions.
 pub mod identity;
 mod metrics;
 mod span;
@@ -39,7 +39,7 @@ mod span;
 /// Path prefix the operational endpoints are nested under, matching `catalog-engine`.
 const OPERATIONAL_PATH_PREFIX: &str = "/-";
 
-/// Builds the SDK transport configuration from ours (§6.1).
+/// Builds the SDK transport configuration from ours.
 ///
 /// **Every knob is read from configuration, never hardcoded.** The struct is `#[non_exhaustive]`,
 /// so these are the builders and never a struct literal.
@@ -47,7 +47,7 @@ const OPERATIONAL_PATH_PREFIX: &str = "/-";
 /// Two of these are the difference between a working deployment and an outage:
 /// `with_allowed_hosts`, without which every request behind an ingress is answered
 /// `403 Forbidden: Host header is not allowed` — which is why an empty list never reaches this
-/// function, config validation having already refused to start (D11) — and
+/// function, config validation having already refused to start — and
 /// `enforce_origin_validation`, which stays off while the allowlist is empty because a missing
 /// `Origin` is exactly what our in-cluster client sends.
 ///
@@ -74,11 +74,11 @@ fn transport_config(state: &AppState, shutdown: &CancellationToken) -> Streamabl
     config
 }
 
-/// Mounts the MCP service (§6.1).
+/// Mounts the MCP service.
 ///
 /// The factory is `Fn`, not `FnOnce`, and is called **often** — per session, per request in
 /// stateless mode, and once per tool name for the SDK's schema cache — so it clones `Arc`s and
-/// does nothing else (D4).
+/// does nothing else.
 fn mcp_service(
     state: AppState,
     shutdown: &CancellationToken,
@@ -103,8 +103,8 @@ fn mcp_service(
 pub fn build_router(state: AppState, shutdown: &CancellationToken) -> Router {
     let auth = state.config.auth.clone();
 
-    // The identity layer wraps **only** the MCP service: it is an extractor and never a gate
-    // (D47), but a probe must not travel through anything request-scoped at all.
+    // The identity layer wraps **only** the MCP service: it is an extractor and never a gate,
+    // but a probe must not travel through anything request-scoped at all.
     let mcp = ServiceBuilder::new()
         .layer(axum::middleware::from_fn(move |request, next| {
             identity::identity_middleware(auth.clone(), request, next)
@@ -128,7 +128,7 @@ pub async fn try_init(state: AppState) -> io::Result<()> {
     let port = state.config.server.port;
 
     // The same token is handed to the transport, so in-flight streams are torn down with the
-    // server rather than outliving it (D42).
+    // server rather than outliving it.
     let shutdown = CancellationToken::new();
     let router = build_router(state.clone(), &shutdown);
 
@@ -141,9 +141,9 @@ pub async fn try_init(state: AppState) -> io::Result<()> {
     );
 
     // Every startup condition holds by the time we get here: the configuration was validated
-    // before the runtime started (D40) and the `tools/list` payload is prebuilt. Readiness is
+    // before the runtime started and the `tools/list` payload is prebuilt. Readiness is
     // raised now, and lowered again *before* the drain begins, so the endpoint stops receiving
-    // traffic while in-flight calls finish (D43).
+    // traffic while in-flight calls finish.
     state.readiness.mark_ready();
 
     let graceful = {

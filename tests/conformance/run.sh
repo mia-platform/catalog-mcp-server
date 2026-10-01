@@ -1,5 +1,5 @@
 #!/bin/sh
-# Runs the official MCP conformance suite against **our** binary, on both revisions (core §12.2).
+# Runs the official MCP conformance suite against **our** binary, on both revisions.
 #
 # The SDK passes this suite on its own; what this run proves is that *our handler* does not break
 # it — by mis-classifying an error, returning malformed content, or losing deterministic

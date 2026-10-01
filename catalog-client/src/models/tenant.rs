@@ -19,8 +19,8 @@ use serde::Deserialize;
 
 /// A tenant as the authz service describes it, proxied by the engine's `/bff/tenants`.
 ///
-/// **Note the naming, because it is a genuine trap.** The engine's `name` is the *slug* — the
-/// value that appears in an ACL context's `tenant` — and its `title` is the display name. T11
+/// **Note the naming, because it is a genuine trap.** The engine's `name` is the *slug* — the value
+/// that appears in an ACL context's `tenant` — and its `title` is the display name. `list_tenants`
 /// therefore reports the slug as `id` and the title as `name`, which is what makes its `current`
 /// field comparable to the ACL context.
 #[derive(Clone, Deserialize)]

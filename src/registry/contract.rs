@@ -15,13 +15,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// **This module is a published interface, not internal code** (§13.5). It is the contract the
-// fifteen per-tool plans are written against, and nothing else in the core may change after it
-// lands — so its surface is complete from the day it lands rather than growing tool by tool.
+// **This module is a published interface, not internal code.** It is the contract every tool
+// is written against, so its surface is complete from the day it lands rather than growing tool
+// by tool.
 //
-// That means parts of it are not yet called: `ProgressSink` has one future user (T4, wave 2),
-// `Deadline` is consumed by tools that fan out, and `with_warning` by tools that degrade an
-// answer rather than fail it (T3-D5). Hence the allow, on the module rather than scattered over
+// That means parts of it are not yet called: `ProgressSink` has one future user
+// (`run_compliance_evaluation`), `Deadline` is consumed by tools that fan out, and
+// `with_warning` by tools that degrade an answer rather than fail it, such as `describe_item`
+// when a secondary fetch fails. Hence the allow, on the module rather than scattered over
 // the items, so that removing it later is one line.
 #![allow(dead_code)]
 
@@ -36,13 +37,13 @@ use rmcp::{
 use serde_json::{Map, Value};
 use tokio_util::sync::CancellationToken;
 
-/// The key the runtime reserves in every rendered payload (D28).
+/// The key the runtime reserves in every rendered payload.
 ///
 /// A tool that defined it itself would silently lose either its own value or the engine's
 /// warnings, so it is asserted against every registered tool rather than left to convention.
 pub const WARNINGS_KEY: &str = "warnings";
 
-/// **The tool-authoring contract. Nothing else in the core may change after it lands** (§5.5).
+/// **The tool-authoring contract.**
 ///
 /// Five rules govern it, and they are the whole of what a tool author has to hold in mind:
 ///
@@ -52,11 +53,11 @@ pub const WARNINGS_KEY: &str = "warnings";
 ///    set `isError`; returning `Err(ToolError)` is how it fails, which is the SDK's own
 ///    recommendation for almost every "the tool didn't work" path. **Nor does a tool pass engine
 ///    warnings on**: the runtime collects every one the call's engine responses carried and adds
-///    them itself (D28), so no tool can drop one.
+///    them itself, so no tool can drop one.
 /// 3. Argument deserialisation failures are produced by the runtime as `invalid_arguments` with
-///    the serde path in `details.field` — a tool error, not a protocol error (D18).
+///    the serde path in `details.field` — a tool error, not a protocol error.
 /// 4. Exceeding the deadline is `deadline_exceeded`, except on a write already dispatched, where
-///    it is `unknown_outcome` (D20). [`CallContext::deadline`] is what bounds it.
+///    it is `unknown_outcome`. [`CallContext::deadline`] is what bounds it.
 /// 5. A tool that loops, fans out or polls `select!`s on [`CallContext::cancellation`] and
 ///    returns `cancelled` when it fires. Single-shot tools need nothing: `deadline().bounded(..)`
 ///    already covers them.
@@ -77,11 +78,11 @@ pub trait Tool: Send + Sync + 'static {
     ) -> impl Future<Output = Result<ToolOutput, ToolError>> + Send;
 }
 
-/// **Everything a tool is allowed to touch** (§5.5).
+/// **Everything a tool is allowed to touch.**
 ///
 /// Built once per call by the runtime and handed out by reference. There is no way to reach an
-/// identity, a header or a URL through it — which is what makes NFR-01 a property of the type
-/// system rather than of anyone's discipline.
+/// identity, a header or a URL through it — which is what makes tenant isolation a property of
+/// the type system rather than of anyone's discipline.
 pub struct CallContext {
     engine: EngineClient,
     deadline: Deadline,
@@ -108,20 +109,20 @@ impl CallContext {
         }
     }
 
-    /// The engine client, **already bound to the caller's identity** (D25).
+    /// The engine client, **already bound to the caller's identity**.
     ///
     /// It exposes no method taking a `HeaderMap`, so a tool cannot construct a request that
-    /// omits the identity pair (NFR-11).
+    /// omits the identity pair.
     pub fn engine(&self) -> &EngineClient {
         &self.engine
     }
 
-    /// The wall-clock budget for the whole call. Every engine call is bounded by it (D10).
+    /// The wall-clock budget for the whole call. Every engine call is bounded by it.
     pub fn deadline(&self) -> &Deadline {
         &self.deadline
     }
 
-    /// The runtime's clone of the request's cancellation token (D10, rule 5).
+    /// The runtime's clone of the request's cancellation token (rule 5).
     ///
     /// **A tool never reaches `RequestContext` for it**, which is what keeps rule 1 true. The
     /// SDK's drop-guard is disarmed once the handler has emitted its first message, so a tool
@@ -131,7 +132,7 @@ impl CallContext {
         &self.cancellation
     }
 
-    /// Where to report progress, when the client asked for it (D9).
+    /// Where to report progress, when the client asked for it.
     ///
     /// `Some` only when the request carried `_meta.progressToken`. The transport switches that
     /// one response to SSE by itself the moment a notification precedes the result, so a tool
@@ -140,13 +141,13 @@ impl CallContext {
         self.progress.as_ref()
     }
 
-    /// The tenant log and metric field. Nothing is keyed by it, because nothing is stored (D31).
+    /// The tenant log and metric field. Nothing is keyed by it, because nothing is stored.
     pub fn tenant(&self) -> &TenantKey {
         &self.tenant
     }
 }
 
-/// Fire-and-forget progress reporting (§5.5).
+/// Fire-and-forget progress reporting.
 ///
 /// **A progress report must never fail a tool call**, so a notification that cannot be
 /// delivered — the peer is gone, the channel is closed — is dropped and logged rather than
@@ -187,9 +188,9 @@ impl ProgressSink {
 /// has to learn it.
 ///
 /// **Engine warnings are not carried here.** The runtime reads them off the call's engine client
-/// ([`catalog_client::CallWarnings`]) and adds them at render time (§5.5, D28). What a tool may
+/// ([`catalog_client::CallWarnings`]) and adds them at render time. What a tool may
 /// add is a warning of its *own* — a degraded answer it wants the model to know about, such as a
-/// secondary fetch that failed (T3-D5).
+/// secondary fetch that failed.
 #[derive(Debug)]
 pub struct ToolOutput {
     payload: Value,
@@ -254,12 +255,12 @@ impl ToolOutput {
 /// Renders a successful [`ToolOutput`] as the result the model reads, with the engine warnings
 /// the call collected.
 ///
-/// One `TextContent` block of compact JSON and, by default, **no `structuredContent`** (D15):
+/// One `TextContent` block of compact JSON and, by default, **no `structuredContent`**:
 /// returning every result twice doubles the metric this project exists to reduce.
 ///
-/// `structured` is `response.structuredContent`, the switch D15 keeps for a client that needs
-/// it (the §13.5 P-C8 fallback). When on, the result also carries the **same** rendered object
-/// as `structuredContent` — the text block stays, and no `outputSchema` is ever declared for it.
+/// `structured` is `response.structuredContent`, the switch kept as a fallback for a client that
+/// needs it. When on, the result also carries the **same** rendered object as
+/// `structuredContent` — the text block stays, and no `outputSchema` is ever declared for it.
 pub fn success_result(
     output: &ToolOutput,
     engine: Option<&[EngineWarning]>,

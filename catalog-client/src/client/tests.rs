@@ -38,7 +38,7 @@ fn mock_policy(max_retries: u8) -> RetryPolicy {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §8.1 — the retry policy. Four conditions, and a case for each of them failing.
+// The retry policy. Four conditions, and a case for each of them failing.
 // ---------------------------------------------------------------------------------------------
 
 /// A `500` is **never** retried: the engine emits it for application faults, and an application
@@ -71,8 +71,8 @@ fn test_a_transport_failure_is_retryable() {
     assert!(FailureKind::Connect.is_retryable());
 }
 
-/// **D20's dividing line.** A connect failure is the one case where a write is known not to have
-/// happened; everything else leaves the outcome unknowable from here.
+/// **The dispatched-write dividing line.** A connect failure is the one case where a write is known
+/// not to have happened; everything else leaves the outcome unknowable from here.
 #[rstest]
 fn test_only_a_connect_failure_leaves_a_write_certainly_unapplied() {
     assert!(!FailureKind::Connect.may_have_been_applied());
@@ -81,7 +81,7 @@ fn test_only_a_connect_failure_leaves_a_write_certainly_unapplied() {
     assert!(FailureKind::Status(503).may_have_been_applied());
 }
 
-/// Condition one: idempotent by construction. A dispatched write is never retried (D20).
+/// Condition one: idempotent by construction. A dispatched write is never retried.
 #[rstest]
 fn test_a_non_idempotent_request_is_not_retried() {
     let deadline = Deadline::starting_now(Duration::from_secs(25));
@@ -168,7 +168,7 @@ fn test_an_empty_api_prefix_is_allowed() {
     assert_eq!(factory.base_url().as_str(), "http://api-gateway:8080/");
 }
 
-/// D24 — segments are pushed, never formatted, so nothing can introduce a path separator.
+/// Segments are pushed, never formatted, so nothing can introduce a path separator.
 #[rstest]
 #[tokio::test]
 async fn test_path_segments_are_percent_encoded() {
@@ -207,7 +207,7 @@ async fn test_a_successful_read_is_shaped_and_carries_no_warnings() {
     assert!(response.warnings.is_empty());
 }
 
-/// P6 — **every** engine response passes through the warning parser, on the success path too.
+/// **Every** engine response passes through the warning parser, on the success path too.
 #[rstest]
 #[tokio::test]
 async fn test_warnings_are_collected_from_a_successful_response() {
@@ -243,7 +243,7 @@ fn collected_texts(client: &crate::EngineClient) -> Option<Vec<String>> {
         .map(|warnings| warnings.into_iter().map(|warning| warning.text).collect())
 }
 
-/// D28 — a call that never reached for the engine has nothing to report, so the key is omitted.
+/// A call that never reached for the engine has nothing to report, so the key is omitted.
 #[rstest]
 #[tokio::test]
 async fn test_a_call_that_never_reached_the_engine_collects_nothing() {
@@ -253,7 +253,7 @@ async fn test_a_call_that_never_reached_the_engine_collects_nothing() {
     assert_eq!(collected_texts(&client), None);
 }
 
-/// D28 — a call that reached the engine and was told nothing collects an **empty** list, which
+/// A call that reached the engine and was told nothing collects an **empty** list, which
 /// is what makes the key present-and-empty rather than absent.
 #[rstest]
 #[tokio::test]
@@ -272,7 +272,7 @@ async fn test_a_call_without_warnings_collects_an_empty_list() {
     assert_eq!(collected_texts(&client), Some(vec![]));
 }
 
-/// §5.5 — the runtime collects every warning of every response, across clones of the call's
+/// The runtime collects every warning of every response, across clones of the call's
 /// client, and repeats none: a tool that fans out reports each distinct warning once.
 #[rstest]
 #[tokio::test]
@@ -417,7 +417,8 @@ async fn test_a_503_is_not_retried_when_the_policy_forbids_it() {
     assert_eq!(error.code, codes::CATALOG_UNAVAILABLE);
 }
 
-/// A `500` must reach the caller on the first attempt: retrying it is what §8.1 forbids.
+/// A `500` must reach the caller on the first attempt: retrying it is what the retry policy
+/// forbids.
 #[rstest]
 #[tokio::test]
 async fn test_a_500_is_answered_on_the_first_attempt() {
@@ -460,7 +461,7 @@ async fn test_an_unreadable_body_is_reported_as_our_defect() {
 
     assert_eq!(error.code, codes::SERVER_DEFECT);
     assert_eq!(error.remedy, Remedy::Escalate);
-    // F-01: an unreadable body says nothing about our headers, so it is not the `406` row.
+    // An unreadable body says nothing about our headers, so it is not the `406` row.
     assert!(!error.message.contains("Accept"), "{}", error.message);
     assert!(error.message.contains("cannot read"), "{}", error.message);
 }
@@ -491,7 +492,7 @@ async fn test_an_expired_deadline_fails_without_dialling() {
     assert_eq!(error.remedy, Remedy::Retry);
 }
 
-/// §5.5 rule 4 — a deadline that runs out **while the engine is answering** is
+/// A deadline that runs out **while the engine is answering** is
 /// `deadline_exceeded`, not `catalog_unavailable`: the budget was ours, and the catalog may be
 /// perfectly healthy. Before this, only a deadline already spent before dialling said so.
 #[rstest]

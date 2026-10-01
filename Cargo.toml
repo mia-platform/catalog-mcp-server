@@ -21,7 +21,7 @@ schemars = "1.0.4"
 serde = { version = "1.0.228", features = ["derive"] }
 # `preserve_order`: a `Value` keeps its keys in insertion order instead of sorting them, so a
 # tool's payload reaches the model in the order its output struct declares — `kind` before a
-# long `description` (T1 §4). Every tool's output is a `Value`, so this is the one place it can be
+# long `description`. Every tool's output is a `Value`, so this is the one place it can be
 # decided, and it changes key order only, never bytes.
 serde_json = { version = "1.0.145", features = ["preserve_order"] }
 tokio = "1.48.0"

@@ -28,18 +28,18 @@ pub const MAX_LIMIT: u32 = 200;
 /// The engine's own default `limit`, which the tools take rather than inventing one.
 pub const DEFAULT_LIMIT: u32 = 50;
 
-/// How many pages an internal walk may fetch before giving up (§8.2).
+/// How many pages an internal walk may fetch before giving up.
 ///
 /// It bounds a runaway **loop**, not a payload: twenty pages of two hundred is up to four
 /// thousand items, each of unbounded size, and nothing counts bytes on the way in. That is a
-/// recorded, accepted risk for v1 (§9, §17.3), not an oversight.
+/// recorded, accepted risk for v1, not an oversight.
 pub const MAX_INTERNAL_PAGES: usize = 20;
 
 /// The version of the cursor format we mint. A cursor carrying anything else is refused rather
 /// than guessed at.
 const CURSOR_VERSION: u8 = 1;
 
-/// The engine's opaque continuation token. Never handed to the model (D32).
+/// The engine's opaque continuation token. Never handed to the model.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EngineCursor(String);
 
@@ -75,7 +75,7 @@ impl<T> ListPage<T> {
     }
 }
 
-/// The cursor a tool hands the model: **ours, never the engine's** (D32).
+/// The cursor a tool hands the model: **ours, never the engine's**.
 ///
 /// The wrapper carries the engine token plus whatever the tool must pin — the audit window's
 /// `until`, the projection, the filters — and a fingerprint of the query it was minted against,
@@ -127,7 +127,7 @@ impl<P: Serialize + DeserializeOwned> ToolCursor<P> {
     /// Decodes a cursor the model handed back, checking the version and the fingerprint.
     ///
     /// **A cursor that fails to decode, or whose fingerprint does not match, is a tool error
-    /// saying so — never silently treated as end-of-results** (D32). The distinction matters:
+    /// saying so — never silently treated as end-of-results**. The distinction matters:
     /// silently ending a listing shows the model less than exists and tells it nothing.
     pub fn decode(raw: &str, expected_fingerprint: &str) -> Result<Self, ToolError> {
         let bytes = URL_SAFE_NO_PAD.decode(raw).map_err(|_| invalid_cursor())?;
@@ -168,12 +168,12 @@ fn invalid_cursor() -> ToolError {
 
 /// Walks every page of a listing, up to [`MAX_INTERNAL_PAGES`].
 ///
-/// Internal pagination only — T1 walking every item type, say. It is **not** how a tool
-/// paginates for the model: that is [`ToolCursor`], because the model must be able to stop.
+/// Internal pagination only — `list_catalog_types` walking every item type, say. It is **not** how
+/// a tool paginates for the model: that is [`ToolCursor`], because the model must be able to stop.
 ///
 /// The page cap bounds a runaway loop so it cannot hang a tool call. Hitting it is not silently
 /// treated as the end of the data: the caller is told, because a truncated answer the model
-/// cannot distinguish from a complete one is the failure mode this plan removes everywhere else.
+/// cannot distinguish from a complete one is the failure mode this server avoids everywhere else.
 pub async fn paginate_all<T, F, Fut>(mut fetch: F) -> Result<Vec<T>, ToolError>
 where
     F: FnMut(Option<EngineCursor>) -> Fut,

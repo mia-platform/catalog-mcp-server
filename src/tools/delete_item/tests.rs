@@ -199,7 +199,7 @@ fn mock_arguments() -> Value {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T9-D4 — the warning path, first. This is why the tool is not a passthrough.
+// The warning path, first. This is why the tool is not a passthrough.
 // ---------------------------------------------------------------------------------------------
 
 /// A `204` carrying the cascade warning is a delete that **succeeded** while its cleanup **failed**:
@@ -223,7 +223,7 @@ async fn test_a_failed_cascade_is_reported_beside_the_delete() {
     assert_eq!(answer["warnings"], json!([CASCADE_WARNING]));
 }
 
-/// With a clean cascade `warnings` is present and empty — its absence is never ambiguous (D28).
+/// With a clean cascade `warnings` is present and empty — its absence is never ambiguous.
 #[rstest]
 #[tokio::test]
 async fn test_a_clean_delete_says_so_in_the_documented_shape() {
@@ -245,7 +245,7 @@ async fn test_a_clean_delete_says_so_in_the_documented_shape() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T9-D2, T9-D3 — the token is always sent; a `409` is reported, once.
+// The token is always sent; a `409` is reported, once.
 // ---------------------------------------------------------------------------------------------
 
 /// The delete carries the pre-read's `resourceVersion`: never "whatever is there now".
@@ -305,7 +305,7 @@ async fn test_a_concurrent_delete_is_not_reported_as_ours() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T9-D7 — never guess on a delete.
+// Never guess on a delete.
 // ---------------------------------------------------------------------------------------------
 
 /// A name that matches items of several types, with no `kind`, answers the candidates and issues
@@ -449,7 +449,7 @@ async fn test_an_item_without_a_family_is_unaddressable() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T9-D6, T9-P1 — the blast radius.
+// The blast radius.
 // ---------------------------------------------------------------------------------------------
 
 /// Inbound and outbound are both counted — other items lose their links too.
@@ -546,10 +546,10 @@ async fn test_a_failed_count_degrades_the_answer_not_the_delete() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — the two `5XX` sides, which must not collapse.
+// The two `5XX` sides, which must not collapse.
 // ---------------------------------------------------------------------------------------------
 
-/// A failure **after** the `DELETE` left may have landed: verify before retrying (D20).
+/// A failure **after** the `DELETE` left may have landed: verify before retrying.
 #[rstest]
 #[case::internal_error(500)]
 #[case::unavailable(503)]
@@ -629,7 +629,7 @@ async fn test_an_item_without_a_resource_version_is_not_deleted() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// NFR-10 — arguments checked before anything reaches the engine.
+// Arguments checked before anything reaches the engine.
 // ---------------------------------------------------------------------------------------------
 
 #[rstest]

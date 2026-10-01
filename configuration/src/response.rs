@@ -17,9 +17,9 @@
  */
 use serde::Deserialize;
 
-/// How a tool result is rendered (§11).
+/// How a tool result is rendered.
 ///
-/// `structured_content` stays **off** (D15): returning every result twice — as text and as
+/// `structured_content` stays **off**: returning every result twice — as text and as
 /// structured content — doubles the metric this project exists to reduce. It is a switch, not
 /// a design choice, so a client that needs it can have it without a release.
 #[derive(Clone, Debug, Default, Deserialize)]

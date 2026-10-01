@@ -15,12 +15,12 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// DR-86 — `fields` mode: the schema of just the fields an agent is about to change.
+// `fields` mode: the schema of just the fields an agent is about to change.
 //
-// A patch changes a few fields; T8 turns it into a whole-item `PUT` the engine re-validates, but the
-// untouched fields were valid already, so what the agent needs is the rules of the ones it touches.
-// Returning those alone is not the silent truncation D34 forbids: the agent asks for a subset, knows
-// it got one, and the whole definition is one call away.
+// A patch changes a few fields; `apply_item` turns it into a whole-item `PUT` the engine
+// re-validates, but the untouched fields were valid already, so what the agent needs is the rules
+// of the ones it touches. Returning those alone is not a silent truncation: the agent asks for a
+// subset, knows it got one, and the whole definition is one call away.
 
 use catalog_client::{Remedy, ToolError, error::codes};
 use serde_json::{Map, Value, json};

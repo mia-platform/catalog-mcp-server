@@ -18,8 +18,8 @@
 use crate::observability::{ALL_METRICS, Outcome, REMEDY_NONE};
 use rstest::rstest;
 
-/// §10 names exactly seven metrics, and they are exactly what the A/B needs. A new one is a
-/// deliberate act, not an accident of instrumenting something.
+/// The server exposes exactly seven metrics, and they are exactly what the A/B needs. A new one
+/// is a deliberate act, not an accident of instrumenting something.
 #[rstest]
 fn test_there_are_exactly_seven_metrics() {
     assert_eq!(ALL_METRICS.len(), 7);

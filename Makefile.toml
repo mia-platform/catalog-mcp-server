@@ -77,7 +77,7 @@ env = { RUSTFLAGS = "-Awarnings" }
 command = "cargo"
 args = ["test", "--test", "e2e", "--", "--ignored", "--show-output"]
 
-# The end-to-end gate (§12.3): a real `catalog-engine` on a real database, for the two things
+# The end-to-end gate: a real `catalog-engine` on a real database, for the two things
 # the OAS cannot express. Brings the environment up, runs the tests and tears it down.
 [tasks.e2e]
 workspace = false
@@ -118,7 +118,7 @@ workspace = false
 command = "cargo"
 args = ["test", "--workspace", "--all-features"]
 
-# The blocking CI gate (§3.3): nightly `fmt --check`, then clippy with `-D warnings`, then the
+# The blocking CI gate: nightly `fmt --check`, then clippy with `-D warnings`, then the
 # tests. Clippy is blocking here, as in `ai-foundry-bff`, not advisory as in `catalog-engine`.
 [tasks.check_all]
 workspace = false
@@ -137,7 +137,7 @@ script = '''
 
 ########################################################################################################################
 
-# The protocol conformance gate (§12.2). Green on both revisions is a release gate.
+# The protocol conformance gate. Green on both revisions is a release gate.
 [tasks.conformance]
 workspace = false
 script = "tests/conformance/run.sh"
@@ -148,7 +148,7 @@ script = "tests/conformance/run.sh"
 workspace = false
 script = "tests/conformance/run.sh --record"
 
-# The byte goldens and the `tools/list` ceiling (§12.4, D12). Prints the per-tool table whether
+# The byte goldens and the `tools/list` ceiling. Prints the per-tool table whether
 # it passes or fails, so growth is always attributable.
 [tasks.budget]
 workspace = false

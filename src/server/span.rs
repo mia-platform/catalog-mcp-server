@@ -38,7 +38,7 @@ const ASSUMED_ERA: &str = "2025-03-26";
 /// few hundred bytes; anything larger is not one, and buffering it would be a cost for nothing.
 const MAX_ERROR_BODY_BYTES: usize = 8 * 1024;
 
-/// The transport-only `http.request` span, and the protocol-error counter (§4 rule 5, §10).
+/// The transport-only `http.request` span, and the protocol-error counter.
 ///
 /// **The fields here are everything derivable from headers alone**, and that is deliberate. The
 /// method, the tool name and the negotiated era live *inside* the JSON-RPC body, which is the
@@ -77,8 +77,8 @@ pub async fn http_request_span(request: Request, next: Next) -> Response {
 
     // Attached to the future, never entered across the await: an `Entered` guard alive while the
     // future is suspended leaves this span current on the worker thread, so whatever else that
-    // thread polls — another request — would log into it and have its identity recorded on it
-    // (F-03). `Instrument` enters it only while this future is actually being polled.
+    // thread polls — another request — would log into it and have its identity recorded on it.
+    // `Instrument` enters it only while this future is actually being polled.
     let response = next.run(request).instrument(span.clone()).await;
 
     let status = response.status();

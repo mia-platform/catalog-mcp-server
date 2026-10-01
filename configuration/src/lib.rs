@@ -16,13 +16,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 // Configuration for the Catalog MCP server: the structs, their defaults, and the validation
-// rules that refuse to start rather than surprise somebody at request time (§11, D40).
+// rules that refuse to start rather than surprise somebody at request time.
 //
 // The file is JSON at `$CONFIGURATION_FOLDER/config.json`, per-field `camelCase` renames and no
 // blanket `rename_all` — engine convention. It holds no secret: the only sensitive value in this
-// server is the caller's bearer token, which is per-request and never configured (D45).
+// server is the caller's bearer token, which is per-request and never configured.
 //
-// NOTE: the Apache-2.0 header above (D44) is a `/** */` block, which Rust parses as an *outer*
+// NOTE: the Apache-2.0 header above is a `/** */` block, which Rust parses as an *outer*
 // doc comment; a `//!` inner doc comment cannot follow one. Module prose therefore uses plain
 // comments here and doc comments on the items themselves.
 
@@ -43,30 +43,30 @@ use crate::{
 use serde::Deserialize;
 use std::path::{Path, PathBuf};
 
-/// The identity posture and the canonical resource identifiers (§7.2, §7.3).
+/// The identity posture and the canonical resource identifiers.
 pub mod auth;
-/// Where `catalog-engine` is reached, and how patiently (§6.4, D27, D48).
+/// Where `catalog-engine` is reached, and how patiently.
 pub mod engine;
-/// Why a configuration was refused, and which field to change (D40).
+/// Why a configuration was refused, and which field to change.
 pub mod error;
-/// What `/-/ready` checks (D43).
+/// What `/-/ready` checks.
 pub mod health;
-/// What the server reports about itself (§10).
+/// What the server reports about itself.
 pub mod observability;
-/// How a tool result is rendered (D15).
+/// How a tool result is rendered.
 pub mod response;
-/// How the HTTP listener is bound and what the transport accepts (D11).
+/// How the HTTP listener is bound and what the transport accepts.
 pub mod server;
-/// What bounds a tool call and what the tool set advertises (§6.4, D13).
+/// What bounds a tool call and what the tool set advertises.
 pub mod tools;
-/// The SDK transport knobs (§6.1, D2, D9).
+/// The SDK transport knobs.
 pub mod transport;
 
 /// Name of the configuration file inside the configuration folder.
 pub const CONFIG_FILE_NAME: &str = "config.json";
 
 /// The first DNS label of the `catalog-engine` `Service`, which `engine.baseUrl` must never
-/// address (D27, D48): calling it directly skips `ext_authz` and turns this server into an
+/// address: calling it directly skips `ext_authz` and turns this server into an
 /// authorization bypass.
 pub const ENGINE_SERVICE_LABEL: &str = "catalog-engine";
 
@@ -74,7 +74,7 @@ pub const ENGINE_SERVICE_LABEL: &str = "catalog-engine";
 /// timeouts.
 const MILLIS_PER_SECOND: u64 = 1_000;
 
-/// The whole service configuration (§11).
+/// The whole service configuration.
 #[derive(Clone, Debug, Default, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]
@@ -113,7 +113,7 @@ pub struct Config {
 }
 
 impl Config {
-    /// Refuses a configuration that would fail later, or fail silently (§11, D11, D40, D46).
+    /// Refuses a configuration that would fail later, or fail silently.
     ///
     /// Runs after deserialisation and **before the listener binds**. Each refusal names the
     /// field an operator has to change, because the message is the only thing they see.
@@ -126,7 +126,7 @@ impl Config {
         Ok(())
     }
 
-    /// D11: an empty `Host` allowlist leaves the SDK on its loopback-only default, which is a
+    /// An empty `Host` allowlist leaves the SDK on its loopback-only default, which is a
     /// total outage that reads as a routing bug. Refuse it, naming the symptom.
     fn validate_allowed_hosts(&self) -> Result<(), ConfigError> {
         if self.server.allowed_hosts.is_empty() {
@@ -143,14 +143,14 @@ impl Config {
         Ok(())
     }
 
-    /// D46: a config value for an unimplemented mode is a startup failure, not a surprise at
-    /// request time. §7.3: `auth.resource` must match Envoy's published string exactly, so it
+    /// A config value for an unimplemented mode is a startup failure, not a surprise at
+    /// request time. `auth.resource` must match Envoy's published string exactly, so it
     /// is checked for canonical form.
     fn validate_auth(&self) -> Result<(), ConfigError> {
         if self.auth.mode == AuthMode::ResourceServer {
             return Err(ConfigError::invalid(
                 FIELD_AUTH_MODE,
-                "`resource-server` is not implemented; see P-C3. Use `gateway`",
+                "`resource-server` is not implemented yet. Use `gateway`",
             ));
         }
 
@@ -161,7 +161,7 @@ impl Config {
         Ok(())
     }
 
-    /// D27 and D48: every outbound call traverses the gateway, so `ext_authz` evaluates the
+    /// Every outbound call traverses the gateway, so `ext_authz` evaluates the
     /// caller's own roles against the operation we are about to perform. Addressing the engine
     /// `Service` directly would skip it entirely — invisible in testing, because everything
     /// keeps working and only the wrong people can suddenly do things.
@@ -198,7 +198,7 @@ impl Config {
         Ok(())
     }
 
-    /// §11: a per-call deadline shorter than one engine hop makes every call time out at the
+    /// A per-call deadline shorter than one engine hop makes every call time out at the
     /// wrong layer, reported as ours rather than as the engine's.
     fn validate_call_deadline(&self) -> Result<(), ConfigError> {
         let deadline_ms = self
@@ -226,7 +226,7 @@ impl Config {
 
 /// Returns why `value` is not a canonical URI, or `Ok(())` when it is.
 ///
-/// Canonical here means what §7.3 asks for: a scheme is present, there is no fragment, and
+/// Canonical here means: a scheme is present, there is no fragment, and
 /// there is no trailing slash. The raw string is checked for the trailing slash rather than the
 /// parsed path, because `url` normalises an empty path to `/` and would hide the difference.
 fn canonical_uri_violation(value: &str) -> Result<(), String> {
@@ -258,7 +258,7 @@ fn canonical_uri_violation(value: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Reads, parses and validates `$folder/config.json` (D40).
+/// Reads, parses and validates `$folder/config.json`.
 ///
 /// Synchronous on purpose: it runs before the async runtime starts, so a bad configuration
 /// cannot get as far as binding a listener.

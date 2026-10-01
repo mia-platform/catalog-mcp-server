@@ -32,26 +32,26 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::sync::LazyLock;
 
-/// T8's input → merge-patch document, and the `customFields` check (T8-D2, T8-D4).
+/// The tool's input → merge-patch document, and the `customFields` check.
 mod patch;
 
-/// The `null`-keeping deserializer, shared with T12 (DR-92).
+/// The `null`-keeping deserializer, shared with `apply_item_type`.
 pub(crate) use patch::present;
 
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "apply_item";
 
-/// What the tool does (T8 §3). Every sentence is load-bearing: preservation, deletion, array
-/// semantics, and custom fields. The last names no tool, because `patch_item_custom_fields`
-/// (T10) is wave 2 and a pointer to a tool that does not exist would send the model looking.
+/// What the tool does. Every sentence is load-bearing: preservation, deletion, array semantics,
+/// and custom fields. The last names no tool, because `patch_item_custom_fields` is not built
+/// yet and a pointer to a tool that does not exist would send the model looking.
 const TOOL_DESCRIPTION: &str = "Creates or updates a catalog item. Send only the fields to \
      change; anything left out is kept. `null` removes a field. Lists such as `tags` are \
      replaced, not appended. Custom fields cannot be set here.";
 
-/// The longest `name`, in bytes (T8 §3).
+/// The longest `name`, in bytes.
 pub const MAX_NAME_BYTES: usize = 256;
 
-/// The longest `kind`, in bytes (T8 §3).
+/// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
 
 /// How many offending paths a schema violation's next step names — `get_item_schema`'s own
@@ -66,10 +66,10 @@ static VIOLATION_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r#"path "([^"]*)": "#).expect("VIOLATION_PATH_RE is a constant pattern")
 });
 
-/// Arguments for `apply_item` (T8 §3, DR-80).
+/// Arguments for `apply_item`; `group` says which type a shared `kind` means.
 ///
-/// `owner` and `followers` are absent **by construction** (T8-D6), `resourceVersion` because the
-/// server reads it itself (T8-D5), and `customFields` because a `PUT` ignores it (T8-D4). Unknown
+/// `owner` and `followers` are absent **by construction**, `resourceVersion` because the
+/// server reads it itself, and `customFields` because a `PUT` ignores it. Unknown
 /// arguments — any of those three included — are refused by name.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -89,7 +89,7 @@ pub struct ApplyItemInput {
 
     // Spec fields to set. Undocumented in the schema on purpose, like `metadata`: the tool's
     // description states the merge rules both follow, and a description here is paid for in
-    // every `tools/list` (D12).
+    // every `tools/list`.
     #[serde(rename = "spec", default, deserialize_with = "patch::present")]
     pub spec: Option<Value>,
 
@@ -99,14 +99,14 @@ pub struct ApplyItemInput {
 }
 
 /// The mutable metadata an agent may set. Each field is a raw value so that `null` reaches the
-/// merge as a deletion rather than collapsing into "not mentioned" (T8 §3).
+/// merge as a deletion rather than collapsing into "not mentioned".
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 #[schemars(transform = patch::without_description)]
 pub struct ItemMetadataPatch {
     // Undocumented on purpose: each name says what it is, and a description here would be paid
-    // for in every `tools/list` (D12).
+    // for in every `tools/list`.
     #[serde(rename = "title", default, deserialize_with = "patch::present")]
     pub(crate) title: Option<Value>,
 
@@ -126,7 +126,7 @@ pub struct ItemMetadataPatch {
     pub(crate) links: Option<Value>,
 }
 
-/// What the write did (T8 §5, T8-D7) — not the item, which the model already knows.
+/// What the write did — not the item, which the model already knows.
 #[derive(Serialize)]
 struct Applied {
     #[serde(rename = "name")]
@@ -152,22 +152,22 @@ struct Applied {
     #[serde(rename = "changed")]
     changed: Vec<String>,
 
-    /// `true` when a `409` was resolved by re-reading (T8-D3).
+    /// `true` when a `409` was resolved by re-reading.
     #[serde(rename = "retried")]
     retried: bool,
 }
 
-/// T8 · `apply_item` — create or merge-patch one item.
+/// `apply_item` — create or merge-patch one item.
 ///
-/// **The read-merge-write cycle is data-loss protection** (T8-D1): a `PUT` replaces every mutable
+/// **The read-merge-write cycle is data-loss protection**: a `PUT` replaces every mutable
 /// column, so a body built from the patch alone would wipe everything it did not mention. The
-/// cycle, the merge and the conflict rule are the core's (D29); T8 supplies the patch.
+/// cycle, the merge and the conflict rule are the core's; this tool supplies the patch.
 pub struct ApplyItem;
 
 impl Tool for ApplyItem {
     type Input = ApplyItemInput;
 
-    /// Not destructive, idempotent (T8 §3, D16): applying the same patch twice reaches the same
+    /// Not destructive, idempotent: applying the same patch twice reaches the same
     /// state. `readOnlyHint: false` is the default, so it is not emitted.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<ApplyItemInput>(
@@ -184,8 +184,8 @@ impl Tool for ApplyItem {
     ) -> Result<ToolOutput, ToolError> {
         validate(&input)?;
 
-        // Never guess the type of a write: an unknown kind comes back with near matches (T2-D9),
-        // a shared one with its candidates (DR-80).
+        // Never guess the type of a write: an unknown kind comes back with near matches, a shared
+        // one with its candidates.
         let coordinates =
             resolve_kind_or_suggest(context.engine(), &input.kind, input.group.as_deref()).await?;
 
@@ -229,7 +229,7 @@ impl Tool for ApplyItem {
     }
 }
 
-/// NFR-10 — T8 §3's bounds, checked before anything reaches the engine.
+/// The input bounds, checked before anything reaches the engine.
 fn validate(input: &ApplyItemInput) -> Result<(), ToolError> {
     if input.name.is_empty() || input.name.len() > MAX_NAME_BYTES {
         return Err(invalid(
@@ -276,8 +276,8 @@ fn invalid(parameter: &str, message: String) -> ToolError {
         .with_details(json!({ "field": parameter }))
 }
 
-/// T8 §6's most valuable error, made actionable: a schema violation carries the offending field in
-/// `details.path`, and a next step that fetches **just** the rules that failed (DR-86).
+/// The tool's most valuable error, made actionable: a schema violation carries the offending field
+/// in `details.path`, and a next step that fetches **just** the rules that failed.
 ///
 /// Only an `invalid_input` whose message names locations is touched; any other error passes
 /// through unchanged, so nothing is claimed about a rejection this server cannot read.
@@ -340,7 +340,7 @@ fn dotted(pointer: &str) -> String {
 }
 
 /// A dotted item path as `get_item_schema`'s `fields` takes it: array indices dropped, since its
-/// walk steps into an array's `items` by itself (DR-86).
+/// walk steps into an array's `items` by itself.
 fn schema_field(path: &str) -> String {
     path.split('.')
         .filter(|segment| !segment.bytes().all(|byte| byte.is_ascii_digit()))

@@ -30,7 +30,7 @@ const BFF_SEGMENT: &str = "bff";
 const RELATIONSHIPS_SEGMENT: &str = "relationships";
 
 /// How one page of relationships is asked for. Deliberately without a `groupBy` or a `rawq`
-/// knob: this client cannot send either (T3-D1, T3-D7).
+/// knob: this client cannot send either.
 #[derive(Clone, Debug, Default)]
 pub struct RelationshipQuery {
     /// How many entries to ask for. The engine's own default is 50 and its maximum 200.

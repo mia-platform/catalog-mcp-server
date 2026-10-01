@@ -23,7 +23,7 @@ use serde_json::json;
 /// The argument name, as tools declare it and errors report it.
 const GROUP_ARGUMENT: &str = "group";
 
-/// Checks the optional `group` a kind-taking tool accepts (DR-80).
+/// Checks the optional `group` a kind-taking tool accepts.
 ///
 /// A kind is unique per group, not per tenant, so `group` is how a caller says which type a
 /// shared `kind` means. It is meaningless without a `kind`, and bound to the engine's `spec.group`

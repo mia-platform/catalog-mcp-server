@@ -17,24 +17,24 @@
  */
 use std::path::PathBuf;
 
-/// Field path of the `Host` allowlist (D11).
+/// Field path of the `Host` allowlist.
 pub const FIELD_SERVER_ALLOWED_HOSTS: &str = "server.allowedHosts";
 
-/// Field path of the identity posture (D46).
+/// Field path of the identity posture.
 pub const FIELD_AUTH_MODE: &str = "auth.mode";
 
-/// Field path of the canonical resource URI (§7.3).
+/// Field path of the canonical resource URI.
 pub const FIELD_AUTH_RESOURCE: &str = "auth.resource";
 
-/// Field path of the gateway base URL (D27, D48).
+/// Field path of the gateway base URL.
 pub const FIELD_ENGINE_BASE_URL: &str = "engine.baseUrl";
 
-/// Field path of the per-call wall-clock budget (§11).
+/// Field path of the per-call wall-clock budget.
 pub const FIELD_TOOLS_CALL_DEADLINE_SECONDS: &str = "tools.callDeadlineSeconds";
 
 /// Why the configuration could not be loaded, at the one boundary where it is read.
 ///
-/// A failure here exits the process non-zero **before the listener binds** (D40), and every
+/// A failure here exits the process non-zero **before the listener binds**, and every
 /// variant carries the thing an operator needs to act: the file that could not be read or
 /// parsed, or the field path that is wrong.
 #[derive(Debug)]
@@ -55,7 +55,7 @@ pub enum ConfigError {
         source: serde_json::Error,
     },
 
-    /// The configuration parsed, but a validation rule refuses it (§11).
+    /// The configuration parsed, but a validation rule refuses it.
     Invalid {
         /// The dotted field path, as it is written in `config.json`.
         field: &'static str,

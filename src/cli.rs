@@ -18,7 +18,7 @@
 use clap::Parser;
 use std::{path::PathBuf, sync::LazyLock};
 
-/// Environment variable naming the folder that holds `config.json` (D40, engine parity).
+/// Environment variable naming the folder that holds `config.json`, matching the engine.
 const CONFIGURATION_FOLDER_ENV_VAR: &str = "CONFIGURATION_FOLDER";
 
 /// Where the configuration is looked for when neither the flag nor the environment says.
@@ -28,7 +28,7 @@ static DEFAULT_CONFIG_FOLDER: LazyLock<PathBuf> = LazyLock::new(|| {
         .join(env!("CARGO_BIN_NAME"))
 });
 
-/// The whole command-line surface (D40).
+/// The whole command-line surface.
 ///
 /// `--spec` and `--base-url` are gone with the OpenAPI generator they existed to feed: the
 /// server is configured by a JSON file, so a deployment change is not a release.

@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// T3-D1, T3-D2, T3-D7 — the four-field shaper and the grouping.
+/// The four-field shaper and the grouping.
 mod shape;
 
 use shape::Grouping;
@@ -43,12 +43,12 @@ use shape::Grouping;
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "describe_item";
 
-/// What the tool does (T3 §3).
+/// What the tool does.
 const TOOL_DESCRIPTION: &str = "Describes one catalog item: what it is, and what it is connected \
      to. Give the item's name; `kind` only if the name is ambiguous. Returns the item together with \
      its relationships, so you do not need a second call to find out what depends on it.";
 
-/// The longest `name`, in bytes (T3 §3).
+/// The longest `name`, in bytes.
 pub const MAX_NAME_BYTES: usize = 256;
 
 /// The longest `kind`, in bytes.
@@ -57,7 +57,7 @@ pub const MAX_KIND_BYTES: usize = 128;
 /// The smallest relationship page. The engine's own minimum.
 const MIN_RELATIONSHIP_LIMIT: u32 = 1;
 
-/// Default for the two `include_*` flags (T3-D8): the one-round-trip answer is the point.
+/// Default for the two `include_*` flags: the one-round-trip answer is the point.
 fn default_true() -> bool {
     true
 }
@@ -69,7 +69,7 @@ fn default_true() -> bool {
 // comments on an enum and its variants into the input schema — a `oneOf` with a description per
 // variant, restating what the field's own description already says. That tripled these two
 // properties (~310 B each against ~120 B as a plain `enum`) on a payload every conversation pays
-// for (D12).
+// for.
 #[derive(Clone, Copy, Debug, Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(PartialEq, Eq))]
 pub enum Direction {
@@ -101,7 +101,7 @@ pub enum GroupBy {
     Type,
 }
 
-/// Arguments for `describe_item` (T3 §3).
+/// Arguments for `describe_item`.
 ///
 /// `direction` and `group_by: "direction"` are **both legal together** — one filters, the other
 /// groups. The two enums are typed, so a bad value is `invalid_arguments` before the tool runs.
@@ -146,7 +146,7 @@ pub struct DescribeItemInput {
     pub relationship_cursor: Option<String>,
 }
 
-/// The whole response (T3 §5), in its serialised order.
+/// The whole response, in its serialised order.
 #[derive(Serialize)]
 struct DescribeItemOutput {
     #[serde(rename = "name")]
@@ -174,17 +174,17 @@ struct DescribeItemOutput {
     #[serde(rename = "spec", skip_serializing_if = "Option::is_none")]
     spec: Option<Value>,
 
-    /// Omitted when the item has none. Present because T10 is the only tool that writes them, and
-    /// the model must not patch a map it has never seen.
+    /// Omitted when the item has none. Present because `patch_item_custom_fields` is the only
+    /// tool that writes them, and the model must not patch a map it has never seen.
     #[serde(rename = "customFields", skip_serializing_if = "Option::is_none")]
     custom_fields: Option<Value>,
 
-    /// Omitted when not asked for; **`null` when the fetch failed** (T3-D5), which is how it is
+    /// Omitted when not asked for; **`null` when the fetch failed**, which is how it is
     /// told apart from `{}` meaning *none*.
     #[serde(rename = "relationships", skip_serializing_if = "Option::is_none")]
     relationships: Option<Value>,
 
-    /// Whether the engine had more than one page — the caller's lever, not a runtime cap (D34).
+    /// Whether the engine had more than one page — the caller's lever, not a runtime cap.
     #[serde(
         rename = "relationshipsTruncated",
         skip_serializing_if = "Option::is_none"
@@ -195,7 +195,7 @@ struct DescribeItemOutput {
     #[serde(rename = "relationshipCursor", skip_serializing_if = "Option::is_none")]
     relationship_cursor: Option<String>,
 
-    /// The effective page size, **only** when the clamp changed it (as T2-D6).
+    /// The effective page size, **only** when the clamp changed it, as in `search_catalog`.
     #[serde(rename = "relationshipLimit", skip_serializing_if = "Option::is_none")]
     relationship_limit: Option<u32>,
 }
@@ -213,17 +213,17 @@ struct RelationshipsPinned {
     family: String,
 }
 
-/// T3 · `describe_item` — one item, what it is and what it is connected to, in one call.
+/// `describe_item` — one item, what it is and what it is connected to, in one call.
 ///
 /// Resolution — from `kind` through the core's point lookup, or from the name alone through a
-/// two-row probe — then the item and its relationships **concurrently** (T3-D4), then the shaper.
-/// A failed relationships call degrades the answer rather than failing it (T3-D5).
+/// two-row probe — then the item and its relationships **concurrently**, then the shaper.
+/// A failed relationships call degrades the answer rather than failing it.
 pub struct DescribeItem;
 
 impl Tool for DescribeItem {
     type Input = DescribeItemInput;
 
-    /// `readOnlyHint: true`; every other hint is the specification's default (D16).
+    /// `readOnlyHint: true`; every other hint is the specification's default.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<DescribeItemInput>(
             TOOL_NAME,
@@ -268,7 +268,7 @@ impl Tool for DescribeItem {
             ),
         };
 
-        // T3-D4 — the item and its relationships are independent, so they are fetched at once,
+        // The item and its relationships are independent, so they are fetched at once,
         // both under the call's deadline, and the whole fan-out stops if the caller goes away.
         let fetch = async {
             if input.include_relationships {
@@ -294,7 +294,7 @@ impl Tool for DescribeItem {
             outcome = fetch => outcome,
         };
 
-        // T3-D5 — without the item there is nothing to describe, so its failure is the call's.
+        // Without the item there is nothing to describe, so its failure is the call's.
         let item = item?.value;
 
         let mut warning = None;
@@ -364,7 +364,7 @@ impl Tool for DescribeItem {
     }
 }
 
-/// NFR-10 — T3 §3's bounds, checked before anything reaches the engine.
+/// The input bounds, checked before anything reaches the engine.
 fn validate(input: &DescribeItemInput) -> Result<(), ToolError> {
     if input.name.is_empty() || input.name.len() > MAX_NAME_BYTES {
         return Err(invalid(
@@ -404,8 +404,8 @@ fn invalid(parameter: &str, message: String) -> ToolError {
         .with_details(json!({ "field": parameter }))
 }
 
-/// The relationship page size, and what to echo (T3 §3, as T2-D6): clamped into the engine's
-/// range, echoed only when the clamp changed it.
+/// The relationship page size, and what to echo, by the same rule as `search_catalog`'s: clamped
+/// into the engine's range, echoed only when the clamp changed it.
 fn effective_limit(requested: Option<u16>) -> (u32, Option<u32>) {
     let Some(requested) = requested else {
         return (DEFAULT_LIMIT, None);
@@ -460,7 +460,7 @@ fn mint(
 /// Decodes a relationship cursor into the item's address and the engine's continuation.
 ///
 /// A cursor for another item or another `direction`, or one that does not decode, is
-/// `invalid_cursor` — never read as "no more relationships" (D32).
+/// `invalid_cursor` — never read as "no more relationships".
 fn resume(
     raw: &str,
     fingerprint: &str,

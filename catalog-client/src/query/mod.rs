@@ -73,7 +73,7 @@ pub fn is_valid_label_key(key: &str) -> bool {
     LABEL_KEY_RE.is_match(key)
 }
 
-/// A field the engine will accept in a query (§8.8).
+/// A field the engine will accept in a query.
 ///
 /// **Anything else is unconstructible.** The engine's parser rejects an unknown field with a
 /// `400`, and a `400` on a parameter we built is a `server_defect` the model cannot act on — so
@@ -123,7 +123,7 @@ impl FieldPath {
     }
 }
 
-/// A `matches` value: a regex **literal**, not a bare string (§8.8).
+/// A `matches` value: a regex **literal**, not a bare string.
 ///
 /// Built by escaping the user's text, so a search for `a.b` cannot become a wildcard and a
 /// search for `(` cannot become a parse error the model has to understand.
@@ -202,8 +202,8 @@ impl QueryValue {
     /// Builds a string value, refusing one the engine would reject.
     ///
     /// **Refused, not trimmed.** A silently shortened value would match different objects than
-    /// the caller asked for, and they would have no way to tell — the same failure this plan
-    /// removes from response sizes.
+    /// the caller asked for, and they would have no way to tell — the same failure this server
+    /// avoids in response sizes.
     pub fn string(text: &str) -> Result<Self, ToolError> {
         if text.len() > MAX_VALUE_BYTES {
             // Reported at a character boundary so the message is readable even when the value is
@@ -248,9 +248,9 @@ fn floor_char_boundary(text: &str, max: usize) -> usize {
     index
 }
 
-/// **Only what the tool set emits.** Adding a variant is a deliberate act (§8.8).
+/// **Only what the tool set emits.** Adding a variant is a deliberate act.
 ///
-/// The engine understands ten operators; four are enough for every tool in this plan, and each
+/// The engine understands ten operators; four are enough for every tool in this server, and each
 /// one we do not emit is one whose semantics we do not have to explain to a model.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Predicate {
@@ -360,7 +360,7 @@ impl Predicate {
         }
     }
 
-    /// Encodes the query for the `rawq` query parameter, splitting when it has to (§8.8).
+    /// Encodes the query for the `rawq` query parameter, splitting when it has to.
     ///
     /// The engine AND-s repeated `rawq` parameters, so splitting a top-level `and` across
     /// several of them is **equivalent** to sending one — which is the only reason splitting is
@@ -423,8 +423,7 @@ impl Predicate {
     /// The **plain JSON** form a compliance `raw-query` scope carries.
     ///
     /// The same AST, a different serialisation: that body takes the query object directly, with
-    /// no base64 anywhere. Reusing the AST and not the encoding is the correction the plan makes
-    /// to T4's analysis.
+    /// no base64 anywhere. Reusing the AST but not the encoding is deliberate.
     pub fn to_raw_query_scope(&self) -> Result<Value, ToolError> {
         self.validate()?;
 

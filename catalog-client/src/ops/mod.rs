@@ -27,7 +27,7 @@ use url::Url;
 
 /// One engine operation this client wraps.
 ///
-/// The list exists so that **one** enumeration drives the NFR-11 propagation test: an operation
+/// The list exists so that **one** enumeration drives the identity-propagation test: an operation
 /// added without forwarding the identity pair fails CI rather than being noticed later. It is
 /// also the inventory of every engine endpoint this client depends on — what to read first when
 /// the engine version the chart deploys changes, since there is no vendored OAS to diff against.
@@ -45,7 +45,7 @@ pub struct OperationSpec {
     /// Every query parameter this client may send on the operation.
     pub query: &'static [&'static str],
 
-    /// What the request reaches, which decides what a `502` means (§8.4).
+    /// What the request reaches, which decides what a `502` means.
     pub upstream: Upstream,
 }
 
@@ -76,7 +76,7 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
-/// One item, deleted — with its relationships, both directions, and its revisions (T9-D6).
+/// One item, deleted — with its relationships, both directions, and its revisions.
 pub const DELETE_ITEM: OperationSpec = OperationSpec {
     id: "delete_item",
     method: "delete",
@@ -104,7 +104,7 @@ pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
 };
 
 /// One family's items. Unlike the global listing it also takes `label` and `field`, which this
-/// client never sends: `rawq` expresses both, on both paths (T2-D1).
+/// client never sends: `rawq` expresses both, on both paths.
 pub const LIST_FAMILY_ITEMS: OperationSpec = OperationSpec {
     id: "list_family_items",
     method: "get",
@@ -131,9 +131,9 @@ pub const COUNT_FAMILY_ITEMS: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
-/// One item's relationships (T3). **Never** `groupBy` — grouping is done in the server, so the
-/// response is always a flat `List` (T3-D1) — and **never** `rawq`, which would silently drop the
-/// entries whose other end is unresolved (T3-D7).
+/// One item's relationships. **Never** `groupBy` — grouping is done in the server, so the
+/// response is always a flat `List` — and **never** `rawq`, which would silently drop the
+/// entries whose other end is unresolved.
 pub const GET_RELATIONSHIPS: OperationSpec = OperationSpec {
     id: "get_relationships",
     method: "get",
@@ -143,7 +143,7 @@ pub const GET_RELATIONSHIPS: OperationSpec = OperationSpec {
 };
 
 /// One Item Type Definition, by name — read **raw**, so nothing the typed model does not declare is
-/// lost on its way into a write (DR-86).
+/// lost on its way into a write.
 pub const GET_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
     id: "get_item_type_definition",
     method: "get",
@@ -152,7 +152,7 @@ pub const GET_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
-/// One Item Type Definition, written whole (T12).
+/// One Item Type Definition, written whole.
 pub const PUT_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
     id: "put_item_type_definition",
     method: "put",
@@ -161,8 +161,8 @@ pub const PUT_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
-/// One Item Type Definition, deleted — with every item of the type, under every version it declares,
-/// their relationships in both directions, and the constraints naming it (T13-D1).
+/// One Item Type Definition, deleted — with every item of the type, under every version it
+/// declares, their relationships in both directions, and the constraints naming it.
 pub const DELETE_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
     id: "delete_item_type_definition",
     method: "delete",
@@ -173,7 +173,7 @@ pub const DELETE_ITEM_TYPE_DEFINITION: OperationSpec = OperationSpec {
 
 /// Every operation this client wraps today.
 ///
-/// Tool waves add to it; nothing else does.
+/// New tools add to it; nothing else does.
 pub const OPERATIONS: &[OperationSpec] = &[
     LIST_ITEMS,
     GET_ITEM,
@@ -216,7 +216,7 @@ pub struct ListQuery {
 }
 
 impl ListQuery {
-    /// Whose fault a `400` on this listing would be (§8.4).
+    /// Whose fault a `400` on this listing would be.
     ///
     /// `field`, `label` and `sort` carry what the caller asked for. `limit`, the cursor and
     /// `rawq` are ours — `rawq` is built by the query translator and never supplied — so a listing
@@ -292,9 +292,9 @@ impl EngineClient {
 
     /// `DELETE /{group}/{version}/items/{family}/{name}?resourceVersion=…` — delete one item.
     ///
-    /// `resource_version` is always sent by T9 (T9-D2): without it the engine deletes whatever is
-    /// there now. A `204` has no body; the engine's cascade warning, when cleanup failed, rides on
-    /// the response's warnings (T9-D4).
+    /// `resource_version` is always sent by `delete_item`: without it the engine deletes whatever
+    /// is there now. A `204` has no body; the engine's cascade warning, when cleanup failed, rides
+    /// on the response's warnings.
     pub async fn delete_item(
         &self,
         address: &ItemAddress,
@@ -315,7 +315,7 @@ impl EngineClient {
     ///
     /// `retryable` comes from the write cycle's [`ConflictPolicy`](crate::write::ConflictPolicy),
     /// never from the call site: whether a write may be repeated is a property of the intent,
-    /// stated once (D23).
+    /// stated once.
     pub async fn put_item(
         &self,
         address: &ItemAddress,
@@ -324,7 +324,7 @@ impl EngineClient {
     ) -> Result<EngineResponse<Item>, ToolError> {
         let url = self.url(address.segments())?;
 
-        // The manifest is the caller's: a `400` is a schema failure it can correct (§8.4).
+        // The manifest is the caller's: a `400` is a schema failure it can correct.
         self.put_json(
             &PUT_ITEM,
             url,

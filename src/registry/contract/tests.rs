@@ -29,7 +29,7 @@ fn mock_warning(text: &str) -> EngineWarning {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §5.5 — `ToolOutput` is rendered as **one** JSON object, merged at the top level.
+// `ToolOutput` is rendered as **one** JSON object, merged at the top level.
 // ---------------------------------------------------------------------------------------------
 
 /// A wrapper key would cost bytes on every response and the model would have to learn it, so
@@ -44,7 +44,7 @@ fn test_a_payload_is_rendered_at_the_top_level() {
     );
 }
 
-/// D28 — a call that reached the engine always emits the key, so its absence is never
+/// A call that reached the engine always emits the key, so its absence is never
 /// ambiguous.
 #[rstest]
 fn test_a_call_that_reached_the_engine_emits_the_key_even_when_empty() {
@@ -66,7 +66,7 @@ fn test_engine_warnings_are_rendered_as_their_text() {
     );
 }
 
-/// D28 — a call that never reached the engine omits the key entirely rather than sending an
+/// A call that never reached the engine omits the key entirely rather than sending an
 /// empty array the model has to interpret.
 #[rstest]
 fn test_a_call_that_never_reached_the_engine_omits_the_key() {
@@ -75,7 +75,7 @@ fn test_a_call_that_never_reached_the_engine_omits_the_key() {
     assert!(output.render(None).get(WARNINGS_KEY).is_none());
 }
 
-/// T3-D5 — a tool's own warning is rendered after the engine's, and brings the key with it even
+/// A tool's own warning is rendered after the engine's, and brings the key with it even
 /// on a call that never reached the engine.
 #[rstest]
 fn test_a_tools_own_warning_follows_the_engines() {
@@ -113,15 +113,15 @@ fn test_a_successful_result_is_one_text_block_and_no_structured_content() {
     assert_eq!(result.is_error, Some(false));
     assert!(
         result.structured_content.is_none(),
-        "D15 — a result is never returned twice"
+        "a result is never returned twice"
     );
 
     let serialised = serde_json::to_value(&result).expect("a serialisable result");
     assert_eq!(serialised["content"][0]["text"], json!(r#"{"ok":true}"#));
 }
 
-/// D15's switch on: the result also carries `structuredContent` — the very object the text block
-/// holds, `warnings` included — and keeps the text block (F-08).
+/// With the switch on, the result also carries `structuredContent` — the very object the text
+/// block holds, `warnings` included — and keeps the text block.
 #[rstest]
 fn test_structured_content_is_present_while_the_switch_is_on() {
     let warnings = [];

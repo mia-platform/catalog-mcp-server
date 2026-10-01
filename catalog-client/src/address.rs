@@ -47,7 +47,7 @@ static VERSION_RE: LazyLock<Regex> = LazyLock::new(|| {
 /// The engine's `maxLength` on a group, and the practical ceiling on a name.
 const MAX_SEGMENT_LENGTH: usize = 253;
 
-/// Where an item lives, and the only thing the write helper accepts (§8.1).
+/// Where an item lives, and the only thing the write helper accepts.
 ///
 /// Built either from a manifest already in hand — `apiVersion` plus `metadata.family`, the
 /// common case — or by `kind → {group, version, family}` resolution.
@@ -91,7 +91,7 @@ impl ItemAddress {
     ///
     /// `family` is `None` **only** for an object whose Item Type Definition no longer exists —
     /// a real engine state, not a lookup miss — so it is reported as `unaddressable_item` and
-    /// never as an empty result (D30).
+    /// never as an empty result.
     pub fn from_manifest(
         api_version: &str,
         family: Option<&str>,
@@ -173,7 +173,7 @@ impl std::fmt::Display for ItemAddress {
     }
 }
 
-/// Where a **family** of items lives: `/{group}/{version}/items/{family}` (§8.1).
+/// Where a **family** of items lives: `/{group}/{version}/items/{family}`.
 ///
 /// An [`ItemAddress`] without the name, for the operations that act on a whole family — listing
 /// it and counting it. Validated the same way, segment by segment, so coordinates that come back
@@ -315,13 +315,13 @@ impl std::fmt::Display for ItemTypeAddress {
 }
 
 /// Whether `group` is an API group the engine accepts (its `spec.group` pattern) — for a tool
-/// narrowing a shared `kind` to one type (DR-80).
+/// narrowing a shared `kind` to one type.
 pub fn is_valid_group(group: &str) -> bool {
     group.len() <= MAX_SEGMENT_LENGTH && GROUP_RE.is_match(group)
 }
 
 /// Whether `name` is an object name the engine accepts (its `metadata.name` pattern) — for a tool
-/// that must refuse a malformed name before spending a `kind` lookup on it (T8 §3).
+/// that must refuse a malformed name before spending a `kind` lookup on it.
 pub fn is_valid_name(name: &str) -> bool {
     name.len() <= MAX_SEGMENT_LENGTH && NAME_RE.is_match(name)
 }
@@ -478,7 +478,7 @@ mod tests {
         assert_eq!(address.name(), "example-item");
     }
 
-    /// D30 — `metadata.family == null` is a real engine state, reported as such, never as an
+    /// `metadata.family == null` is a real engine state, reported as such, never as an
     /// empty result and never as a lookup miss.
     #[rstest]
     fn test_a_null_family_is_an_explicit_unaddressable_item() {

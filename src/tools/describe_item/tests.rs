@@ -62,14 +62,14 @@ const CALL_BUDGET: Duration = Duration::from_secs(25);
 const ARM_DELAY: Duration = Duration::from_millis(400);
 const CONCURRENT_CEILING: Duration = Duration::from_millis(700);
 
-/// The recorded size of the 50-relationship fixture's response (T3 §6). Regression detection,
+/// The recorded size of the 50-relationship fixture's response. Regression detection,
 /// not a limit.
 const RECORDED_FIFTY_RELATIONSHIPS_BYTES: usize = 3_310;
 
 /// How far that golden may drift.
 const SIZE_TOLERANCE_PERCENT: usize = 1;
 
-/// The most a realistic shaped entry may weigh (T3-D2's ~83 B, with room for longer names).
+/// The most a realistic shaped entry may weigh (the shaper's ~83 B, with room for longer names).
 const MAX_SHAPED_ENTRY_BYTES: usize = 100;
 
 /// The URN the engine builds for an item.
@@ -266,7 +266,7 @@ async fn requests(engine: &MockEngine) -> Vec<(String, String)> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §8 — the shaper (T3-D2, T3-D7).
+// The shaper.
 // ---------------------------------------------------------------------------------------------
 
 /// A BFF entry becomes `{name, kind, type}`, `type` the last segment of `typeRef`.
@@ -320,7 +320,7 @@ fn test_an_unresolved_entry_is_reported_not_dropped() {
     );
 }
 
-/// A realistic shaped entry stays inside T3-D2's budget — the 13× that makes the tool small.
+/// A realistic shaped entry stays inside the shaper's budget — the 13× that makes the tool small.
 #[rstest]
 fn test_a_shaped_entry_stays_inside_its_byte_budget() {
     let shaped = shape::group(
@@ -344,7 +344,7 @@ fn test_a_shaped_entry_stays_inside_its_byte_budget() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T3-D1 — client-side grouping.
+// Client-side grouping.
 // ---------------------------------------------------------------------------------------------
 
 /// A flat fixture spanning both directions and two types.
@@ -427,7 +427,7 @@ fn test_a_direction_filter_shows_only_its_group() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// Coordinate resolution and T3-D6.
+// Coordinate resolution and ambiguous names.
 // ---------------------------------------------------------------------------------------------
 
 /// Without `kind`, a single probe row gives the address — and the item is read there.
@@ -581,7 +581,7 @@ async fn test_a_name_matching_nothing_offers_near_matches() {
     );
 }
 
-/// An item whose type no longer exists is `unaddressable_item`, never an empty answer (D30).
+/// An item whose type no longer exists is `unaddressable_item`, never an empty answer.
 #[rstest]
 #[tokio::test]
 async fn test_a_null_family_is_unaddressable() {
@@ -610,7 +610,7 @@ async fn test_a_null_family_is_unaddressable() {
     );
 }
 
-/// An unknown `kind` is `not_found`, as T2-D9.
+/// An unknown `kind` is `not_found`, as in `search_catalog`.
 #[rstest]
 #[tokio::test]
 async fn test_an_unknown_kind_is_not_found() {
@@ -634,7 +634,7 @@ async fn test_an_unknown_kind_is_not_found() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// T3-D5 — partial success, both directions.
+// Partial success, both directions.
 // ---------------------------------------------------------------------------------------------
 
 /// The relationships call failing leaves the item, `relationships: null` and a warning.
@@ -865,7 +865,7 @@ async fn test_the_relationship_limit_is_clamped_and_echoed(
 }
 
 // ---------------------------------------------------------------------------------------------
-// T3-D4 — concurrency, and T3-D1/T3-D7 on the wire.
+// Concurrency, and grouping and unresolved entries on the wire.
 // ---------------------------------------------------------------------------------------------
 
 /// The item and its relationships are fetched **concurrently**: the pair takes about as long as
@@ -929,7 +929,7 @@ async fn test_no_group_by_and_no_rawq_reach_the_engine(#[case] group_by: GroupBy
 }
 
 // ---------------------------------------------------------------------------------------------
-// §5 — the output, and T3-D8's switches.
+// The output, and the `include_*` switches.
 // ---------------------------------------------------------------------------------------------
 
 /// The documented order, `customFields` included when the item has them.
@@ -1009,7 +1009,7 @@ async fn test_the_include_switches() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §7 — the rest of the table.
+// The rest of the error table.
 // ---------------------------------------------------------------------------------------------
 
 /// Boundary bounds are `invalid_input` naming the parameter, before the engine is asked.
@@ -1095,7 +1095,7 @@ async fn test_a_cancelled_call_reports_cancelled() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// §6 — the byte golden.
+// The byte golden.
 // ---------------------------------------------------------------------------------------------
 
 /// An item with 50 relationships serialises to a recorded size — the shaper regressing is a diff.
@@ -1146,7 +1146,7 @@ async fn test_fifty_relationships_serialise_to_their_recorded_size() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// DR-80 — a kind is unique per group, not per tenant.
+// A kind is unique per group, not per tenant.
 // ---------------------------------------------------------------------------------------------
 
 /// A shared kind with no `group` is answered with its candidates; with `group`, the item is read in

@@ -27,13 +27,13 @@ use std::{
     time::{Duration, Instant},
 };
 
-/// Whether the process is ready to receive traffic, as `/-/ready` reports it (D43).
+/// Whether the process is ready to receive traffic, as `/-/ready` reports it.
 ///
 /// It starts **not ready** and is raised once every startup condition holds: the validated
 /// configuration and the prebuilt `tools/list` payload. The engine probe is the other half of
 /// `/-/ready` ([`EngineProbe`]), consulted on top of this flag. Shutdown lowers it *before* the
 /// drain begins, so the endpoint stops receiving traffic while in-flight calls finish, whatever
-/// the probe last said (D42, D43).
+/// the probe last said.
 #[derive(Debug, Default)]
 pub struct Readiness(AtomicBool);
 
@@ -54,10 +54,10 @@ impl Readiness {
     }
 }
 
-/// How long one readiness engine probe is trusted before the next is made (D43).
+/// How long one readiness engine probe is trusted before the next is made.
 pub const ENGINE_PROBE_INTERVAL: Duration = Duration::from_secs(5);
 
-/// The cached engine probe `/-/ready` consults when `health.readinessChecksEngine` is on (D43).
+/// The cached engine probe `/-/ready` consults when `health.readinessChecksEngine` is on.
 ///
 /// The engine is probed **at most once per interval**, however often `/-/ready` is asked: every
 /// call in between is served from the last result, so the probe rate is independent of the
@@ -98,7 +98,7 @@ impl EngineProbe {
     }
 }
 
-/// Everything shared across requests, held behind one `Arc` and cloned into each handler (D4).
+/// Everything shared across requests, held behind one `Arc` and cloned into each handler.
 ///
 /// Nothing request-scoped ever lives here: the handler's lifetime is one instance per session in
 /// legacy mode and one per request when stateless, so a field here would be a cross-request leak
@@ -111,11 +111,11 @@ pub struct AppState {
     /// The tool set and its prebuilt `tools/list` payload, built once at startup.
     pub registry: Arc<Registry>,
 
-    /// One `reqwest` connection pool for the process, bound per request to a caller's identity
-    /// (D25). There is no ambient identity here: a request cannot be made from this alone.
+    /// One `reqwest` connection pool for the process, bound per request to a caller's identity.
+    /// There is no ambient identity here: a request cannot be made from this alone.
     pub engine: Arc<EngineClientFactory>,
 
-    /// The per-tenant token bucket (§6.4). Per replica, so the effective cluster limit is
+    /// The per-tenant token bucket. Per replica, so the effective cluster limit is
     /// `replicas × rate`.
     pub rate_limiter: Arc<RateLimiter>,
 
@@ -127,7 +127,7 @@ pub struct AppState {
     pub readiness: Arc<Readiness>,
 
     /// The engine probe `/-/ready` consults, or `None` when `health.readinessChecksEngine` is
-    /// off (D43).
+    /// off.
     pub engine_probe: Option<Arc<EngineProbe>>,
 }
 
@@ -180,7 +180,7 @@ impl AppState {
         })
     }
 
-    /// The wall-clock budget for one whole tool call, starting now (§6.4).
+    /// The wall-clock budget for one whole tool call, starting now.
     ///
     /// `engine.timeoutMs` bounds one hop and this bounds the whole call; whichever is smaller
     /// wins. Config validation has already refused a deadline shorter than one hop.
@@ -190,7 +190,7 @@ impl AppState {
         ))
     }
 
-    /// Binds the shared engine client to one caller and one call's deadline (D25).
+    /// Binds the shared engine client to one caller and one call's deadline.
     pub fn engine_for(
         &self,
         identity: Arc<catalog_client::CallerIdentity>,

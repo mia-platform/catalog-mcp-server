@@ -18,7 +18,7 @@
 use serde::Deserialize;
 
 /// Default SSE keep-alive interval, in seconds — the SDK's own default, kept because it sits
-/// under the usual 60 s intermediary idle timeout (§6.4).
+/// under the usual 60 s intermediary idle timeout.
 pub static DEFAULT_SSE_KEEP_ALIVE_SECONDS: u64 = 15;
 
 /// Returns `true`.
@@ -36,13 +36,12 @@ pub fn default_sse_keep_alive_seconds() -> u64 {
     DEFAULT_SSE_KEEP_ALIVE_SECONDS
 }
 
-/// The SDK transport knobs, every one of them read from configuration rather than hardcoded
-/// (§6.1).
+/// The SDK transport knobs, every one of them read from configuration rather than hardcoded.
 ///
-/// `legacy_session_mode` stays **on** because our only client today is handshake-era (D2);
+/// `legacy_session_mode` stays **on** because our only client today is handshake-era;
 /// requests that negotiate `2026-07-28` are served statelessly regardless. `json_response`
 /// only *prefers* JSON — the transport falls back to SSE by itself when a handler emits a
-/// notification before its result (D9).
+/// notification before its result.
 #[derive(Clone, Debug, Deserialize)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 #[cfg_attr(test, derive(PartialEq, Eq))]

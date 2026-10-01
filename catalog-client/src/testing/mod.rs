@@ -15,14 +15,14 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// The mock engine (§12.5).
+// The mock engine.
 //
 // Behind the `testing` feature so the binary crate's own tests can use it too: built once, used
-// by every wave. If it were not funded here, each tool plan would rebuild a worse one.
+// by every tool's tests. If it were not built here, each tool would rebuild a worse one.
 //
 // Fixtures are **engine-shaped by construction** — the list envelope, the error body, the
-// `Warning` header and the `PartialObjectMetadata` projection are built from the shapes
-// `protocol-findings §4` records, not invented — so a fixture cannot drift into something the
+// `Warning` header and the `PartialObjectMetadata` projection are built from the shapes the
+// real engine was observed to produce, not invented — so a fixture cannot drift into something the
 // engine never produces.
 
 use crate::{
@@ -36,7 +36,7 @@ use wiremock::{
     matchers::{method, path},
 };
 
-/// A fictional organization, per D39: fictional identifiers only.
+/// A fictional organization: fixtures use fictional identifiers only.
 pub const MOCK_ORGANIZATION: &str = "my-org";
 
 /// A fictional tenant.
@@ -83,8 +83,8 @@ pub fn mock_identity_acl_only() -> Arc<CallerIdentity> {
     ))
 }
 
-/// The identity a request carries when **nothing** arrived, which D47 says must still reach the
-/// engine rather than be refused here.
+/// The identity a request carries when **nothing** arrived, which must still reach the engine
+/// rather than be refused here.
 pub fn mock_identity_empty() -> Arc<CallerIdentity> {
     Arc::new(CallerIdentity::default())
 }

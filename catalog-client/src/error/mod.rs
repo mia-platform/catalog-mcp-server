@@ -18,12 +18,12 @@
 use serde::Serialize;
 use serde_json::{Value, json};
 
-/// The closed error-code set of §8.4, in one place.
+/// The closed error-code set, in one place.
 pub mod codes;
 
 pub use codes::ALL_CODES;
 
-/// What the model may do about a failure. **Closed set; the whole point of the contract** (D19).
+/// What the model may do about a failure. **Closed set; the whole point of the contract**.
 ///
 /// One shape for every tool, and no tool invents its own. The remedy is the field the model acts
 /// on: everything else is explanation.
@@ -45,10 +45,10 @@ pub enum Remedy {
     #[serde(rename = "escalate")]
     Escalate,
 
-    /// **May have succeeded** — verify before retrying (D20).
+    /// **May have succeeded** — verify before retrying.
     ///
-    /// The category T9 asks for: a transport failure or a `5xx` *after* a write or delete was
-    /// dispatched is never reported as a clean failure.
+    /// The category `delete_item` needs: a transport failure or a `5xx` *after* a write or delete
+    /// was dispatched is never reported as a clean failure.
     #[serde(rename = "unknown")]
     Unknown,
 }
@@ -72,12 +72,12 @@ impl std::fmt::Display for Remedy {
     }
 }
 
-/// The one error shape every tool returns (D19, §8.4).
+/// The one error shape every tool returns.
 ///
 /// Rendered into the result's text block as
 /// `{"error":{"code":…,"remedy":…,"message":…,"details":…,"nextStep":…}}` with `isError: true`.
 /// It is a **tool** error — HTTP `200` — because anything the model could act on must be
-/// something it can see and self-correct from (D18).
+/// something it can see and self-correct from.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ToolError {
     /// Stable `snake_case` identifier, drawn from the closed set in [`codes`].
@@ -106,7 +106,7 @@ impl ToolError {
     pub fn new(code: &'static str, remedy: Remedy, message: impl Into<String>) -> Self {
         debug_assert!(
             ALL_CODES.contains(&code),
-            "`{code}` is not in the closed error-code set of §8.4"
+            "`{code}` is not in the closed error-code set"
         );
 
         Self {
@@ -158,7 +158,7 @@ impl std::fmt::Display for ToolError {
 
 impl std::error::Error for ToolError {}
 
-/// Whether a failing request had already dispatched a write or a delete (D20).
+/// Whether a failing request had already dispatched a write or a delete.
 ///
 /// This is what separates *"it failed"* from *"it may have succeeded"*, and it is the reason the
 /// mapper takes it as an argument rather than inferring it from the HTTP method.
@@ -182,7 +182,7 @@ pub enum BadRequestOrigin {
     ServerBuilt,
 }
 
-/// Maps one engine outcome onto the contract (§8.4).
+/// Maps one engine outcome onto the contract.
 ///
 /// The engine's `500`s carry no information — the body always says *"Something went wrong"* — so
 /// the message is ours, and the engine's `x-request-id` goes into `details.requestId`: the only
@@ -195,7 +195,7 @@ pub fn map_status(
     engine_message: Option<&str>,
     request_id: Option<&str>,
 ) -> ToolError {
-    // D20 — a dispatched write that fails at or after the engine is never a clean failure,
+    // A dispatched write that fails at or after the engine is never a clean failure,
     // whatever the status says. This branch comes first for exactly that reason.
     if dispatched == Dispatched::Yes && status >= 500 {
         return dispatched_write_unknown(request_id);
@@ -225,7 +225,7 @@ pub fn map_status(
                 ),
             ),
         },
-        // T11 §7: never phrased as a problem of the data behind it — the wording names neither
+        // Never phrased as a problem of the data behind it — the wording names neither
         // it nor anything else the model could mistake for the cause.
         401 => ToolError::new(
             codes::UNAUTHENTICATED,
@@ -298,7 +298,7 @@ pub fn map_status(
     attach_request_id(error, request_id)
 }
 
-/// What an operation's request ultimately reaches, which decides what a `502` means (§8.4).
+/// What an operation's request ultimately reaches, which decides what a `502` means.
 ///
 /// The engine answers `502` only from its authz/identity client, which only the BFF routes proxying
 /// authz use. On any other route a `502` comes from the gateway in front of the engine — and is the
@@ -329,7 +329,7 @@ pub fn unreadable_response(request_id: Option<&str>) -> ToolError {
     )
 }
 
-/// D20 — a transport failure on a request that had already been dispatched.
+/// A transport failure on a request that had already been dispatched.
 pub fn dispatched_write_unknown(request_id: Option<&str>) -> ToolError {
     attach_request_id(
         ToolError::new(
@@ -358,7 +358,7 @@ pub fn transport_failure(dispatched: Dispatched, request_id: Option<&str>) -> To
     )
 }
 
-/// The deadline ran out (§5.5 rule 4).
+/// The deadline ran out.
 pub fn deadline_exceeded(dispatched: Dispatched, request_id: Option<&str>) -> ToolError {
     if dispatched == Dispatched::Yes {
         return dispatched_write_unknown(request_id);
@@ -374,7 +374,7 @@ pub fn deadline_exceeded(dispatched: Dispatched, request_id: Option<&str>) -> To
     )
 }
 
-/// The caller went away while the tool was still working (§5.5 rule 5).
+/// The caller went away while the tool was still working.
 ///
 /// A tool that loops, fans out or polls `select!`s on its cancellation token and returns this.
 /// The peer that would read it is usually gone; what matters is that the work stops and the

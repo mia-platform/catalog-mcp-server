@@ -17,20 +17,20 @@
  */
 use serde::Deserialize;
 
-/// What the server does with the caller's identity (§7.2).
+/// What the server does with the caller's identity.
 ///
 /// `ResourceServer` is accepted by the schema — the value and this variant exist so the
-/// decision is additive — but **refused by validation in v1** (D46): starting up and silently
+/// decision is additive — but **refused by validation in v1**: starting up and silently
 /// behaving as `Gateway` is how a trust boundary quietly stops existing.
 #[derive(Clone, Copy, Default, Deserialize, Debug, PartialEq, Eq)]
 #[cfg_attr(feature = "json-schema", derive(::schemars::JsonSchema))]
 pub enum AuthMode {
-    /// Extract, never reject: the gateway has already authenticated and authorized (D47).
+    /// Extract, never reject: the gateway has already authenticated and authorized.
     #[default]
     #[serde(rename = "gateway")]
     Gateway,
 
-    /// Validate the bearer token ourselves. Not implemented in v1 — see P-C3.
+    /// Validate the bearer token ourselves. Not implemented in v1.
     #[serde(rename = "resource-server")]
     ResourceServer,
 }
@@ -50,7 +50,7 @@ pub fn default_auth_mode() -> AuthMode {
     AuthMode::Gateway
 }
 
-/// The identity posture and the canonical resource identifiers (§7.3).
+/// The identity posture and the canonical resource identifiers.
 ///
 /// The Protected Resource Metadata document is served by Envoy, not by this process, so
 /// `resource` exists to match Envoy's string exactly rather than to be published from here.

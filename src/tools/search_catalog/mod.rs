@@ -37,22 +37,22 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
 
-/// T2 §4 — parameters to the translator's AST.
+/// Parameters to the translator's AST.
 mod ast;
 
-/// T2 §6 — what a search cursor pins, and its fingerprint.
+/// What a search cursor pins, and its fingerprint.
 mod cursor;
 
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "search_catalog";
 
-/// What the tool does (T2 §3.2). No `rawq`, no base64, no coordinates, no pagination mechanics.
+/// What the tool does. No `rawq`, no base64, no coordinates, no pagination mechanics.
 const TOOL_DESCRIPTION: &str = "Searches the catalog. Use `query` for free text over names, \
      titles and tags; `kind` to restrict to one type; `labels` and `fields` to filter exactly. \
      Returns items with everything needed to act on them. Call `list_catalog_types` first if you \
      do not know the exact `kind`.";
 
-/// The longest `query`, in bytes, **before** escaping (T2 §3.1).
+/// The longest `query`, in bytes, **before** escaping.
 ///
 /// The translator caps the escaped literal at the same number, and escaping can double a
 /// metacharacter-dense string, so this is checked first and the error says which cap was hit.
@@ -68,10 +68,10 @@ pub const MAX_FILTER_ENTRIES: usize = 20;
 const MIN_LIMIT: u32 = 1;
 
 /// The prefix of a field path the family-scoped endpoint restricts to its type's selectable
-/// fields (T2-D3). `metadata.*` paths are accepted on both endpoints.
+/// fields. `metadata.*` paths are accepted on both endpoints.
 const SPEC_PATH_PREFIX: &str = "spec.";
 
-/// Arguments for `search_catalog` (T2 §3.1).
+/// Arguments for `search_catalog`.
 ///
 /// `BTreeMap` for both maps, so the query — and therefore the cursor fingerprint — does not
 /// depend on the order the model emitted its keys in. No `#[serde(default)]`: an absent `Option`
@@ -106,13 +106,13 @@ pub struct SearchCatalogInput {
 
     /// The cursor a previous call returned, to fetch the next page.
     //
-    // Reworded from T2 §3.1's "opaque continuation token": D21's guard refuses the word "token"
-    // in any schema, because that is how an identity parameter would reappear.
+    // Not worded "opaque continuation token": the schema guard refuses the word "token" in any
+    // schema, because that is how an identity parameter would reappear.
     #[serde(rename = "cursor")]
     pub cursor: Option<String>,
 }
 
-/// One result row (T2 §6). Every field comes from the metadata-only projection, so no second
+/// One result row. Every field comes from the metadata-only projection, so no second
 /// lookup is needed to act on a result.
 #[derive(Serialize)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
@@ -137,7 +137,7 @@ pub struct SearchRow {
     #[serde(rename = "version", skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
 
-    /// `metadata.family`. Absent only for an item whose type no longer exists (D30).
+    /// `metadata.family`. Absent only for an item whose type no longer exists.
     #[serde(rename = "family", skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
 
@@ -146,13 +146,13 @@ pub struct SearchRow {
     pub labels: BTreeMap<String, String>,
 }
 
-/// The whole response (T2 §6).
+/// The whole response.
 #[derive(Serialize)]
 struct SearchOutput {
     #[serde(rename = "items")]
     items: Vec<SearchRow>,
 
-    /// Every match, counted only when the page was full (T2-D5).
+    /// Every match, counted only when the page was full.
     #[serde(rename = "total")]
     total: u64,
 
@@ -160,7 +160,7 @@ struct SearchOutput {
     #[serde(rename = "cursor", skip_serializing_if = "Option::is_none")]
     cursor: Option<String>,
 
-    /// The effective page size, **only** when it differs from the one asked for (T2-D6): a
+    /// The effective page size, **only** when it differs from the one asked for: a
     /// silent clamp would let the model believe it had seen everything.
     #[serde(rename = "limit", skip_serializing_if = "Option::is_none")]
     limit: Option<u32>,
@@ -171,7 +171,7 @@ struct SearchOutput {
     filters: Option<Value>,
 }
 
-/// T2 · `search_catalog` — find items by free text, type, labels and fields.
+/// `search_catalog` — find items by free text, type, labels and fields.
 ///
 /// One listing — global, or scoped to a family when `kind` is given — plus a count only when the
 /// page is full. The query translator is the core's; this tool builds the AST and chooses the
@@ -181,7 +181,7 @@ pub struct SearchCatalog;
 impl Tool for SearchCatalog {
     type Input = SearchCatalogInput;
 
-    /// `readOnlyHint: true`; every other hint is the specification's default (D16).
+    /// `readOnlyHint: true`; every other hint is the specification's default.
     fn descriptor() -> ToolDescriptor {
         ToolDescriptor::new::<SearchCatalogInput>(
             TOOL_NAME,
@@ -247,7 +247,7 @@ impl Tool for SearchCatalog {
         .inspect_err(|error| log_if_ours(error, predicate.as_ref()))?
         .value;
 
-        // T2-D5 — a page that is not full already says how many there are.
+        // A page that is not full already says how many there are.
         let count_fired = page.items.len() as u64 >= u64::from(limit);
         let total = if count_fired {
             match &family {
@@ -261,7 +261,7 @@ impl Tool for SearchCatalog {
             returned + page.items.len() as u64
         };
 
-        // T2 §9 — the inputs to any future tuning. `rawq_parameters` should be 1 in every real
+        // The inputs to any future tuning. `rawq_parameters` should be 1 in every real
         // search; more means the split rule fired.
         tracing::debug!(count_fired, rawq_parameters, "searched the catalog");
 
@@ -272,7 +272,7 @@ impl Tool for SearchCatalog {
             .map(|next| cursor::mint(next, &fingerprint, family.as_ref(), returned_now))
             .transpose()?;
 
-        // T2-D7 — the page is emitted whole: the engine's cursor points after what was fetched.
+        // The page is emitted whole: the engine's cursor points after what was fetched.
         let items: Vec<SearchRow> = page.items.into_iter().map(project).collect();
         let filters = items.is_empty().then(|| interpreted_filters(&input));
 
@@ -296,7 +296,7 @@ impl Tool for SearchCatalog {
     }
 }
 
-/// NFR-10 — every bound of T2 §3.1, checked before anything reaches the engine.
+/// Every input bound, checked before anything reaches the engine.
 fn validate(input: &SearchCatalogInput) -> Result<(), ToolError> {
     if let Some(query) = &input.query
         && query.len() > MAX_QUERY_BYTES
@@ -383,7 +383,7 @@ fn invalid(parameter: &str, message: String) -> ToolError {
         .with_details(json!({ "field": parameter }))
 }
 
-/// The page size to ask for, and what to echo (T2-D6).
+/// The page size to ask for, and what to echo.
 ///
 /// Clamped into the engine's range rather than rejected — it would `400` anything above 200 —
 /// and echoed **only** when the clamp changed it.
@@ -400,7 +400,7 @@ fn effective_limit(requested: Option<u16>) -> (u32, Option<u32>) {
 
 /// Resolves `kind` to its family and checks `fields` against what that family can filter on.
 ///
-/// An unknown `kind` is answered with near matches by the core (T2-D9).
+/// An unknown `kind` is answered with near matches by the core.
 async fn resolve_family(
     engine: &EngineClient,
     kind: &str,
@@ -414,7 +414,7 @@ async fn resolve_family(
     coordinates.family_address()
 }
 
-/// T2-D3 — on the `kind` path a `spec.` filter must be one of the type's selectable fields.
+/// On the `kind` path a `spec.` filter must be one of the type's selectable fields.
 ///
 /// The global endpoint accepts any `spec.` path, so a filter that works without `kind` can be
 /// refused with it. That asymmetry is the engine's; naming the valid paths is what stops it
@@ -440,7 +440,7 @@ fn validate_fields_for(
     .with_details(json!({ "field": path, "validPaths": selectable })))
 }
 
-/// T2 §8 — a `400` on a query this server built is logged with the **decoded** query, never the
+/// A `400` on a query this server built is logged with the **decoded** query, never the
 /// base64: the model is told it is not its fault, and an operator is shown what was sent.
 fn log_if_ours(error: &ToolError, predicate: Option<&Predicate>) {
     if error.code == codes::SERVER_DEFECT {
@@ -453,7 +453,7 @@ fn log_if_ours(error: &ToolError, predicate: Option<&Predicate>) {
     }
 }
 
-/// Projects one listed item into its row (T2 §5).
+/// Projects one listed item into its row.
 fn project(item: PartialObjectMetadata) -> SearchRow {
     let (group, version) = match item.api_version.split_once('/') {
         Some((group, version)) => (group.to_string(), Some(version.to_string())),
@@ -471,7 +471,7 @@ fn project(item: PartialObjectMetadata) -> SearchRow {
     }
 }
 
-/// The filters as the tool interpreted them, for an empty result (T2 §6).
+/// The filters as the tool interpreted them, for an empty result.
 fn interpreted_filters(input: &SearchCatalogInput) -> Value {
     let mut filters = Map::new();
 

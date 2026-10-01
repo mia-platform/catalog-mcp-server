@@ -15,7 +15,7 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-/// Modules whose default verbosity is noise rather than signal (D41). Quieted regardless of
+/// Modules whose default verbosity is noise rather than signal. Quieted regardless of
 /// `LOG_LEVEL`, because a debug session on our own code should not drown in the HTTP stack.
 #[allow(clippy::useless_concat)]
 const DEFAULT_MODULE_FILTERS: &str = concat!(

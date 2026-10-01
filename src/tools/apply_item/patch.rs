@@ -15,15 +15,15 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// T8's input, turned into the RFC 7396 document the core's write cycle merges (T8-D2), and the
-// `customFields` check (T8-D4).
+// The tool's input, turned into the RFC 7396 document the core's write cycle merges, and the
+// `customFields` check.
 
 use crate::tools::apply_item::{ApplyItemInput, ItemMetadataPatch};
 use catalog_client::{ItemAddress, Remedy, ToolError, error::codes};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
 
-/// The key custom fields sit under, which a `PUT` ignores (T8-D4).
+/// The key custom fields sit under, which a `PUT` ignores.
 pub(super) const CUSTOM_FIELDS_KEY: &str = "customFields";
 
 /// Deserialises a field that is **present**, `null` included, as `Some`.
@@ -31,7 +31,7 @@ pub(super) const CUSTOM_FIELDS_KEY: &str = "customFields";
 /// Paired with `#[serde(default)]`, an absent field stays `None` while `null` becomes
 /// `Some(Value::Null)`. Serde's own `Option` handling maps `null` to `None`, which would turn
 /// *"remove the title"* into *"do not mention the title"* — the one distinction RFC 7396 exists to
-/// make (T8 §3).
+/// make.
 pub(crate) fn present<'de, D>(deserializer: D) -> Result<Option<Value>, D::Error>
 where
     D: Deserializer<'de>,
@@ -40,7 +40,7 @@ where
 }
 
 /// Removes a schema's `description`, for a type whose doc comment is written for this code's
-/// readers rather than the model: `tools/list` would pay for it on every conversation (D12).
+/// readers rather than the model: `tools/list` would pay for it on every conversation.
 pub(super) fn without_description(schema: &mut schemars::Schema) {
     schema.remove("description");
 }
@@ -53,7 +53,7 @@ pub(super) fn without_description(schema: &mut schemars::Schema) {
 ///
 /// # Errors
 ///
-/// `invalid_input` when `spec` is not an object, or names `customFields` (T8-D4).
+/// `invalid_input` when `spec` is not an object, or names `customFields`.
 pub(super) fn document(input: &ApplyItemInput, address: &ItemAddress) -> Result<Value, ToolError> {
     let mut patch = Map::new();
     patch.insert("apiVersion".into(), json!(address.api_version()));
@@ -103,7 +103,7 @@ fn metadata_patch(metadata: &ItemMetadataPatch) -> Map<String, Value> {
     .collect()
 }
 
-/// T8-D4: custom fields are refused rather than silently ignored — a model told its write
+/// Custom fields are refused rather than silently ignored — a model told its write
 /// succeeded must not later read the old value.
 fn custom_fields_refused(field: &str) -> ToolError {
     ToolError::new(

@@ -30,22 +30,22 @@ pub const TOOL_NAME: &str = "list_tenants";
 /// What the tool does.
 ///
 /// It says both halves on purpose: the list is the informative part, and **which one you are in**
-/// is the useful part (T11-D2). A model that knows it is in the production catalog can say so
+/// is the useful part. A model that knows it is in the production catalog can say so
 /// before doing something regrettable.
 const TOOL_DESCRIPTION: &str =
     "List the tenants you can access, and which one you are currently working in.";
 
-/// `list_tenants` takes no arguments (T11-D1).
+/// `list_tenants` takes no arguments.
 ///
 /// **Deliberately.** The result is scoped by the caller's identity and nothing else. There is no
 /// filter the model could usefully apply, and offering one would invite it to believe it can
-/// widen its own scope — the opposite of what NFR-01 wants a tool surface to suggest.
+/// widen its own scope — the opposite of what a tool surface should suggest.
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ListTenantsInput {}
 
-/// The worked example of the §5.5 contract, and the cheapest end-to-end probe of the identity
-/// path in the whole tool set (§13.5, T11).
+/// The worked example of the tool contract, and the cheapest end-to-end probe of the identity
+/// path in the whole tool set.
 ///
 /// **Its natural failure is `401`, not `404`.** `GET /bff/tenants` is not a catalog read: the
 /// engine proxies it to the authz service. So if this tool works, identity is flowing through
@@ -55,7 +55,7 @@ pub struct ListTenantsInput {}
 /// And one verified fact makes it sharper: `/api/catalog/bff/tenants` is one of three routes
 /// carrying `ExtAuthzPerRoute` with the filter **disabled**, so no policy runs on that hop —
 /// the headers *we* forward are exactly what the engine sees. On every other route the policy
-/// regenerates them (D48), so this is the only tool whose success proves **D26's forwarding**
+/// regenerates them, so this is the only tool whose success proves **our header forwarding**
 /// rather than proving the policy works.
 pub struct ListTenants;
 
@@ -94,15 +94,15 @@ impl Tool for ListTenants {
 
         let mut payload = json!({ "tenants": tenants });
 
-        // T11-D2 — `current` comes from the forwarded ACL context, never from a second call, and
-        // is **omitted rather than null** when the context did not decode. Under D47 the
-        // identity layer extracts rather than rejects, so that is a reachable state and the tool
+        // `current` comes from the forwarded ACL context, never from a second call, and is
+        // **omitted rather than null** when the context did not decode. The identity layer
+        // extracts rather than rejects, so that is a reachable state and the tool
         // must not invent a value for it.
         if let Some(current) = current_tenant(context) {
             payload["current"] = json!(current);
         }
 
-        // T11-D5 — an empty list is a real, successful answer, and materially different from a
+        // An empty list is a real, successful answer, and materially different from a
         // `401`. Saying so plainly is what stops a model proceeding as though it had a scope.
         Ok(ToolOutput::new(payload))
     }
@@ -111,7 +111,7 @@ impl Tool for ListTenants {
 /// The tenant the caller is acting in, from the forwarded ACL context.
 ///
 /// `None` when no usable context arrived — which is not an error here, and not this server's to
-/// adjudicate (D47).
+/// adjudicate.
 fn current_tenant(context: &CallContext) -> Option<&str> {
     let tenant = context.tenant();
 

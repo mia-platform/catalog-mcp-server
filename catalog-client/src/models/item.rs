@@ -36,7 +36,7 @@ pub struct Link {
 /// The standard object metadata every catalog object carries.
 ///
 /// `BTreeMap` for the map-valued fields so serialisation is deterministic and a byte golden
-/// means something (§3.2).
+/// means something.
 #[derive(Clone, Deserialize, Serialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
 pub struct ObjectMetadata {
@@ -46,7 +46,7 @@ pub struct ObjectMetadata {
 
     /// The family this object belongs to, which is its Item Type Definition's
     /// `spec.names.plural`. **`None` only for an object whose type no longer exists** — which is
-    /// an unaddressable item, not a missing one (D30).
+    /// an unaddressable item, not a missing one.
     #[serde(rename = "family", default, skip_serializing_if = "Option::is_none")]
     pub family: Option<String>,
 
@@ -106,11 +106,11 @@ pub struct ObjectMetadata {
     )]
     pub update_timestamp: Option<String>,
 
-    /// The object's owner, as an identity reference. Not writable by an agent (Q6).
+    /// The object's owner, as an identity reference. Not writable by an agent.
     #[serde(rename = "owner", default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Value>,
 
-    /// The object's followers. Not writable by an agent (Q6).
+    /// The object's followers. Not writable by an agent.
     #[serde(rename = "followers", default, skip_serializing_if = "Vec::is_empty")]
     pub followers: Vec<Value>,
 }
@@ -136,7 +136,7 @@ pub struct Item {
     pub spec: Value,
 
     /// Values keyed by a `CustomField` entity's `spec.key`. Written through its own endpoint,
-    /// never through `PUT` (T10).
+    /// never through `PUT`.
     #[serde(
         rename = "customFields",
         default,
