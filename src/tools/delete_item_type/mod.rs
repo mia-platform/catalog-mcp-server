@@ -229,6 +229,14 @@ fn invalid(parameter: &str, message: String) -> ToolError {
 /// delete — a guard that cannot count must not pass. Only the items under versions that are no
 /// longer served, which no family route reaches, are counted globally.
 ///
+/// **Known limit, accepted.** Behind the gateway the global count covers only what the caller may
+/// read, so items under an unserved version the caller cannot read are undercounted, while the
+/// cascade still deletes them. It takes leftover items under a retired version *and* a caller
+/// whose read access stops short of that version, which is rare. Refusing whenever a type has an
+/// unserved version with items was rejected: the tool cannot tell a complete count from a short
+/// one, so it would block safe deletes too. Only the engine, by reporting what its cascade
+/// removed, could close the gap.
+///
 /// # Errors
 ///
 /// Any failed count, as `catalog-client` mapped it, saying that nothing was deleted.
