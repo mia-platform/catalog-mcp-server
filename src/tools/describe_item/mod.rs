@@ -43,10 +43,12 @@ use shape::Grouping;
 /// The tool name, as the model calls it.
 pub const TOOL_NAME: &str = "describe_item";
 
-/// What the tool does.
+/// What the tool does. The last sentence is there because nothing else tells the model in advance
+/// that relationships come in pages: output fields are learned only from the answers themselves.
 const TOOL_DESCRIPTION: &str = "Describes one catalog item: what it is, and what it is connected \
      to. Give the item's name; `kind` only if the name is ambiguous. Returns the item together with \
-     its relationships, so you do not need a second call to find out what depends on it.";
+     its relationships, so you do not need a second call to find out what depends on it. If \
+     `relationshipsTruncated` is true, pass `relationshipCursor` back for the rest.";
 
 /// The longest `name`, in bytes.
 pub const MAX_NAME_BYTES: usize = 256;
@@ -326,7 +328,12 @@ impl Tool for DescribeItem {
                     .transpose()?;
 
                 (
-                    Some(shape::group(&page.value.items, grouping, direction)),
+                    Some(shape::group(
+                        &page.value.items,
+                        grouping,
+                        direction,
+                        page.value.next.is_some(),
+                    )),
                     Some(page.value.next.is_some()),
                     next_cursor,
                 )

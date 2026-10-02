@@ -124,14 +124,17 @@ fn shape(entry: &ItemRelationshipEntry, grouping: Grouping) -> Value {
 /// Groups the shaped entries: both groupings come from the same flat, `groupBy`-free
 /// listing.
 ///
-/// By direction, both keys are always present — an empty group is `[]`, not absent — unless the
-/// caller restricted the listing to one `direction`, in which case only that key appears: an
-/// `inbound: []` would then claim there are no inbound relationships when none were asked for. By
-/// type, keys are sorted, so the payload is deterministic whatever order the engine used.
+/// By direction, an empty group is `[]` only when it is known to be empty: both keys are present
+/// on a complete listing, but a key is left out when the caller restricted the listing to the
+/// other `direction` — `inbound: []` would claim there are no inbound relationships when none were
+/// asked for — and when `truncated` says more pages follow and this page holds none of that
+/// direction, since its entries may simply not have fitted. By type, keys are sorted, so the
+/// payload is deterministic whatever order the engine used.
 pub fn group(
     entries: &[ItemRelationshipEntry],
     grouping: Grouping,
     only: Option<RelationshipDirection>,
+    truncated: bool,
 ) -> Value {
     match grouping {
         Grouping::ByDirection => {
@@ -145,11 +148,15 @@ pub fn group(
                     continue;
                 }
 
-                let shaped = entries
+                let shaped: Vec<Value> = entries
                     .iter()
                     .filter(|entry| entry.direction == direction)
                     .map(|entry| shape(entry, grouping))
                     .collect();
+
+                if truncated && shaped.is_empty() {
+                    continue;
+                }
 
                 groups.insert(direction.as_str().to_string(), Value::Array(shaped));
             }

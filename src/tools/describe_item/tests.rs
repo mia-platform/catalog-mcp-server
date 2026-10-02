@@ -282,6 +282,7 @@ fn test_an_entry_is_shaped_to_its_fields() {
         )]),
         Grouping::ByDirection,
         None,
+        false,
     );
 
     assert_eq!(
@@ -297,7 +298,7 @@ fn test_an_entry_carries_the_related_items_own_group() {
     let mut entry = mock_entry("outbound", "auth-service", "depends-on", true);
     entry["relatedItem"]["apiVersion"] = json!("other.example.com/v2");
 
-    let shaped = shape::group(&entries(vec![entry]), Grouping::ByDirection, None);
+    let shaped = shape::group(&entries(vec![entry]), Grouping::ByDirection, None, false);
 
     assert_eq!(shaped["outbound"][0]["group"], json!("other.example.com"));
 }
@@ -313,6 +314,7 @@ fn test_an_unresolved_entry_is_reported_not_dropped() {
         ]),
         Grouping::ByDirection,
         None,
+        false,
     );
 
     let outbound = shaped["outbound"].as_array().expect("an array");
@@ -345,6 +347,7 @@ fn test_a_shaped_entry_stays_inside_its_byte_budget() {
         )]),
         Grouping::ByDirection,
         None,
+        false,
     );
 
     let bytes = serde_json::to_string(&shaped["outbound"][0])
@@ -369,11 +372,63 @@ fn mock_flat() -> Vec<ItemRelationshipEntry> {
     ])
 }
 
+/// A truncated page that holds no outbound entry does not say `outbound: []`: they may simply
+/// not have fitted, and `[]` would read as "none".
+#[rstest]
+fn test_a_truncated_page_omits_a_direction_it_holds_none_of() {
+    let inbound_only = entries(vec![
+        mock_entry("inbound", "frontend", "depends-on", true),
+        mock_entry("inbound", "gateway", "depends-on", true),
+    ]);
+
+    let truncated = shape::group(&inbound_only, Grouping::ByDirection, None, true);
+    assert!(truncated.get("outbound").is_none(), "{truncated}");
+    assert_eq!(truncated["inbound"].as_array().map(Vec::len), Some(2));
+
+    let complete = shape::group(&inbound_only, Grouping::ByDirection, None, false);
+    assert_eq!(
+        complete["outbound"],
+        json!([]),
+        "a complete page does mean none"
+    );
+}
+
+/// Through the tool: a page with a continuation leaves out the direction it holds none of.
+#[rstest]
+#[tokio::test]
+async fn test_a_truncated_answer_never_claims_an_empty_direction() {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    mount(&engine, ITEM_PATH, 200, mock_item(ITEM), None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(
+            vec![mock_entry("inbound", "frontend", "depends-on", true)],
+            Some("next-page"),
+        ),
+        None,
+    )
+    .await;
+
+    let payload = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect("the item is described");
+
+    assert_eq!(payload["relationshipsTruncated"], json!(true));
+    assert!(
+        payload["relationships"].get("outbound").is_none(),
+        "{payload}"
+    );
+    assert!(payload.get("relationshipCursor").is_some());
+}
+
 /// By direction, `type` is per entry and `direction` is the key; both keys are present.
 #[rstest]
 fn test_grouping_by_direction() {
     assert_eq!(
-        shape::group(&mock_flat(), Grouping::ByDirection, None),
+        shape::group(&mock_flat(), Grouping::ByDirection, None, false),
         json!({
             "outbound": [
                 { "name": "auth-service", "kind": "Service", "group": "stable.example.com", "type": "depends-on" },
@@ -390,7 +445,7 @@ fn test_grouping_by_direction() {
 #[rstest]
 fn test_grouping_by_type() {
     assert_eq!(
-        shape::group(&mock_flat(), Grouping::ByType, None),
+        shape::group(&mock_flat(), Grouping::ByType, None, false),
         json!({
             "depends-on": [
                 { "name": "auth-service", "kind": "Service", "group": "stable.example.com", "direction": "outbound" },
@@ -415,6 +470,7 @@ fn test_an_empty_direction_group_is_an_empty_array() {
         )]),
         Grouping::ByDirection,
         None,
+        false,
     );
 
     assert_eq!(shaped["inbound"], json!([]));
@@ -433,6 +489,7 @@ fn test_a_direction_filter_shows_only_its_group() {
         )]),
         Grouping::ByDirection,
         Some(RelationshipDirection::Outbound),
+        false,
     );
 
     assert!(shaped.get("inbound").is_none(), "{shaped}");
