@@ -79,6 +79,35 @@ impl EngineClient {
         })
     }
 
+    /// `GET /{group}/{version}/items/{family}` with the **full** projection — one family's items,
+    /// `spec` included.
+    ///
+    /// For a family whose `spec` is small and is the item's whole meaning, such as relationships,
+    /// whose `spec` is the three references they connect. Every other search reads the
+    /// metadata-only projection, because an item's `spec` can run to many kilobytes.
+    pub async fn list_family_items(
+        &self,
+        family: &FamilyAddress,
+        query: &ListQuery,
+    ) -> Result<EngineResponse<ListPage<Item>>, ToolError> {
+        let mut url = self.url(family.segments())?;
+        query.apply(&mut url, LIST_FAMILY_ITEMS.query);
+
+        let response: EngineResponse<ListEnvelope<Item>> = self
+            .get_json(
+                &LIST_FAMILY_ITEMS,
+                url,
+                Projection::Full.accept(),
+                query.bad_request_origin(),
+            )
+            .await?;
+
+        Ok(EngineResponse {
+            value: ListPage::from_envelope(response.value),
+            warnings: response.warnings,
+        })
+    }
+
     /// `GET /{group}/{version}/items/{family}` with the metadata-only projection — one family's
     /// items, which is what a search restricted to a `kind` wants.
     pub async fn list_family_items_partial(

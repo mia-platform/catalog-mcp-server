@@ -479,6 +479,182 @@ async fn test_a_row_is_projected_from_the_partial_metadata() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Relationship rows carry what they connect.
+// ---------------------------------------------------------------------------------------------
+
+/// The relationships family.
+const RELATIONSHIPS_PATH: &str = "/mia-platform.eu/v1/items/relationships";
+
+/// A relationship as the engine stores it: three references, nothing else in `spec`.
+fn mock_relationship(name: &str, source: &str, target: &str) -> Value {
+    json!({
+        "apiVersion": "mia-platform.eu/v1",
+        "kind": "Relationship",
+        "metadata": { "name": name, "family": "relationships" },
+        "spec": {
+            "sourceRef": source,
+            "targetRef": target,
+            "typeRef": "urn:mia-platform-catalog:mia-platform.eu:v1:RelationshipType:membership.mia-platform.eu"
+        },
+        "resourceVersion": "1"
+    })
+}
+
+/// Makes `kind: "Relationship"` resolve to the relationships family.
+async fn mount_relationship_type(engine: &MockEngine) {
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.names.kind=Relationship"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![mock_item_type_definition(
+                "Relationship",
+                "relationships",
+                "mia-platform.eu",
+            )],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+}
+
+/// A relationship row names its type and both ends as `describe_item` takes them, read in the
+/// same single listing — with the full projection, since the ends are in `spec`.
+#[rstest]
+#[tokio::test]
+async fn test_a_relationship_row_names_what_it_connects() {
+    let engine = MockEngine::start().await;
+    mount_relationship_type(&engine).await;
+    mount_listing(
+        &engine,
+        RELATIONSHIPS_PATH,
+        mock_page(
+            vec![mock_relationship(
+                "orders-in-ecommerce",
+                "urn:mia-platform-catalog:example.com:v1:Service:orders-service",
+                "urn:mia-platform-catalog:example.com:v1:Project:ecommerce",
+            )],
+            None,
+        ),
+    )
+    .await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Relationship".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    assert_eq!(
+        payload["items"][0],
+        json!({
+            "name": "orders-in-ecommerce", "kind": "Relationship", "group": "mia-platform.eu",
+            "version": "v1", "family": "relationships",
+            "type": "membership.mia-platform.eu",
+            "source": { "name": "orders-service", "kind": "Service", "group": "example.com" },
+            "target": { "name": "ecommerce", "kind": "Project", "group": "example.com" }
+        })
+    );
+
+    let received = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    let listing = received
+        .iter()
+        .filter(|request| request.url.path() == RELATIONSHIPS_PATH)
+        .collect::<Vec<_>>();
+    assert_eq!(listing.len(), 1, "one listing, no follow-up reads");
+    assert_eq!(
+        listing[0]
+            .headers
+            .get("accept")
+            .and_then(|value| value.to_str().ok()),
+        Some(catalog_client::Projection::Full.accept())
+    );
+}
+
+/// Every other family keeps the metadata-only projection, and no relationship fields.
+#[rstest]
+#[tokio::test]
+async fn test_other_rows_keep_the_metadata_only_projection() {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    mount_listing(&engine, FAMILY_PATH, mock_page(mock_items(1, 0), None)).await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Service".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    for field in ["type", "source", "target"] {
+        assert!(
+            payload["items"][0].get(field).is_none(),
+            "`{field}` on a Service row"
+        );
+    }
+    let received = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    let listing = received
+        .iter()
+        .find(|request| request.url.path() == FAMILY_PATH)
+        .expect("the family was listed");
+    assert_eq!(
+        listing
+            .headers
+            .get("accept")
+            .and_then(|value| value.to_str().ok()),
+        Some(catalog_client::Projection::PartialObjectMetadata.accept())
+    );
+}
+
+/// A reference that is not a catalog URN is passed on whole rather than guessed at.
+#[rstest]
+#[tokio::test]
+async fn test_an_unparseable_reference_is_passed_on_whole() {
+    let engine = MockEngine::start().await;
+    mount_relationship_type(&engine).await;
+    mount_listing(
+        &engine,
+        RELATIONSHIPS_PATH,
+        mock_page(
+            vec![mock_relationship(
+                "odd-link",
+                "not-a-urn",
+                "urn:mia-platform-catalog:example.com:v1:Project:ecommerce",
+            )],
+            None,
+        ),
+    )
+    .await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Relationship".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    assert_eq!(payload["items"][0]["source"], json!({ "urn": "not-a-urn" }));
+    assert_eq!(payload["items"][0]["target"]["name"], json!("ecommerce"));
+}
+
+// ---------------------------------------------------------------------------------------------
 // `total` is conditional.
 // ---------------------------------------------------------------------------------------------
 

@@ -972,6 +972,65 @@ async fn test_a_type_update_keeps_its_llm_description() {
     assert_eq!(count.count, 0);
 }
 
+/// **Live: relationships read whole.** `search_catalog` reads the relationships family with the
+/// full projection, so every record must decode through this client's item model with the three
+/// references its rows are built from. The test's own relationship guarantees at least one.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_relationships_are_listed_with_their_references() {
+    let client = client();
+    let link = ItemAddress::new("mia-platform.eu", "v1", "relationships", "e2e-listed-link")
+        .expect("a well-formed relationship address");
+    client
+        .put_item(
+            &link,
+            &serde_json::json!({
+                "apiVersion": "mia-platform.eu/v1",
+                "kind": "Relationship",
+                "metadata": { "name": "e2e-listed-link" },
+                "spec": {
+                    "sourceRef": agent_urn("e2e-listed-source"),
+                    "targetRef": agent_urn("e2e-listed-target"),
+                    "typeRef": DEPENDENCY_TYPE,
+                },
+            }),
+            false,
+        )
+        .await
+        .expect("the engine accepts the relationship");
+
+    let family = FamilyAddress::new("mia-platform.eu", "v1", "relationships").expect("a family");
+    let page = client
+        .list_family_items(
+            &family,
+            &ListQuery {
+                limit: Some(MAX_LIMIT),
+                ..ListQuery::default()
+            },
+        )
+        .await
+        .expect("the full relationships listing decodes")
+        .value;
+
+    assert!(
+        page.items
+            .iter()
+            .any(|item| item.metadata.name == "e2e-listed-link")
+    );
+    for item in &page.items {
+        for reference in ["sourceRef", "targetRef", "typeRef"] {
+            assert!(
+                item.spec
+                    .get(reference)
+                    .and_then(serde_json::Value::as_str)
+                    .is_some(),
+                "`{}` has no `spec.{reference}`",
+                item.metadata.name
+            );
+        }
+    }
+}
+
 /// The groups of the types the write tests create, which the seeded-type walk leaves out.
 const E2E_TYPE_GROUPS: [&str; 2] = [PROBE_TYPE_GROUP, DOOMED_TYPE_GROUP];
 

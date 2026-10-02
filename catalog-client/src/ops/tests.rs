@@ -95,10 +95,13 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             .delete_item_type_definition(&mock_type_address(), Some("1"))
             .await
             .map(|_| ()),
-        "list_family_items" => client
-            .list_family_items_partial(&family, &query)
-            .await
-            .map(|_| ()),
+        "list_family_items" => {
+            client.list_family_items(&family, &query).await?;
+            client
+                .list_family_items_partial(&family, &query)
+                .await
+                .map(|_| ())
+        }
         "count_items" => client.count_items(&query).await.map(|_| ()),
         "count_family_items" => client.count_family_items(&family, &query).await.map(|_| ()),
         "get_relationships" => client
@@ -896,6 +899,50 @@ async fn test_the_family_listing_is_addressed_and_projected() {
         Some("limit=50&rawq=eyJhIjoxfQ"),
         "only the paging and the query are sent"
     );
+}
+
+/// The full family listing asks for the full projection and reads `spec`, with the same query.
+#[rstest]
+#[tokio::test]
+async fn test_the_full_family_listing_reads_the_spec() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path("/stable.example.com/v1/items/services"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(mock_list_envelope(vec![mock_item(MOCK_ITEM_NAME)], None)),
+        )
+        .mount(engine.server())
+        .await;
+
+    let page = engine
+        .client(mock_identity())
+        .list_family_items(
+            &mock_family(),
+            &ListQuery {
+                limit: Some(50),
+                ..ListQuery::default()
+            },
+        )
+        .await
+        .expect("the listing succeeds")
+        .value;
+
+    assert_eq!(page.items[0].spec, serde_json::json!({ "replicas": 2 }));
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    assert_eq!(
+        requests[0]
+            .headers
+            .get("accept")
+            .and_then(|value| value.to_str().ok()),
+        Some(crate::projection::Projection::Full.accept())
+    );
+    assert_eq!(requests[0].url.query(), Some("limit=50"));
 }
 
 /// Both counts read `{count}` and send the listing's `rawq` — and **never** `limit` or the

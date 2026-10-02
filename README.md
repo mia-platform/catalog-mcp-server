@@ -25,7 +25,7 @@ To try the server on your machine against a local Catalog, see [CONTRIBUTING.md]
 | Tool | What it does |
 | :--- | :--- |
 | `list_catalog_types` | Lists every item type, with the `kind`, `group`, `family` and `version` needed to address its items. `search` narrows by name or purpose. |
-| `search_catalog` | Searches items: free text (`query`), one type (`kind`, plus `group` when several types share the kind), exact `labels` and `fields` filters. Paginated with an opaque `cursor`. |
+| `search_catalog` | Searches items: free text (`query`), one type (`kind`, plus `group` when several types share the kind), exact `labels` and `fields` filters. Paginated with an opaque `cursor`. With `kind: "Relationship"`, each row also names the relationship's `type`, `source` and `target` (each as `name`, `kind`, `group`), read in the same call. |
 | `delete_item_type` | Deletes one type definition **and every item of it**, with their history and every relationship touching them. Guarded by the item count: while the type has items, the first call is refused (as an answer, not an error) with the count, and only a call passing that exact number as `expected_items` deletes. The count is re-taken on every call, and a count that cannot be made stops the delete. |
 | `describe_item` | One item by name, with its relationships in the same answer. `kind`/`group` only when the name is ambiguous; relationships can be restricted, grouped and paged. The answer also carries the catalog record's `owner` and its `recordCreatedAt`/`recordUpdatedAt`, and each relationship names the related item's `group`. |
 | `get_item_schema` | One type's whole definition, including the schema its items follow. With `fields` (e.g. `["spec.lifecycle"]`) it returns only those fields' schema. |

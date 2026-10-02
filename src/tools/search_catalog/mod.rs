@@ -26,9 +26,9 @@ use catalog_client::{
     EngineClient, FamilyAddress, Predicate, Remedy, ToolError,
     error::codes,
     is_valid_kind,
-    models::PartialObjectMetadata,
+    models::{Item, ObjectMetadata, PartialObjectMetadata},
     ops::ListQuery,
-    pagination::{DEFAULT_LIMIT, MAX_LIMIT},
+    pagination::{DEFAULT_LIMIT, ListPage, MAX_LIMIT},
     query::{MAX_VALUE_BYTES, is_valid_label_key},
     resolve_kind_or_suggest,
 };
@@ -36,6 +36,15 @@ use rmcp::model::ToolAnnotations;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
+
+/// The group of the relationships family.
+const RELATIONSHIP_GROUP: &str = "mia-platform.eu";
+
+/// The relationships family, whose rows carry what each relationship connects.
+const RELATIONSHIP_FAMILY: &str = "relationships";
+
+/// The scheme every catalog URN starts with, `urn:mia-platform-catalog:<group>:<version>:<kind>:<name>`.
+const URN_PREFIX: &str = "urn:mia-platform-catalog:";
 
 /// Parameters to the translator's AST.
 mod ast;
@@ -112,8 +121,9 @@ pub struct SearchCatalogInput {
     pub cursor: Option<String>,
 }
 
-/// One result row. Every field comes from the metadata-only projection, so no second
-/// lookup is needed to act on a result.
+/// One result row, with everything needed to act on it without a second lookup. Every field
+/// comes from the item's metadata, except a relationship's `type`, `source` and `target`, which come
+/// from its `spec`.
 #[derive(Serialize)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub struct SearchRow {
@@ -144,6 +154,41 @@ pub struct SearchRow {
     /// `metadata.labels`, omitted when there are none.
     #[serde(rename = "labels", skip_serializing_if = "BTreeMap::is_empty")]
     pub labels: BTreeMap<String, String>,
+
+    /// A relationship's type, the last segment of `spec.typeRef`. Only on relationship rows.
+    #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
+    pub relationship_type: Option<String>,
+
+    /// The item a relationship starts from, from `spec.sourceRef`. Only on relationship rows.
+    #[serde(rename = "source", skip_serializing_if = "Option::is_none")]
+    pub source: Option<RelationshipEnd>,
+
+    /// The item a relationship points at, from `spec.targetRef`. Only on relationship rows.
+    #[serde(rename = "target", skip_serializing_if = "Option::is_none")]
+    pub target: Option<RelationshipEnd>,
+}
+
+/// One end of a relationship, addressed as `describe_item` takes it.
+///
+/// A relationship's `spec` is three references and nothing else, so without them a relationship
+/// row says nothing about what it connects, and every row would need a `describe_item` of its
+/// own. The ends are parsed from their URNs; whether each item still exists is not checked — the
+/// catalog accepts a relationship to an item that does not exist — so a dangling end looks like
+/// any other. A reference that is not a catalog URN is passed on whole, as `urn`.
+#[derive(Serialize)]
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
+pub struct RelationshipEnd {
+    #[serde(rename = "name", skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+
+    #[serde(rename = "kind", skip_serializing_if = "Option::is_none")]
+    pub kind: Option<String>,
+
+    #[serde(rename = "group", skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+
+    #[serde(rename = "urn", skip_serializing_if = "Option::is_none")]
+    pub urn: Option<String>,
 }
 
 /// The whole response.
@@ -240,12 +285,20 @@ impl Tool for SearchCatalog {
             ..ListQuery::default()
         };
 
-        let page = match &family {
-            Some(family) => engine.list_family_items_partial(family, &query).await,
-            None => engine.list_items_partial(&query).await,
+        // Relationships are read whole, `spec` included, because their `spec` is what they mean;
+        // every other search reads the metadata-only projection.
+        let page: ListPage<SearchRow> = match &family {
+            Some(family) if is_relationships(family) => into_rows(
+                engine.list_family_items(family, &query).await,
+                project_relationship,
+            ),
+            Some(family) => into_rows(
+                engine.list_family_items_partial(family, &query).await,
+                project,
+            ),
+            None => into_rows(engine.list_items_partial(&query).await, project),
         }
-        .inspect_err(|error| log_if_ours(error, predicate.as_ref()))?
-        .value;
+        .inspect_err(|error| log_if_ours(error, predicate.as_ref()))?;
 
         // A page that is not full already says how many there are.
         let count_fired = page.items.len() as u64 >= u64::from(limit);
@@ -273,7 +326,7 @@ impl Tool for SearchCatalog {
             .transpose()?;
 
         // The page is emitted whole: the engine's cursor points after what was fetched.
-        let items: Vec<SearchRow> = page.items.into_iter().map(project).collect();
+        let items = page.items;
         let filters = items.is_empty().then(|| interpreted_filters(&input));
 
         let output = SearchOutput {
@@ -453,21 +506,97 @@ fn log_if_ours(error: &ToolError, predicate: Option<&Predicate>) {
     }
 }
 
+/// Whether `family` is the relationships family, whose rows carry their ends.
+fn is_relationships(family: &FamilyAddress) -> bool {
+    family.group() == RELATIONSHIP_GROUP && family.family() == RELATIONSHIP_FAMILY
+}
+
+/// A listed page as rows.
+fn into_rows<T>(
+    page: Result<catalog_client::EngineResponse<ListPage<T>>, ToolError>,
+    project: fn(T) -> SearchRow,
+) -> Result<ListPage<SearchRow>, ToolError> {
+    page.map(|response| ListPage {
+        items: response.value.items.into_iter().map(project).collect(),
+        next: response.value.next,
+    })
+}
+
 /// Projects one listed item into its row.
 fn project(item: PartialObjectMetadata) -> SearchRow {
-    let (group, version) = match item.api_version.split_once('/') {
+    row(item.api_version, item.kind, item.metadata)
+}
+
+/// Projects one relationship into its row: the item's own fields, and what it connects.
+fn project_relationship(item: Item) -> SearchRow {
+    let reference = |field: &str| {
+        item.spec
+            .get(field)
+            .and_then(Value::as_str)
+            .map(str::to_string)
+    };
+    let (source, target, type_ref) = (
+        reference("sourceRef"),
+        reference("targetRef"),
+        reference("typeRef"),
+    );
+
+    SearchRow {
+        relationship_type: type_ref
+            .as_deref()
+            .and_then(|urn| urn.rsplit(':').next())
+            .map(str::to_string),
+        source: source.map(|urn| relationship_end(&urn)),
+        target: target.map(|urn| relationship_end(&urn)),
+        ..row(item.api_version, item.kind, item.metadata)
+    }
+}
+
+/// The fields every row carries.
+fn row(api_version: String, kind: String, metadata: ObjectMetadata) -> SearchRow {
+    let (group, version) = match api_version.split_once('/') {
         Some((group, version)) => (group.to_string(), Some(version.to_string())),
-        None => (item.api_version, None),
+        None => (api_version, None),
     };
 
     SearchRow {
-        name: item.metadata.name,
-        kind: item.kind,
-        title: item.metadata.title,
+        name: metadata.name,
+        kind,
+        title: metadata.title,
         group,
         version,
-        family: item.metadata.family,
-        labels: item.metadata.labels,
+        family: metadata.family,
+        labels: metadata.labels,
+        relationship_type: None,
+        source: None,
+        target: None,
+    }
+}
+
+/// One end of a relationship, from its URN `urn:mia-platform-catalog:<group>:<version>:<kind>:<name>`.
+fn relationship_end(urn: &str) -> RelationshipEnd {
+    let parts: Option<[&str; 4]> = urn
+        .strip_prefix(URN_PREFIX)
+        .map(|rest| rest.split(':').collect::<Vec<_>>())
+        .and_then(|parts| parts.try_into().ok());
+
+    match parts {
+        Some([group, _version, kind, name])
+            if !group.is_empty() && !kind.is_empty() && !name.is_empty() =>
+        {
+            RelationshipEnd {
+                name: Some(name.to_string()),
+                kind: Some(kind.to_string()),
+                group: Some(group.to_string()),
+                urn: None,
+            }
+        }
+        _ => RelationshipEnd {
+            name: None,
+            kind: None,
+            group: None,
+            urn: Some(urn.to_string()),
+        },
     }
 }
 
