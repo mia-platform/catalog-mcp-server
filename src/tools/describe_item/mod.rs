@@ -170,6 +170,23 @@ struct DescribeItemOutput {
     #[serde(rename = "labels", skip_serializing_if = "BTreeMap::is_empty")]
     labels: BTreeMap<String, String>,
 
+    /// The catalog's own owner of the item, an identity reference (`{type, ref}`) passed through as
+    /// the engine stores it — not resolved to a person. It is a different thing from any owner-like
+    /// field a type puts in its `spec`, and the two can disagree, so both are shown. Omitted when
+    /// the item has none.
+    #[serde(rename = "owner", skip_serializing_if = "Option::is_none")]
+    owner: Option<Value>,
+
+    /// When the catalog record was created. Named for the record so it is not mistaken for a date
+    /// the source system keeps inside `spec`.
+    #[serde(rename = "recordCreatedAt", skip_serializing_if = "Option::is_none")]
+    record_created_at: Option<String>,
+
+    /// When the catalog record last changed — which can be later, or earlier, than a source
+    /// system's own date inside `spec` (e.g. `spec.lastUpdate`).
+    #[serde(rename = "recordUpdatedAt", skip_serializing_if = "Option::is_none")]
+    record_updated_at: Option<String>,
+
     /// Omitted when `include_spec` is false.
     #[serde(rename = "spec", skip_serializing_if = "Option::is_none")]
     spec: Option<Value>,
@@ -340,6 +357,9 @@ impl Tool for DescribeItem {
             family: address.family().to_string(),
             title: item.metadata.title,
             labels: item.metadata.labels,
+            owner: item.metadata.owner,
+            record_created_at: item.metadata.creation_timestamp,
+            record_updated_at: item.metadata.update_timestamp,
             spec: input.include_spec.then_some(item.spec),
             custom_fields: item.custom_fields.filter(has_entries),
             relationships,

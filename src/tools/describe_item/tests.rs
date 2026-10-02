@@ -64,7 +64,7 @@ const CONCURRENT_CEILING: Duration = Duration::from_millis(700);
 
 /// The recorded size of the 50-relationship fixture's response. Regression detection,
 /// not a limit.
-const RECORDED_FIFTY_RELATIONSHIPS_BYTES: usize = 3_310;
+const RECORDED_FIFTY_RELATIONSHIPS_BYTES: usize = 4_842;
 
 /// How far that golden may drift.
 const SIZE_TOLERANCE_PERCENT: usize = 1;
@@ -269,9 +269,10 @@ async fn requests(engine: &MockEngine) -> Vec<(String, String)> {
 // The shaper.
 // ---------------------------------------------------------------------------------------------
 
-/// A BFF entry becomes `{name, kind, type}`, `type` the last segment of `typeRef`.
+/// A BFF entry becomes `{name, kind, group, type}`, `type` the last segment of `typeRef` and
+/// `group` the first half of the related item's `apiVersion`.
 #[rstest]
-fn test_an_entry_is_shaped_to_its_four_fields() {
+fn test_an_entry_is_shaped_to_its_fields() {
     let shaped = shape::group(
         &entries(vec![mock_entry(
             "outbound",
@@ -285,8 +286,20 @@ fn test_an_entry_is_shaped_to_its_four_fields() {
 
     assert_eq!(
         serde_json::to_string(&shaped["outbound"][0]).expect("serialises"),
-        r#"{"name":"auth-service","kind":"Service","type":"depends-on"}"#
+        r#"{"name":"auth-service","kind":"Service","group":"stable.example.com","type":"depends-on"}"#
     );
+}
+
+/// `group` is the **related** item's, not the described item's: it is what addresses the other
+/// end when its kind is shared by several groups.
+#[rstest]
+fn test_an_entry_carries_the_related_items_own_group() {
+    let mut entry = mock_entry("outbound", "auth-service", "depends-on", true);
+    entry["relatedItem"]["apiVersion"] = json!("other.example.com/v2");
+
+    let shaped = shape::group(&entries(vec![entry]), Grouping::ByDirection, None);
+
+    assert_eq!(shaped["outbound"][0]["group"], json!("other.example.com"));
 }
 
 /// An entry whose other end is unresolved is **reported, never dropped** — and says nothing
@@ -363,11 +376,11 @@ fn test_grouping_by_direction() {
         shape::group(&mock_flat(), Grouping::ByDirection, None),
         json!({
             "outbound": [
-                { "name": "auth-service", "kind": "Service", "type": "depends-on" },
-                { "name": "billing", "kind": "Service", "type": "part-of" }
+                { "name": "auth-service", "kind": "Service", "group": "stable.example.com", "type": "depends-on" },
+                { "name": "billing", "kind": "Service", "group": "stable.example.com", "type": "part-of" }
             ],
             "inbound": [
-                { "name": "frontend", "kind": "Service", "type": "depends-on" }
+                { "name": "frontend", "kind": "Service", "group": "stable.example.com", "type": "depends-on" }
             ]
         })
     );
@@ -380,11 +393,11 @@ fn test_grouping_by_type() {
         shape::group(&mock_flat(), Grouping::ByType, None),
         json!({
             "depends-on": [
-                { "name": "auth-service", "kind": "Service", "direction": "outbound" },
-                { "name": "frontend", "kind": "Service", "direction": "inbound" }
+                { "name": "auth-service", "kind": "Service", "group": "stable.example.com", "direction": "outbound" },
+                { "name": "frontend", "kind": "Service", "group": "stable.example.com", "direction": "inbound" }
             ],
             "part-of": [
-                { "name": "billing", "kind": "Service", "direction": "outbound" }
+                { "name": "billing", "kind": "Service", "group": "stable.example.com", "direction": "outbound" }
             ]
         })
     );
@@ -932,6 +945,65 @@ async fn test_no_group_by_and_no_rawq_reach_the_engine(#[case] group_by: GroupBy
 // The output, and the `include_*` switches.
 // ---------------------------------------------------------------------------------------------
 
+/// The catalog record's owner and timestamps come through as stored, and are omitted when the
+/// item has none — never invented, never resolved to a person.
+#[rstest]
+#[tokio::test]
+async fn test_the_records_owner_and_timestamps_are_reported() {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    let mut item = mock_item(ITEM);
+    let owner = json!({ "type": "principal", "ref": "3fa85f64-5717-4562-b3fc-2c963f66afa6" });
+    item["metadata"]["owner"] = owner.clone();
+    item["metadata"]["updateTimestamp"] = json!("2026-10-01T13:17:25Z");
+    mount(&engine, ITEM_PATH, 200, item, None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(vec![], None),
+        None,
+    )
+    .await;
+
+    let payload = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect("the item is described");
+
+    assert_eq!(payload["owner"], owner);
+    assert_eq!(payload["recordCreatedAt"], json!("2026-09-17T10:30:45Z"));
+    assert_eq!(payload["recordUpdatedAt"], json!("2026-10-01T13:17:25Z"));
+
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    let mut bare = mock_item(ITEM);
+    for field in ["creationTimestamp", "updateTimestamp"] {
+        bare["metadata"]
+            .as_object_mut()
+            .map(|metadata| metadata.remove(field));
+    }
+    mount(&engine, ITEM_PATH, 200, bare, None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(vec![], None),
+        None,
+    )
+    .await;
+
+    let payload = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect("the item is described");
+
+    for field in ["owner", "recordCreatedAt", "recordUpdatedAt"] {
+        assert!(
+            payload.get(field).is_none(),
+            "`{field}` is omitted when absent"
+        );
+    }
+}
+
 /// The documented order, `customFields` included when the item has them.
 #[rstest]
 #[tokio::test]
@@ -940,6 +1012,8 @@ async fn test_the_output_has_the_documented_shape() {
     mount_service_type(&engine).await;
     let mut item = mock_item(ITEM);
     item["customFields"] = json!({ "sensitivity": "high" });
+    item["metadata"]["owner"] =
+        json!({ "type": "principal", "ref": "3fa85f64-5717-4562-b3fc-2c963f66afa6" });
     mount(&engine, ITEM_PATH, 200, item, None).await;
     mount(
         &engine,
@@ -970,6 +1044,9 @@ async fn test_the_output_has_the_documented_shape() {
             "family",
             "title",
             "labels",
+            "owner",
+            "recordCreatedAt",
+            "recordUpdatedAt",
             "spec",
             "customFields",
             "relationships",

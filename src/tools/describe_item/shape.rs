@@ -51,6 +51,12 @@ struct ShapedEntry {
     #[serde(rename = "kind", skip_serializing_if = "Option::is_none")]
     kind: Option<String>,
 
+    /// The related item's group. A kind is unique only within a group, so `name` and `kind` alone
+    /// cannot address the other end when several types share the kind; with `group` the entry is
+    /// exactly what a follow-up `describe_item` call needs.
+    #[serde(rename = "group", skip_serializing_if = "Option::is_none")]
+    group: Option<String>,
+
     #[serde(rename = "urn", skip_serializing_if = "Option::is_none")]
     urn: Option<String>,
 
@@ -90,6 +96,10 @@ fn shape(entry: &ItemRelationshipEntry, grouping: Grouping) -> Value {
         Some(related) => ShapedEntry {
             name: Some(related.metadata.name.clone()),
             kind: Some(related.kind.clone()),
+            group: related
+                .api_version
+                .split_once('/')
+                .map(|(group, _)| group.to_string()),
             urn: None,
             relationship_type,
             direction,
@@ -98,6 +108,7 @@ fn shape(entry: &ItemRelationshipEntry, grouping: Grouping) -> Value {
         None => ShapedEntry {
             name: None,
             kind: None,
+            group: None,
             urn: entry.other_end().map(str::to_string),
             relationship_type,
             direction,
