@@ -56,10 +56,13 @@ mod cursor;
 pub const TOOL_NAME: &str = "search_catalog";
 
 /// What the tool does. No `rawq`, no base64, no coordinates, no pagination mechanics.
+///
+/// The `Relationship` sentence is there because output fields are learned only from answers: an
+/// agent that does not know relationship rows name their ends would `describe_item` each one.
 const TOOL_DESCRIPTION: &str = "Searches the catalog. Use `query` for free text over names, \
      titles and tags; `kind` to restrict to one type; `labels` and `fields` to filter exactly. \
-     Returns items with everything needed to act on them. Call `list_catalog_types` first if you \
-     do not know the exact `kind`.";
+     `Relationship` rows include their `type`, `source` and `target`. Call `list_catalog_types` \
+     first if you do not know the exact `kind`.";
 
 /// The longest `query`, in bytes, **before** escaping.
 ///
