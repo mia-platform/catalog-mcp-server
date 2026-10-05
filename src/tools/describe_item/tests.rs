@@ -62,15 +62,15 @@ const CALL_BUDGET: Duration = Duration::from_secs(25);
 const ARM_DELAY: Duration = Duration::from_millis(400);
 const CONCURRENT_CEILING: Duration = Duration::from_millis(700);
 
-/// The recorded size of the 50-relationship fixture's response. Regression detection,
-/// not a limit.
-const RECORDED_FIFTY_RELATIONSHIPS_BYTES: usize = 4_842;
+/// The recorded size of the 50-relationship fixture's response, every related item titled.
+/// Regression detection, not a limit.
+const RECORDED_FIFTY_RELATIONSHIPS_BYTES: usize = 6_417;
 
 /// How far that golden may drift.
 const SIZE_TOLERANCE_PERCENT: usize = 1;
 
-/// The most a realistic shaped entry may weigh (the shaper's ~83 B, with room for longer names).
-const MAX_SHAPED_ENTRY_BYTES: usize = 100;
+/// The most a realistic shaped entry may weigh (~130 B with a title, with room for longer names).
+const MAX_SHAPED_ENTRY_BYTES: usize = 150;
 
 /// The URN the engine builds for an item.
 fn urn(group: &str, kind: &str, name: &str) -> String {
@@ -303,6 +303,41 @@ fn test_an_entry_carries_the_related_items_own_group() {
     assert_eq!(shaped["outbound"][0]["group"], json!("other.example.com"));
 }
 
+/// A resolved entry carries the related item's `title` when it has one, in both groupings, and
+/// omits the key when it has none.
+#[rstest]
+fn test_an_entry_carries_the_related_items_title() {
+    let mut titled = mock_entry("outbound", "auth-service", "depends-on", true);
+    titled["relatedItem"]["metadata"]["title"] = json!("Authentication service");
+    let untitled = mock_entry("outbound", "billing", "depends-on", true);
+
+    let by_direction = shape::group(
+        &entries(vec![titled.clone(), untitled.clone()]),
+        Grouping::ByDirection,
+        None,
+        false,
+    );
+    assert_eq!(
+        serde_json::to_string(&by_direction["outbound"][0]).expect("serialises"),
+        r#"{"name":"auth-service","kind":"Service","group":"stable.example.com","title":"Authentication service","type":"depends-on"}"#
+    );
+    assert!(
+        by_direction["outbound"][1].get("title").is_none(),
+        "no title, no key"
+    );
+
+    let by_type = shape::group(
+        &entries(vec![titled, untitled]),
+        Grouping::ByType,
+        None,
+        false,
+    );
+    assert_eq!(
+        by_type["depends-on"][0]["title"],
+        json!("Authentication service")
+    );
+}
+
 /// An entry whose other end is unresolved is **reported, never dropped** — and says nothing
 /// about why.
 #[rstest]
@@ -335,20 +370,12 @@ fn test_an_unresolved_entry_is_reported_not_dropped() {
     );
 }
 
-/// A realistic shaped entry stays inside the shaper's budget — the 13× that makes the tool small.
+/// A realistic shaped entry stays inside the shaper's budget — what makes the tool small.
 #[rstest]
 fn test_a_shaped_entry_stays_inside_its_byte_budget() {
-    let shaped = shape::group(
-        &entries(vec![mock_entry(
-            "outbound",
-            "authentication-service",
-            "depends-on",
-            true,
-        )]),
-        Grouping::ByDirection,
-        None,
-        false,
-    );
+    let mut entry = mock_entry("outbound", "authentication-service", "depends-on", true);
+    entry["relatedItem"]["metadata"]["title"] = json!("Authentication service");
+    let shaped = shape::group(&entries(vec![entry]), Grouping::ByDirection, None, false);
 
     let bytes = serde_json::to_string(&shaped["outbound"][0])
         .expect("serialises")
@@ -1061,6 +1088,55 @@ async fn test_the_records_owner_and_timestamps_are_reported() {
     }
 }
 
+/// The item's `urn` is passed through exactly as the engine generated it — it is what a
+/// relationship search filters its ends on — and omitted when the engine sent none.
+#[rstest]
+#[tokio::test]
+async fn test_the_items_urn_is_passed_through() {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    let item = mock_item(ITEM);
+    let urn = item["metadata"]["urn"].clone();
+    mount(&engine, ITEM_PATH, 200, item, None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(vec![], None),
+        None,
+    )
+    .await;
+
+    let payload = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect("the item is described");
+
+    assert!(urn.is_string(), "the fixture carries a urn");
+    assert_eq!(payload["urn"], urn);
+
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    let mut bare = mock_item(ITEM);
+    bare["metadata"]
+        .as_object_mut()
+        .map(|metadata| metadata.remove("urn"));
+    mount(&engine, ITEM_PATH, 200, bare, None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(vec![], None),
+        None,
+    )
+    .await;
+
+    let payload = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect("the item is described");
+
+    assert!(payload.get("urn").is_none(), "`urn` is omitted when absent");
+}
+
 /// The documented order, `customFields` included when the item has them.
 #[rstest]
 #[tokio::test]
@@ -1099,6 +1175,7 @@ async fn test_the_output_has_the_documented_shape() {
             "group",
             "version",
             "family",
+            "urn",
             "title",
             "labels",
             "owner",
@@ -1256,6 +1333,16 @@ async fn test_fifty_relationships_serialise_to_their_recorded_size() {
                 true,
             )
         })
+        .map(|mut entry| {
+            let title = format!(
+                "Title of {}",
+                entry["relatedItem"]["metadata"]["name"]
+                    .as_str()
+                    .unwrap_or_default()
+            );
+            entry["relatedItem"]["metadata"]["title"] = json!(title);
+            entry
+        })
         .collect();
     mount(
         &engine,
@@ -1283,11 +1370,12 @@ async fn test_fifty_relationships_serialise_to_their_recorded_size() {
 // A kind is unique per group, not per tenant.
 // ---------------------------------------------------------------------------------------------
 
-/// A shared kind with no `group` is answered with its candidates; with `group`, the item is read in
-/// the named group's family.
+/// A shared kind with no `group` is resolved by the name when only one of its groups has an item
+/// of that name, and the answer says so; with `group`, the item is read in the named group's
+/// family.
 #[rstest]
 #[tokio::test]
-async fn test_a_shared_kind_needs_its_group() {
+async fn test_a_shared_kind_without_its_group_is_resolved_by_the_name() {
     let engine = MockEngine::start().await;
     Mock::given(method("GET"))
         .and(path(TYPES_PATH))
@@ -1327,19 +1415,42 @@ async fn test_a_shared_kind_needs_its_group() {
     .await;
     let context = mock_context(&engine);
 
-    let error = run(&context, mock_kinded_input())
+    // Only one of the groups has an item of that name: it is the item, and the answer says so.
+    mount(
+        &engine,
+        GLOBAL_PATH,
+        200,
+        mock_page(vec![mock_item(ITEM)], None),
+        None,
+    )
+    .await;
+    let rendered = run_output(&context, mock_kinded_input())
         .await
-        .expect_err("a shared kind is not guessed");
+        .expect("the name tells the groups apart")
+        .render(None);
+    assert_eq!(rendered["group"], json!("stable.example.com"));
     assert_eq!(
-        (error.code, error.remedy),
-        (codes::NOT_FOUND, Remedy::RetryAfterChange)
+        rendered["warnings"],
+        json!([format!(
+            "`Service` is shared by several groups; resolved to `stable.example.com`, the only \
+             one with an item named `{ITEM}`."
+        )])
     );
     assert_eq!(
-        error
-            .details
-            .as_deref()
-            .and_then(|details| details["candidates"].as_array().map(Vec::len)),
-        Some(2)
+        probe_rawq(&engine).await,
+        json!({ "and": [
+            { "metadata.name": { "eq": ITEM } },
+            { "kind": { "eq": "Service" } }
+        ] })
+    );
+    assert_eq!(
+        requests(&engine)
+            .await
+            .iter()
+            .filter(|(p, _)| p == GLOBAL_PATH)
+            .count(),
+        1,
+        "one name probe, nothing more"
     );
 
     let payload = run(
@@ -1354,13 +1465,149 @@ async fn test_a_shared_kind_needs_its_group() {
     assert_eq!(payload["group"], json!("stable.example.com"));
 }
 
-/// `group` without `kind` is refused before the engine is asked.
+/// A shared kind whose name exists in two of its groups is answered with both as candidates and a
+/// next step naming `group` — never a pick, and no item is read.
 #[rstest]
 #[tokio::test]
-async fn test_a_group_without_a_kind_is_refused() {
+async fn test_a_shared_kind_named_in_two_groups_is_not_guessed() {
     let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.names.kind=Service"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![
+                mock_item_type_definition("Service", "services", "stable.example.com"),
+                mock_item_type_definition("Service", "services", "other.example.com"),
+            ],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+    let mut other = mock_item(ITEM);
+    other["apiVersion"] = json!("other.example.com/v1");
+    mount(
+        &engine,
+        GLOBAL_PATH,
+        200,
+        mock_page(vec![mock_item(ITEM), other], None),
+        None,
+    )
+    .await;
 
-    let error = run(
+    let error = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect_err("two groups are not guessed between");
+
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::NOT_FOUND, Remedy::RetryAfterChange)
+    );
+    let groups: Vec<Value> = error
+        .details
+        .as_deref()
+        .and_then(|details| details["candidates"].as_array().cloned())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|candidate| candidate["group"].clone())
+        .collect();
+    assert_eq!(
+        groups,
+        vec![json!("stable.example.com"), json!("other.example.com")]
+    );
+    assert!(
+        error
+            .next_step
+            .as_deref()
+            .is_some_and(|step| step.contains("with `group`")),
+        "{:?}",
+        error.next_step
+    );
+    assert!(
+        requests(&engine).await.iter().all(|(p, _)| p != ITEM_PATH),
+        "no item is read"
+    );
+}
+
+/// A shared kind whose name exists in none of its groups is `not_found`, as a kind-less name that
+/// matches nothing is — and the success path costs exactly one probe more than a unique kind.
+#[rstest]
+#[tokio::test]
+async fn test_a_shared_kind_named_nowhere_is_not_found() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.names.kind=Service"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(
+            vec![
+                mock_item_type_definition("Service", "services", "stable.example.com"),
+                mock_item_type_definition("Service", "services", "other.example.com"),
+            ],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+    mount(&engine, GLOBAL_PATH, 200, mock_page(vec![], None), None).await;
+
+    let error = run(&mock_context(&engine), mock_kinded_input())
+        .await
+        .expect_err("nothing has that name");
+
+    assert_eq!(error.code, codes::NOT_FOUND);
+    assert!(
+        requests(&engine).await.iter().all(|(p, _)| p != ITEM_PATH),
+        "no item is read"
+    );
+}
+
+/// The decoded `rawq` of the name probe the engine received.
+async fn probe_rawq(engine: &MockEngine) -> Value {
+    let received = engine
+        .server()
+        .received_requests()
+        .await
+        .unwrap_or_default();
+    let rawq = received
+        .iter()
+        .find(|request| request.url.path() == GLOBAL_PATH)
+        .and_then(|request| {
+            request
+                .url
+                .query_pairs()
+                .find(|(key, _)| key == "rawq")
+                .map(|(_, value)| value.into_owned())
+        })
+        .expect("the name was probed");
+    let bytes = base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, rawq)
+        .expect("base64");
+
+    serde_json::from_slice(&bytes).expect("JSON")
+}
+
+/// `group` without `kind` narrows the name to that group's items: one match is the item, and
+/// the answer says which type it turned out to be. A malformed group is still refused first.
+#[rstest]
+#[tokio::test]
+async fn test_a_group_without_a_kind_narrows_the_name() {
+    let engine = MockEngine::start().await;
+    mount(
+        &engine,
+        GLOBAL_PATH,
+        200,
+        mock_page(vec![mock_item(ITEM)], None),
+        None,
+    )
+    .await;
+    mount(&engine, ITEM_PATH, 200, mock_item(ITEM), None).await;
+    mount(
+        &engine,
+        RELATIONSHIPS_PATH,
+        200,
+        mock_page(vec![], None),
+        None,
+    )
+    .await;
+
+    let rendered = run_output(
         &mock_context(&engine),
         DescribeItemInput {
             group: Some("stable.example.com".to_string()),
@@ -1368,11 +1615,35 @@ async fn test_a_group_without_a_kind_is_refused() {
         },
     )
     .await
-    .expect_err("refused");
+    .expect("the item is described")
+    .render(None);
 
+    assert_eq!(rendered["group"], json!("stable.example.com"));
     assert_eq!(
-        (error.code, error.remedy),
-        (codes::INVALID_INPUT, Remedy::RetryAfterChange)
+        rendered["warnings"],
+        json!([format!(
+            "Resolved to `Service`, the only type in `stable.example.com` with an item named \
+             `{ITEM}`."
+        )])
     );
+    assert_eq!(
+        probe_rawq(&engine).await,
+        json!({ "and": [
+            { "metadata.name": { "eq": ITEM } },
+            { "apiVersion": { "matches": r"/^stable\.example\.com\//" } }
+        ] })
+    );
+
+    let engine = MockEngine::start().await;
+    let error = run(
+        &mock_context(&engine),
+        DescribeItemInput {
+            group: Some("Not A Group".to_string()),
+            ..mock_input(ITEM)
+        },
+    )
+    .await
+    .expect_err("a malformed group is refused");
+    assert_eq!(error.code, codes::INVALID_INPUT);
     assert!(requests(&engine).await.is_empty());
 }

@@ -376,6 +376,56 @@ pub async fn resolve_kind_or_suggest(
     coordinates_of(&definition, kind)
 }
 
+/// What a `kind` resolves to for a caller that can still tell a shared kind's types apart by
+/// something else — an item's name.
+#[derive(Clone, Debug, PartialEq)]
+pub enum KindResolution {
+    /// One type: where its items live.
+    One(TypeCoordinates),
+
+    /// Several types share the kind and no `group` said which: their groups, sorted.
+    Shared(Vec<String>),
+}
+
+/// [`resolve_kind_or_suggest`], except that a shared kind without a `group` is an answer — the
+/// groups that share it — instead of the candidates error.
+///
+/// For a caller that has another way to pick one of them without guessing: `describe_item`
+/// looks the item's name up among that kind's items, and a single match is the item. Every other
+/// outcome is [`resolve_kind_or_suggest`]'s. An unknown `kind` costs the one extra request
+/// that function makes, plus the lookup repeated, on that error path only.
+///
+/// # Errors
+///
+/// Those of [`resolve_kind_or_suggest`], except the shared-kind one.
+pub async fn resolve_kind_or_shared(
+    engine: &EngineClient,
+    kind: &str,
+    group: Option<&str>,
+) -> Result<KindResolution, ToolError> {
+    match lookup(engine, kind, group).await? {
+        Lookup::One(document, _) => {
+            coordinates_of(&document.definition, kind).map(KindResolution::One)
+        }
+        Lookup::Several(definitions) => match group {
+            None => {
+                let mut groups: Vec<String> = definitions
+                    .into_iter()
+                    .map(|definition| definition.spec.group)
+                    .collect();
+                groups.sort();
+                groups.dedup();
+
+                Ok(KindResolution::Shared(groups))
+            }
+            Some(group) => Err(broken_invariant(kind, group, &definitions)),
+        },
+        Lookup::Nothing => resolve_kind_or_suggest(engine, kind, group)
+            .await
+            .map(KindResolution::One),
+    }
+}
+
 /// [`find_item_type`], answering an unknown `kind` with near matches — the whole definition, for
 /// a tool that needs more of it than the coordinates.
 pub async fn find_item_type_or_suggest(

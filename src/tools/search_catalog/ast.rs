@@ -29,6 +29,10 @@ use std::collections::BTreeMap;
 /// (`EXISTS … unnest(…) … ~*`) — which is what lets one `matches` cover a tag list.
 const QUERY_FIELDS: [&str; 3] = ["metadata.name", "metadata.title", "metadata.tags"];
 
+/// The `fields` argument: a path, and the value it must equal — or `None`, for a field that must
+/// be unset.
+pub type FieldFilters = BTreeMap<String, Option<String>>;
+
 /// The field-path prefix a label key is appended to.
 pub const LABEL_PATH_PREFIX: &str = "metadata.labels.";
 
@@ -37,7 +41,8 @@ pub const LABEL_PATH_PREFIX: &str = "metadata.labels.";
 /// - `query` → an `or` of three `matches`, each with the **same** literal: `regex::escape`d and
 ///   wrapped `/…/i`, so the semantics are a case-insensitive substring, which is what a person
 ///   means by "search".
-/// - each label → `eq` on `metadata.labels.<key>`; each field → `eq` on its path.
+/// - each label → `eq` on `metadata.labels.<key>`; each field → `eq` on its path, or, for a
+///   `null` value, `exists: false` on it.
 /// - everything is `and`-ed at the top level, which is also the only shape `catalog-client` may
 ///   split across several `rawq` parameters.
 /// - **when that `and` would be wider than `catalog-client`'s [`MAX_BRANCH_CHILDREN`]**, the `eq`s
@@ -56,7 +61,7 @@ pub const LABEL_PATH_PREFIX: &str = "metadata.labels.";
 pub fn build(
     query: Option<&str>,
     labels: Option<&BTreeMap<String, String>>,
-    fields: Option<&BTreeMap<String, String>>,
+    fields: Option<&FieldFilters>,
 ) -> Result<Option<Predicate>, ToolError> {
     let mut clauses = Vec::new();
     let mut equalities = Vec::new();
@@ -84,9 +89,13 @@ pub fn build(
     }
 
     for (path, value) in fields.into_iter().flatten() {
-        equalities.push(Predicate::Eq {
-            field: FieldPath::new(path)?,
-            value: QueryValue::string(value)?,
+        let field = FieldPath::new(path)?;
+        equalities.push(match value {
+            Some(value) => Predicate::Eq {
+                field,
+                value: QueryValue::string(value)?,
+            },
+            None => Predicate::Missing { field },
         });
     }
 

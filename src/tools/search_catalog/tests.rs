@@ -18,7 +18,9 @@
 use crate::{
     registry::contract::{CallContext, Tool},
     tools::search_catalog::{
-        MAX_FILTER_ENTRIES, MAX_QUERY_BYTES, SearchCatalog, SearchCatalogInput, ast, cursor,
+        MAX_FILTER_ENTRIES, MAX_QUERY_BYTES, SearchCatalog, SearchCatalogInput,
+        ast::{self, FieldFilters},
+        cursor,
     },
 };
 use catalog_client::{
@@ -64,7 +66,7 @@ const CALL_BUDGET: Duration = Duration::from_secs(25);
 const GOLDEN_RAWQ: &str = "eyJhbmQiOlt7Im9yIjpbeyJtZXRhZGF0YS5uYW1lIjp7Im1hdGNoZXMiOiIvZ2F0ZXdheS9pIn19LHsibWV0YWRhdGEudGl0bGUiOnsibWF0Y2hlcyI6Ii9nYXRld2F5L2kifX0seyJtZXRhZGF0YS50YWdzIjp7Im1hdGNoZXMiOiIvZ2F0ZXdheS9pIn19XX0seyJtZXRhZGF0YS5sYWJlbHMuZW52Ijp7ImVxIjoicHJvZCJ9fV19";
 
 /// The recorded size of a realistic full page. Regression detection, not a limit.
-const RECORDED_FULL_PAGE_BYTES: usize = 8_061;
+const RECORDED_FULL_PAGE_BYTES: usize = 12_811;
 
 /// How far the full-page golden may drift.
 const SIZE_TOLERANCE_PERCENT: usize = 1;
@@ -85,6 +87,11 @@ fn mock_input() -> SearchCatalogInput {
 /// A one-entry map.
 fn mock_map(key: &str, value: &str) -> BTreeMap<String, String> {
     BTreeMap::from([(key.to_string(), value.to_string())])
+}
+
+/// One `fields` entry, `null` when `value` is `None`.
+fn mock_fields(path: &str, value: Option<&str>) -> FieldFilters {
+    BTreeMap::from([(path.to_string(), value.map(str::to_string))])
 }
 
 /// `count` distinct items, `item-000`…, in the global listing's shape.
@@ -187,6 +194,29 @@ async fn run(context: &CallContext, input: SearchCatalogInput) -> Result<Value, 
         .map(|output| output.payload().clone())
 }
 
+/// Runs the tool and renders its answer as the runtime does, so the tool's own warnings show.
+async fn run_rendered(
+    context: &CallContext,
+    input: SearchCatalogInput,
+) -> Result<Value, ToolError> {
+    SearchCatalog
+        .call(context, input)
+        .await
+        .map(|output| output.render(None))
+}
+
+/// The JSON a request's `rawq` values decode to.
+fn decoded(rawq: &[String]) -> Vec<Value> {
+    rawq.iter()
+        .map(|value| {
+            let bytes =
+                base64::Engine::decode(&base64::engine::general_purpose::URL_SAFE_NO_PAD, value)
+                    .expect("base64");
+            serde_json::from_slice(&bytes).expect("JSON")
+        })
+        .collect()
+}
+
 /// One request the engine received: its path, its raw query string and its `rawq` values.
 struct Sent {
     path: String,
@@ -252,7 +282,7 @@ fn test_labels_and_fields_are_eq_after_the_query() {
     let predicate = ast::build(
         Some("gateway"),
         Some(&mock_map("env", "prod")),
-        Some(&mock_map("spec.replicas", "2")),
+        Some(&mock_fields("spec.replicas", Some("2"))),
     )
     .expect("a valid search")
     .expect("a predicate");
@@ -292,6 +322,14 @@ fn mock_entries(prefix: &str, n: usize) -> BTreeMap<String, String> {
         .collect()
 }
 
+/// `n` `fields` entries, `<prefix>0` … `<prefix>{n-1}`, each with the value `v`.
+fn mock_field_entries(prefix: &str, n: usize) -> FieldFilters {
+    mock_entries(prefix, n)
+        .into_iter()
+        .map(|(path, value)| (path, Some(value)))
+        .collect()
+}
+
 /// The widest searches the tool's own bounds accept build, validate and encode: no combinator
 /// is wider than `catalog-client`'s 20, however many labels and fields there are.
 #[rstest]
@@ -305,7 +343,7 @@ fn test_the_widest_accepted_search_is_not_refused_for_width(
     #[case] fields: usize,
 ) {
     let labels = mock_entries("label", labels);
-    let fields = mock_entries("spec.f", fields);
+    let fields = mock_field_entries("spec.f", fields);
 
     let predicate = ast::build(
         with_query.then_some("gateway"),
@@ -333,7 +371,7 @@ fn test_the_widest_accepted_search_is_not_refused_for_width(
 #[rstest]
 fn test_a_search_that_fits_keeps_its_flat_shape() {
     let labels = mock_entries("label", 10);
-    let fields = mock_entries("spec.f", 9);
+    let fields = mock_field_entries("spec.f", 9);
 
     let predicate = ast::build(Some("gateway"), Some(&labels), Some(&fields))
         .expect("a valid search")
@@ -474,8 +512,419 @@ async fn test_a_row_is_projected_from_the_partial_metadata() {
 
     assert_eq!(
         serde_json::to_string(&payload["items"][0]).expect("a row serialises"),
-        r#"{"name":"api-gateway","kind":"Service","title":"Example Service","group":"stable.example.com","version":"v1","family":"services","labels":{"environment":"demo"}}"#
+        r#"{"name":"api-gateway","kind":"Service","title":"Example Service","group":"stable.example.com","version":"v1","family":"services","labels":{"environment":"demo"},"recordUpdatedAt":"2026-09-17T10:30:45Z"}"#
     );
+}
+
+/// The record's owner comes through as stored, with the shape `describe_item` gives it, and a
+/// row whose record has none omits the key rather than saying `null`.
+#[rstest]
+#[tokio::test]
+async fn test_a_row_carries_the_records_owner_when_it_has_one() {
+    let engine = MockEngine::start().await;
+    let owner = json!({ "type": "email", "ref": "owner@example.com" });
+    let mut owned = mock_item("owned");
+    owned["metadata"]["owner"] = owner.clone();
+    owned["metadata"]["updateTimestamp"] = json!("2026-10-01T13:17:25Z");
+    mount_listing(
+        &engine,
+        GLOBAL_PATH,
+        mock_page(vec![owned, mock_item("unowned")], None),
+    )
+    .await;
+
+    let payload = run(&mock_context(&engine), mock_input())
+        .await
+        .expect("the search succeeds");
+
+    assert_eq!(payload["items"][0]["owner"], owner);
+    assert_eq!(
+        payload["items"][0]["recordUpdatedAt"],
+        json!("2026-10-01T13:17:25Z")
+    );
+    assert!(
+        payload["items"][1].get("owner").is_none(),
+        "no owner, no key"
+    );
+}
+
+/// The description says rows carry the owner and the update time, so an agent knows a row
+/// without an owner means the item has none.
+#[rstest]
+fn test_the_description_names_the_owner_and_the_update_time() {
+    let description = SearchCatalog::descriptor().description;
+
+    for field in ["`owner`", "`recordUpdatedAt`"] {
+        assert!(description.contains(field), "{field} is named");
+    }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Filtering on the owner, and on a field that is unset.
+// ---------------------------------------------------------------------------------------------
+
+/// An owner reference becomes `eq` on `metadata.owner`, and `null` becomes `exists: false` —
+/// on a `spec.` path too.
+#[rstest]
+#[case::owner(
+    "metadata.owner",
+    Some("owner@example.com"),
+    json!({ "metadata.owner": { "eq": "owner@example.com" } })
+)]
+#[case::no_owner("metadata.owner", None, json!({ "metadata.owner": { "exists": false } }))]
+#[case::unset_spec("spec.replicas", None, json!({ "spec.replicas": { "exists": false } }))]
+fn test_an_owner_or_null_field_builds_its_predicate(
+    #[case] path: &str,
+    #[case] value: Option<&str>,
+    #[case] expected: Value,
+) {
+    let predicate = ast::build(None, None, Some(&mock_fields(path, value)))
+        .expect("a valid search")
+        .expect("a predicate");
+
+    assert_eq!(predicate.to_json(), json!({ "and": [expected] }));
+}
+
+/// "Items without an owner" reaches the engine as `exists: false`, and the empty result echoes
+/// the `null` it was asked with.
+#[rstest]
+#[tokio::test]
+async fn test_a_search_for_items_without_an_owner() {
+    let engine = MockEngine::start().await;
+    mount_listing(&engine, GLOBAL_PATH, mock_page(vec![], None)).await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            fields: Some(mock_fields("metadata.owner", None)),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    let sent = requests(&engine).await;
+    let listing = sent
+        .iter()
+        .find(|sent| sent.path == GLOBAL_PATH)
+        .expect("the global listing was used");
+    assert_eq!(
+        decoded(&listing.rawq),
+        vec![json!({ "and": [{ "metadata.owner": { "exists": false } }] })]
+    );
+    assert_eq!(
+        payload["filters"],
+        json!({ "fields": { "metadata.owner": null } })
+    );
+}
+
+/// `null` on a `spec.` path is accepted with `kind`, where the type's own listing knows the
+/// field, and refused without it, where every type that lacks the field would match.
+#[rstest]
+#[tokio::test]
+async fn test_null_on_a_spec_field_needs_kind() {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    mount_listing(&engine, FAMILY_PATH, mock_page(vec![], None)).await;
+
+    run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Service".to_string()),
+            fields: Some(mock_fields("spec.replicas", None)),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("accepted with kind");
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            fields: Some(mock_fields("spec.replicas", None)),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("refused without kind");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(error.message.contains("needs `kind`"), "{}", error.message);
+}
+
+/// `null` is refused on every other field, before the engine is asked anything.
+#[rstest]
+#[case::name("metadata.name")]
+#[case::title("metadata.title")]
+#[case::label_path("metadata.labels.env")]
+#[tokio::test]
+async fn test_null_is_refused_on_other_fields(#[case] path: &str) {
+    let engine = MockEngine::start().await;
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            fields: Some(mock_fields(path, None)),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("refused");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(
+        requests(&engine).await.is_empty(),
+        "nothing reached the engine"
+    );
+}
+
+/// A relationship has no owner — the catalog stores it where there is no owner to filter on — so
+/// an owner filter on one is refused, whatever its value, before the listing.
+#[rstest]
+#[case::reference(Some("owner@example.com"))]
+#[case::none(None)]
+#[tokio::test]
+async fn test_an_owner_filter_on_relationships_is_refused(#[case] value: Option<&str>) {
+    let engine = MockEngine::start().await;
+    mount_relationship_type(&engine).await;
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Relationship".to_string()),
+            fields: Some(mock_fields("metadata.owner", value)),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("refused");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(error.message.contains("have no owner"), "{}", error.message);
+    assert!(
+        requests(&engine)
+            .await
+            .iter()
+            .all(|sent| sent.path != RELATIONSHIPS_PATH),
+        "the relationships were never listed"
+    );
+}
+
+/// A relationship row carries its update time; it never has an owner.
+#[rstest]
+#[tokio::test]
+async fn test_a_relationship_row_carries_its_update_time_and_no_owner() {
+    let engine = MockEngine::start().await;
+    mount_relationship_type(&engine).await;
+    let mut relationship = mock_relationship(
+        "orders-in-ecommerce",
+        "urn:mia-platform-catalog:example.com:v1:Service:orders-service",
+        "urn:mia-platform-catalog:example.com:v1:Project:ecommerce",
+    );
+    relationship["metadata"]["updateTimestamp"] = json!("2026-10-01T13:17:25Z");
+    mount_listing(
+        &engine,
+        RELATIONSHIPS_PATH,
+        mock_page(vec![relationship], None),
+    )
+    .await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Relationship".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    assert_eq!(
+        payload["items"][0]["recordUpdatedAt"],
+        json!("2026-10-01T13:17:25Z")
+    );
+    assert!(payload["items"][0].get("owner").is_none());
+}
+
+// ---------------------------------------------------------------------------------------------
+// A kind-less `spec.` filter says it may be incomplete.
+// ---------------------------------------------------------------------------------------------
+
+/// Without `kind`, a `spec.` filter can only match types that declare the field filterable, so the
+/// answer says so — on an empty page as on a full one — and names the remedy. With `kind`, or on a
+/// `metadata.` field, there is nothing to warn about.
+#[rstest]
+#[case::spec_without_kind(None, "spec.replicas", true)]
+#[case::spec_with_kind(Some("Service"), "spec.replicas", false)]
+#[case::metadata_without_kind(None, "metadata.title", false)]
+#[tokio::test]
+async fn test_a_spec_filter_without_kind_warns_that_it_may_be_incomplete(
+    #[case] kind: Option<&str>,
+    #[case] path: &str,
+    #[case] warned: bool,
+) {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    mount_listing(&engine, GLOBAL_PATH, mock_page(vec![], None)).await;
+    mount_listing(&engine, FAMILY_PATH, mock_page(vec![], None)).await;
+
+    let answer = run_rendered(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: kind.map(str::to_string),
+            fields: Some(mock_fields(path, Some("2"))),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    let warnings = answer["warnings"].as_array().cloned().unwrap_or_default();
+    assert_eq!(
+        warnings.iter().any(|warning| warning
+            .as_str()
+            .is_some_and(|text| text.contains("Add `kind`"))),
+        warned,
+        "{answer}"
+    );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The way to an item's relationships, when a search took a dead end.
+// ---------------------------------------------------------------------------------------------
+
+/// Makes `kind: "Relationship"` resolve to the relationships family, filterable by its ends.
+async fn mount_relationship_type_with_ends(engine: &MockEngine) {
+    let mut itd = mock_item_type_definition("Relationship", "relationships", "mia-platform.eu");
+    itd["spec"]["versions"][0]["selectableFields"] = json!([
+        { "jsonPath": "spec.sourceRef" },
+        { "jsonPath": "spec.targetRef" },
+        { "jsonPath": "spec.typeRef" }
+    ]);
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.names.kind=Relationship"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_page(vec![itd], None)))
+        .mount(engine.server())
+        .await;
+}
+
+/// An empty `Relationship` search by free text points at the end filters — free text never
+/// matches the items a relationship connects. A search that found something, or that already
+/// filtered by an end, has nothing to be pointed at.
+#[rstest]
+#[case::empty_by_text(Some("orders-service"), None, 0, true)]
+#[case::found_by_text(Some("orders"), None, 1, false)]
+#[case::empty_by_end(Some("orders"), Some("spec.targetRef"), 0, false)]
+#[tokio::test]
+async fn test_an_empty_relationship_search_by_text_points_at_the_ends(
+    #[case] query: Option<&str>,
+    #[case] end: Option<&str>,
+    #[case] rows: usize,
+    #[case] hinted: bool,
+) {
+    let engine = MockEngine::start().await;
+    mount_relationship_type_with_ends(&engine).await;
+    let items = (0..rows)
+        .map(|index| {
+            mock_relationship(
+                &format!("orders-{index}"),
+                "urn:mia-platform-catalog:example.com:v1:Service:orders-service",
+                "urn:mia-platform-catalog:example.com:v1:Project:ecommerce",
+            )
+        })
+        .collect();
+    mount_listing(&engine, RELATIONSHIPS_PATH, mock_page(items, None)).await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            query: query.map(str::to_string),
+            kind: Some("Relationship".to_string()),
+            fields: end.map(|end| {
+                mock_fields(
+                    end,
+                    Some("urn:mia-platform-catalog:example.com:v1:Service:orders-service"),
+                )
+            }),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    assert_eq!(payload.get("hint").is_some(), hinted, "{payload}");
+    if hinted {
+        let hint = payload["hint"].as_str().expect("a string");
+        assert!(
+            hint.contains("`spec.targetRef`") && hint.contains("`urn`"),
+            "{hint}"
+        );
+    }
+}
+
+/// An empty search of any other kind is not given the relationship hint.
+#[rstest]
+#[tokio::test]
+async fn test_an_empty_search_of_another_kind_has_no_hint() {
+    let engine = MockEngine::start().await;
+    mount_service_type(&engine).await;
+    mount_listing(&engine, FAMILY_PATH, mock_page(vec![], None)).await;
+
+    let payload = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            query: Some("orders".to_string()),
+            kind: Some("Service".to_string()),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect("the search succeeds");
+
+    assert!(payload.get("hint").is_none(), "{payload}");
+}
+
+/// A `spec.` path a relationship cannot be filtered on is refused with the way to filter by its
+/// ends; the same refusal on another kind keeps its plain answer.
+#[rstest]
+#[tokio::test]
+async fn test_a_wrong_relationship_path_names_the_end_filters() {
+    let engine = MockEngine::start().await;
+    mount_relationship_type_with_ends(&engine).await;
+    mount_service_type(&engine).await;
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Relationship".to_string()),
+            fields: Some(mock_fields("spec.target.name", Some("orders-service"))),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("refused");
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(
+        error
+            .next_step
+            .as_deref()
+            .is_some_and(|step| step.contains("`spec.targetRef`")),
+        "{:?}",
+        error.next_step
+    );
+
+    let error = run(
+        &mock_context(&engine),
+        SearchCatalogInput {
+            kind: Some("Service".to_string()),
+            fields: Some(mock_fields("spec.anything", Some("x"))),
+            ..mock_input()
+        },
+    )
+    .await
+    .expect_err("refused");
+    assert!(error.next_step.is_none(), "{:?}", error.next_step);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -786,7 +1235,7 @@ async fn test_any_spec_field_is_accepted_globally() {
     run(
         &mock_context(&engine),
         SearchCatalogInput {
-            fields: Some(mock_map("spec.anything.at.all", "x")),
+            fields: Some(mock_fields("spec.anything.at.all", Some("x"))),
             ..mock_input()
         },
     )
@@ -805,7 +1254,7 @@ async fn test_a_spec_field_not_selectable_for_the_kind_is_refused() {
         &mock_context(&engine),
         SearchCatalogInput {
             kind: Some("Service".to_string()),
-            fields: Some(mock_map("spec.anything", "x")),
+            fields: Some(mock_fields("spec.anything", Some("x"))),
             ..mock_input()
         },
     )
@@ -837,7 +1286,7 @@ async fn test_a_metadata_field_is_accepted_with_a_kind() {
         &mock_context(&engine),
         SearchCatalogInput {
             kind: Some("Service".to_string()),
-            fields: Some(mock_map("metadata.name", "api-gateway")),
+            fields: Some(mock_fields("metadata.name", Some("api-gateway"))),
             ..mock_input()
         },
     )
@@ -1219,7 +1668,7 @@ async fn test_candidates_are_capped() {
 #[case::label_value_too_long(SearchCatalogInput { labels: Some(mock_map("env", &"v".repeat(513))), ..mock_input() }, "labels")]
 #[case::too_many_fields(
     SearchCatalogInput {
-        fields: Some((0..=MAX_FILTER_ENTRIES).map(|i| (format!("spec.f{i}"), "v".to_string())).collect()),
+        fields: Some((0..=MAX_FILTER_ENTRIES).map(|i| (format!("spec.f{i}"), Some("v".to_string()))).collect()),
         ..mock_input()
     },
     "fields"
@@ -1261,7 +1710,7 @@ async fn test_a_field_outside_the_grammar_is_invalid_input() {
     let error = run(
         &mock_context(&engine),
         SearchCatalogInput {
-            fields: Some(mock_map("status.phase", "x")),
+            fields: Some(mock_fields("status.phase", Some("x"))),
             ..mock_input()
         },
     )
@@ -1371,18 +1820,22 @@ async fn test_an_empty_result_echoes_the_filters() {
 // The byte golden: regression detection, not a limit.
 // ---------------------------------------------------------------------------------------------
 
-/// A realistic full page — the default 50 rows, each with a title, a family and labels —
-/// serialises to a recorded size.
+/// A realistic full page — the default 50 rows, each with a title, a family, labels, an e-mail
+/// owner and its update time — serialises to a recorded size.
 #[rstest]
 #[tokio::test]
 async fn test_a_realistic_full_page_serialises_to_its_recorded_size() {
     let engine = MockEngine::start().await;
-    mount_listing(
-        &engine,
-        GLOBAL_PATH,
-        mock_page(mock_items(50, 0), Some("page-2")),
-    )
-    .await;
+    let owned = mock_items(50, 0)
+        .into_iter()
+        .enumerate()
+        .map(|(index, mut item)| {
+            item["metadata"]["owner"] =
+                json!({ "type": "email", "ref": format!("owner-{index:02}@example.com") });
+            item
+        })
+        .collect();
+    mount_listing(&engine, GLOBAL_PATH, mock_page(owned, Some("page-2"))).await;
     mount_count(&engine, GLOBAL_COUNT_PATH, 1_284).await;
 
     let payload = run(&mock_context(&engine), mock_input())

@@ -7,9 +7,12 @@
     },
     "fields": {
       "additionalProperties": {
-        "type": "string"
+        "type": [
+          "string",
+          "null"
+        ]
       },
-      "description": "Exact-match field filters, by JSON path.",
+      "description": "Exact-match field filters, by JSON path; null matches an unset field.",
       "type": "object"
     },
     "group": {

@@ -20,14 +20,15 @@
 // the rule it enforces — **never guess** — must mean the same on a read and on a delete.
 
 use catalog_client::{
-    EngineClient, FieldPath, ItemAddress, Predicate, QueryValue, RegexLiteral, Remedy, ToolError,
-    error::codes, models::PartialObjectMetadata, ops::ListQuery, resolve_kind_or_suggest,
+    EngineClient, FieldPath, ItemAddress, KindResolution, Predicate, QueryValue, RegexLiteral,
+    Remedy, ToolError, error::codes, models::PartialObjectMetadata, ops::ListQuery,
+    resolve_kind_or_shared,
 };
 use serde::Serialize;
 use serde_json::json;
 
-/// The kindless name probe's page: **two**, because one row cannot tell *"unique"* from
-/// *"the first of several"*, and two is all it takes to know which.
+/// The name probe's page: **two**, because one row cannot tell *"unique"* from *"the first of
+/// several"*, and two is all it takes to know which.
 const NAME_PROBE_LIMIT: u32 = 2;
 
 /// How many candidates an ambiguous name is answered with, fetched only on that branch.
@@ -36,8 +37,14 @@ pub(crate) const MAX_AMBIGUOUS_CANDIDATES: u32 = 10;
 /// How many near matches a name that matches nothing is answered with.
 pub(crate) const MAX_NEAR_MATCHES: u32 = 5;
 
-/// The field the kindless lookup matches on.
+/// The field the name probe matches on.
 const NAME_FIELD: &str = "metadata.name";
+
+/// The field a probe narrowed to one kind matches on.
+const KIND_FIELD: &str = "kind";
+
+/// The field a probe narrowed to one group matches on: `<group>/<version>`.
+const API_VERSION_FIELD: &str = "apiVersion";
 
 /// One candidate for an ambiguous or unknown name.
 #[derive(Serialize)]
@@ -58,8 +65,36 @@ struct Candidate {
     family: Option<String>,
 }
 
-/// Where the item lives: from `kind` through `catalog-client`'s point lookup, or from the name
-/// alone.
+/// Where the item is, and — when finding it took more than the arguments said — a note saying
+/// how, for the tool to pass on as a warning.
+pub(crate) struct Resolved {
+    /// The item's address.
+    pub address: ItemAddress,
+
+    /// How a half-given type was completed, when it was.
+    pub note: Option<String>,
+}
+
+/// What the name probe is narrowed to.
+#[derive(Clone, Copy)]
+enum Scope<'a> {
+    /// Every item: no `kind`, no `group`.
+    Anywhere,
+
+    /// Items of a `kind` several groups share, given without the `group`.
+    SharedKind(&'a str),
+
+    /// Items of a `group`, given without the `kind`.
+    Group(&'a str),
+}
+
+/// Where the item lives: from `kind` (and `group`) through `catalog-client`'s point lookup, or
+/// from the name.
+///
+/// The name decides whenever the type is only partly given, the same way it does when the type
+/// is not given at all: a shared `kind` without its `group`, or a `group` without a `kind`,
+/// narrows the name probe instead of failing. One row is the item, with a note saying how the
+/// type was completed; several are candidates; none is `not_found` — never a pick.
 ///
 /// `tool` is the calling tool's name, for the next step an ambiguous name is answered with.
 pub(crate) async fn resolve(
@@ -68,25 +103,31 @@ pub(crate) async fn resolve(
     name: &str,
     kind: Option<&str>,
     group: Option<&str>,
-) -> Result<ItemAddress, ToolError> {
-    match kind {
-        // An unknown `kind` is answered with near matches, and a shared one with its candidates,
-        // by `catalog-client`.
-        Some(kind) => {
-            let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
+) -> Result<Resolved, ToolError> {
+    let scope = match (kind, group) {
+        // An unknown `kind` is answered with near matches by `catalog-client`.
+        (Some(kind), group) => match resolve_kind_or_shared(engine, kind, group).await? {
+            KindResolution::One(coordinates) => {
+                return Ok(Resolved {
+                    address: ItemAddress::new(
+                        &coordinates.group,
+                        &coordinates.version,
+                        &coordinates.family,
+                        name,
+                    )?,
+                    note: None,
+                });
+            }
+            KindResolution::Shared(_) => Scope::SharedKind(kind),
+        },
+        (None, Some(group)) => Scope::Group(group),
+        (None, None) => Scope::Anywhere,
+    };
 
-            ItemAddress::new(
-                &coordinates.group,
-                &coordinates.version,
-                &coordinates.family,
-                name,
-            )
-        }
-        None => resolve_by_name(engine, tool, name).await,
-    }
+    resolve_by_name(engine, tool, name, scope).await
 }
 
-/// The kindless path: a two-row probe on `metadata.name`.
+/// The name probe, two rows, narrowed to `scope`.
 ///
 /// One row is the item. Two are an ambiguity, **never** a guess — silently picking one would have
 /// the model act confidently against the wrong item — so a wider fetch collects the candidates, on
@@ -95,42 +136,94 @@ async fn resolve_by_name(
     engine: &EngineClient,
     tool: &str,
     name: &str,
-) -> Result<ItemAddress, ToolError> {
-    let exact = Predicate::Eq {
-        field: FieldPath::new(NAME_FIELD)?,
-        value: QueryValue::string(name)?,
-    };
-    let rows = list_by(engine, &exact, NAME_PROBE_LIMIT).await?;
+    scope: Scope<'_>,
+) -> Result<Resolved, ToolError> {
+    let probe = probe(name, scope)?;
+    let rows = list_by(engine, &probe, NAME_PROBE_LIMIT).await?;
 
     match rows.as_slice() {
-        [only] => ItemAddress::from_manifest(
-            &only.api_version,
-            only.metadata.family.as_deref(),
-            &only.metadata.name,
-        ),
+        [only] => Ok(Resolved {
+            address: ItemAddress::from_manifest(
+                &only.api_version,
+                only.metadata.family.as_deref(),
+                &only.metadata.name,
+            )?,
+            note: note(name, scope, only),
+        }),
         [] => Err(no_such_item(engine, name).await),
         _ => {
-            let candidates = match list_by(engine, &exact, MAX_AMBIGUOUS_CANDIDATES).await {
+            let candidates = match list_by(engine, &probe, MAX_AMBIGUOUS_CANDIDATES).await {
                 Ok(wider) if wider.len() >= rows.len() => wider,
                 _ => rows,
+            };
+            let (message, missing) = match scope {
+                Scope::Anywhere => (format!("`{name}` names more than one item."), "kind"),
+                Scope::SharedKind(kind) => (
+                    format!("`{name}` names a `{kind}` in more than one group."),
+                    "group",
+                ),
+                Scope::Group(group) => (
+                    format!("`{name}` names more than one item in `{group}`."),
+                    "kind",
+                ),
             };
 
             Err(ToolError::new(
                 codes::NOT_FOUND,
                 Remedy::RetryAfterChange,
-                format!(
-                    "`{name}` names more than one item. Say which with `kind`; the candidates are \
-                     listed."
-                ),
+                format!("{message} Say which with `{missing}`; the candidates are listed."),
             )
             .with_details(json!({
                 "name": name,
                 "candidates": candidates.into_iter().map(candidate).collect::<Vec<_>>(),
             }))
             .with_next_step(format!(
-                "call {tool} again with `kind` set to the intended candidate's"
+                "call {tool} again with `{missing}` set to the intended candidate's"
             )))
         }
+    }
+}
+
+/// `metadata.name` equal to `name`, and — when the type was partly given — the part that was.
+fn probe(name: &str, scope: Scope<'_>) -> Result<Predicate, ToolError> {
+    let exact = Predicate::Eq {
+        field: FieldPath::new(NAME_FIELD)?,
+        value: QueryValue::string(name)?,
+    };
+    let narrowing = match scope {
+        Scope::Anywhere => return Ok(exact),
+        Scope::SharedKind(kind) => Predicate::Eq {
+            field: FieldPath::new(KIND_FIELD)?,
+            value: QueryValue::string(kind)?,
+        },
+        // `<group>/` anchored at the start: a group is matched whole, never as the tail of a
+        // longer one that ends with the same text.
+        Scope::Group(group) => Predicate::Matches {
+            field: FieldPath::new(API_VERSION_FIELD)?,
+            pattern: RegexLiteral::prefix(&format!("{group}/"))?,
+        },
+    };
+
+    Ok(Predicate::And(vec![exact, narrowing]))
+}
+
+/// How the type was completed, for a probe that was narrowed by half of it.
+fn note(name: &str, scope: Scope<'_>, found: &PartialObjectMetadata) -> Option<String> {
+    let group = found
+        .api_version
+        .split_once('/')
+        .map_or(found.api_version.as_str(), |(group, _)| group);
+
+    match scope {
+        Scope::Anywhere => None,
+        Scope::SharedKind(kind) => Some(format!(
+            "`{kind}` is shared by several groups; resolved to `{group}`, the only one with an item \
+             named `{name}`."
+        )),
+        Scope::Group(group) => Some(format!(
+            "Resolved to `{}`, the only type in `{group}` with an item named `{name}`.",
+            found.kind
+        )),
     }
 }
 

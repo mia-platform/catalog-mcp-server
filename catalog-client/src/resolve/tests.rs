@@ -18,7 +18,7 @@
 use crate::{
     error::codes,
     models::TypeVersion,
-    resolve::{resolve_kind, select_served_version},
+    resolve::{KindResolution, resolve_kind, resolve_kind_or_shared, select_served_version},
     testing::{MockEngine, mock_identity, mock_item_type_definition, mock_list_envelope},
 };
 use rstest::rstest;
@@ -354,6 +354,73 @@ async fn test_a_shared_kind_without_a_group_returns_the_candidates() {
             .as_deref()
             .is_some_and(|step| step.contains("group"))
     );
+}
+
+/// For a caller that can tell a shared kind's types apart by an item's name, the shared kind is an
+/// answer — its groups, sorted — in the same one request; a kind with one type resolves as usual.
+#[rstest]
+#[tokio::test]
+async fn test_a_shared_kind_is_answered_with_its_groups_when_asked_for() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            mock_shared_service(),
+        )
+        .await;
+
+    let resolution = resolve_kind_or_shared(&engine.client(mock_identity()), "Service", None)
+        .await
+        .expect("a shared kind is an answer here");
+
+    assert_eq!(
+        resolution,
+        KindResolution::Shared(vec![
+            "other.example.com".to_string(),
+            "stable.example.com".to_string()
+        ])
+    );
+
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            mock_list_envelope(
+                vec![mock_item_type_definition(
+                    "Service",
+                    "services",
+                    "stable.example.com",
+                )],
+                None,
+            ),
+        )
+        .await;
+    let resolution = resolve_kind_or_shared(&engine.client(mock_identity()), "Service", None)
+        .await
+        .expect("one type resolves");
+    assert!(
+        matches!(&resolution, KindResolution::One(coordinates) if coordinates.group == "stable.example.com"),
+        "{resolution:?}"
+    );
+}
+
+/// An unknown kind is the same `not_found` it is everywhere else.
+#[rstest]
+#[tokio::test]
+async fn test_an_unknown_kind_is_not_found_when_shared_kinds_are_answers() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            mock_list_envelope(vec![], None),
+        )
+        .await;
+
+    let error = resolve_kind_or_shared(&engine.client(mock_identity()), "Nonexistent", None)
+        .await
+        .expect_err("no such kind");
+
+    assert_eq!(error.code, codes::NOT_FOUND);
 }
 
 /// With `group`, the lookup filters on both columns — exact by the engine's own constraint.

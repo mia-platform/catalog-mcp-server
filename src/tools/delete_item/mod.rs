@@ -22,7 +22,7 @@ use crate::{
     },
     tools::{
         arguments::validate_group,
-        lookup::{no_such_item, resolve},
+        lookup::{Resolved, no_such_item, resolve},
     },
 };
 use catalog_client::{
@@ -145,7 +145,7 @@ impl Tool for DeleteItem {
         let engine = context.engine();
 
         // A name matching several items answers the candidates and deletes nothing.
-        let address = resolve(
+        let Resolved { address, note } = resolve(
             engine,
             TOOL_NAME,
             &input.name,
@@ -201,10 +201,10 @@ impl Tool for DeleteItem {
                 )
             })?;
 
-        Ok(match count_warning {
-            Some(warning) => output.with_warning(warning),
-            None => output,
-        })
+        Ok(note
+            .into_iter()
+            .chain(count_warning)
+            .fold(output, ToolOutput::with_warning))
     }
 }
 
@@ -247,7 +247,8 @@ fn validate(input: &DeleteItemInput) -> Result<(), ToolError> {
         }
     }
 
-    validate_group(input.group.as_deref(), input.kind.is_some())
+    // `group` alone is usable here: it narrows the name to one group's items.
+    validate_group(input.group.as_deref(), true)
 }
 
 /// An `invalid_input` naming the offending parameter.

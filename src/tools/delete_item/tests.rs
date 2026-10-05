@@ -628,6 +628,125 @@ async fn test_an_item_without_a_resource_version_is_not_deleted() {
     assert!(deletes(&engine).await.is_empty());
 }
 
+/// Makes `kind: "Service"` a kind two groups share.
+async fn mount_shared_service(engine: &MockEngine) {
+    Mock::given(method("GET"))
+        .and(path(TYPES_PATH))
+        .and(query_param("field", "spec.names.kind=Service"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(
+            vec![
+                mock_item_type_definition("Service", "services", GROUP),
+                mock_item_type_definition("Service", "services", "other.example.com"),
+            ],
+            None,
+        )))
+        .with_priority(1)
+        .mount(engine.server())
+        .await;
+}
+
+/// A shared kind without its `group` deletes the one item of that name, when only one of its
+/// groups has one — the same unique match a kind-less name resolves by — and says how the type
+/// was completed.
+#[rstest]
+#[tokio::test]
+async fn test_a_shared_kind_without_its_group_deletes_the_only_match() {
+    let engine = mock_default_engine().await;
+    mount_shared_service(&engine).await;
+    Mock::given(method("GET"))
+        .and(path(ITEMS_PATH))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(mock_list_envelope(vec![mock_item(MOCK_ITEM_NAME)], None)),
+        )
+        .mount(engine.server())
+        .await;
+    mount_delete(&engine, ResponseTemplate::new(204)).await;
+
+    let answer = run(
+        &engine,
+        json!({ "name": MOCK_ITEM_NAME, "kind": "Service" }),
+    )
+    .await
+    .expect("the only match is deleted");
+
+    assert_eq!(answer["deleted"], json!(true));
+    assert_eq!(
+        answer["warnings"][0],
+        json!(format!(
+            "`Service` is shared by several groups; resolved to `{GROUP}`, the only one with an \
+             item named `{MOCK_ITEM_NAME}`."
+        ))
+    );
+    assert_eq!(deletes(&engine).await.len(), 1);
+}
+
+/// A shared kind whose name exists in two of its groups deletes nothing.
+#[rstest]
+#[tokio::test]
+async fn test_a_shared_kind_named_in_two_groups_deletes_nothing() {
+    let engine = mock_default_engine().await;
+    mount_shared_service(&engine).await;
+    let mut other = mock_item(MOCK_ITEM_NAME);
+    other["apiVersion"] = json!("other.example.com/v1");
+    Mock::given(method("GET"))
+        .and(path(ITEMS_PATH))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(
+            vec![mock_item(MOCK_ITEM_NAME), other],
+            None,
+        )))
+        .mount(engine.server())
+        .await;
+    mount_delete(&engine, ResponseTemplate::new(204)).await;
+
+    let error = run(
+        &engine,
+        json!({ "name": MOCK_ITEM_NAME, "kind": "Service" }),
+    )
+    .await
+    .expect_err("two groups are not guessed between");
+
+    assert_eq!(error.code, codes::NOT_FOUND);
+    assert!(
+        error
+            .next_step
+            .as_deref()
+            .is_some_and(|step| step.contains("delete_item again with `group`"))
+    );
+    assert!(
+        deletes(&engine).await.is_empty(),
+        "nothing is deleted on a guess"
+    );
+}
+
+/// `group` without `kind` narrows the name to that group's items, and the one match is deleted.
+#[rstest]
+#[tokio::test]
+async fn test_a_group_without_a_kind_deletes_the_only_match_in_it() {
+    let engine = mock_default_engine().await;
+    Mock::given(method("GET"))
+        .and(path(ITEMS_PATH))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_json(mock_list_envelope(vec![mock_item(MOCK_ITEM_NAME)], None)),
+        )
+        .mount(engine.server())
+        .await;
+    mount_delete(&engine, ResponseTemplate::new(204)).await;
+
+    let answer = run(&engine, json!({ "name": MOCK_ITEM_NAME, "group": GROUP }))
+        .await
+        .expect("the only match in the group is deleted");
+
+    assert_eq!(answer["deleted"], json!(true));
+    assert!(
+        answer["warnings"][0]
+            .as_str()
+            .is_some_and(|warning| warning.starts_with("Resolved to `Service`")),
+        "{answer}"
+    );
+}
+
 // ---------------------------------------------------------------------------------------------
 // Arguments checked before anything reaches the engine.
 // ---------------------------------------------------------------------------------------------
@@ -639,7 +758,7 @@ async fn test_an_item_without_a_resource_version_is_not_deleted() {
 #[case::empty_kind(json!({ "name": "example-item", "kind": "" }), "kind")]
 #[case::long_kind(json!({ "name": "example-item", "kind": "A".repeat(MAX_KIND_BYTES + 1) }), "kind")]
 #[case::malformed_kind(json!({ "name": "example-item", "kind": "my-kind" }), "kind")]
-#[case::group_without_kind(json!({ "name": "example-item", "group": "example.com" }), "group")]
+#[case::malformed_group(json!({ "name": "example-item", "group": "Not A Group" }), "group")]
 #[tokio::test]
 async fn test_a_malformed_argument_is_refused_before_the_engine(
     #[case] arguments: Value,

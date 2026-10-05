@@ -27,14 +27,14 @@
 
 use catalog_client::{
     CallerIdentity, ConflictPolicy, Deadline, EngineClient, EngineClientFactory, Existence,
-    FamilyAddress, FieldPath, ItemAddress, ItemTypeAddress, Predicate, QueryValue, RegexLiteral,
-    ResourceVersionIn, WriteCycle, coordinates_of,
+    FamilyAddress, FieldPath, ItemAddress, ItemTypeAddress, KindResolution, Predicate, QueryValue,
+    RegexLiteral, ResourceVersionIn, WriteCycle, coordinates_of,
     error::codes,
     find_item_type, find_item_type_document,
     models::{ItdListEntry, ItemTypeDefinition, RelationshipDirection},
     ops::{ListQuery, relationships::RelationshipQuery},
     pagination::{ListPage, MAX_LIMIT, paginate_all},
-    select_served_version,
+    resolve_kind_or_shared, select_served_version,
 };
 use std::{sync::Arc, time::Duration};
 
@@ -361,7 +361,7 @@ async fn test_a_warning_299_reaches_the_client_and_the_calls_record() {
 }
 
 /// How many item types the pinned engine seeds (`assets/manifests/type-definitions/`, 68 in
-/// `0.9.2`). A floor, not an exact count, so a release that adds one does not fail the run.
+/// `0.9.4`). A floor, not an exact count, so a release that adds one does not fail the run.
 const SEEDED_TYPE_COUNT: usize = 68;
 
 /// **`list_catalog_types` against the live engine** — what its contract test used to assert
@@ -636,6 +636,70 @@ async fn test_a_titleless_link_is_read_on_every_path() {
         global
             .iter()
             .any(|entry| entry.metadata.name == "e2e-links-probe")
+    );
+}
+
+/// **Live: the two halves of a type narrow a name probe.** For a shared kind without its group the
+/// client answers the groups instead of an error, and the probe `describe_item` then runs — name
+/// plus `kind`, or name plus an anchored `apiVersion` prefix for a group alone — finds the seeded
+/// agent by either. The prefix is anchored: `mia-platform.eu/` is the tail of the agent's
+/// `ai.mia-platform.eu/v1`, and must not match it.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_half_given_type_narrows_the_name_probe() {
+    let client = client();
+
+    let shared = resolve_kind_or_shared(&client, "Service", None)
+        .await
+        .expect("a shared kind is an answer");
+    assert!(
+        matches!(&shared, KindResolution::Shared(groups) if groups.len() >= 2),
+        "{shared:?}"
+    );
+
+    let probe = |narrowing: Predicate| {
+        Predicate::And(vec![
+            Predicate::Eq {
+                field: FieldPath::new("metadata.name").expect("a field"),
+                value: QueryValue::string(DESCRIBED_AGENT).expect("a value"),
+            },
+            narrowing,
+        ])
+    };
+    let found = |predicate: Predicate| {
+        let client = client.clone();
+        async move {
+            client
+                .list_items_partial(&ListQuery {
+                    limit: Some(2),
+                    raw_query: predicate.encode_rawq().expect("the probe encodes"),
+                    ..ListQuery::default()
+                })
+                .await
+                .expect("the probe answers")
+                .value
+                .items
+                .len()
+        }
+    };
+    let in_group = |group: &str| Predicate::Matches {
+        field: FieldPath::new("apiVersion").expect("a field"),
+        pattern: RegexLiteral::prefix(&format!("{group}/")).expect("a prefix"),
+    };
+
+    assert_eq!(
+        found(probe(Predicate::Eq {
+            field: FieldPath::new("kind").expect("a field"),
+            value: QueryValue::string("Agent").expect("a value"),
+        }))
+        .await,
+        1
+    );
+    assert_eq!(found(probe(in_group("ai.mia-platform.eu"))).await, 1);
+    assert_eq!(
+        found(probe(in_group("mia-platform.eu"))).await,
+        0,
+        "a group is matched whole, never as the tail of a longer one"
     );
 }
 
@@ -1032,7 +1096,167 @@ async fn test_relationships_are_listed_with_their_references() {
 }
 
 /// The groups of the types the write tests create, which the seeded-type walk leaves out.
-const E2E_TYPE_GROUPS: [&str; 2] = [PROBE_TYPE_GROUP, DOOMED_TYPE_GROUP];
+const E2E_TYPE_GROUPS: [&str; 3] = [PROBE_TYPE_GROUP, DOOMED_TYPE_GROUP, OWNED_TYPE_GROUP];
+
+/// The throwaway type the owner-filter test creates: its own group, one selectable spec field.
+const OWNED_TYPE_GROUP: &str = "e2e-owned.example.com";
+const OWNED_TYPE_KIND: &str = "Owned";
+const OWNED_TYPE_PLURAL: &str = "owneds";
+const OWNED_FIELD: &str = "spec.stage";
+
+/// The item that has an owner and sets the selectable field, and the one that has neither.
+const OWNED_ITEM: &str = "owned-one";
+const UNOWNED_ITEM: &str = "unowned-one";
+
+/// A fictional owner.
+const OWNER_EMAIL: &str = "owner@example.com";
+
+/// The names a family listing filtered by `predicate` returns, in name order.
+async fn names_matching(
+    client: &EngineClient,
+    family: &FamilyAddress,
+    predicate: Predicate,
+) -> Vec<String> {
+    let page = client
+        .list_family_items_partial(
+            family,
+            &ListQuery {
+                raw_query: predicate.encode_rawq().expect("the rawq encodes"),
+                ..ListQuery::default()
+            },
+        )
+        .await
+        .expect("the filtered listing answers")
+        .value;
+    let mut names: Vec<String> = page
+        .items
+        .into_iter()
+        .map(|item| item.metadata.name)
+        .collect();
+    names.sort();
+    names
+}
+
+/// **Live: the owner filter and "this field is unset".** `search_catalog` sends `eq` on
+/// `metadata.owner` with the reference alone and `exists: false` for a `null`: one finds exactly
+/// the owned item, the other exactly the unowned one — and, per family, `exists: false` on a
+/// selectable `spec` field finds exactly the item that leaves it unset. Needs an engine that does
+/// not stamp the caller as the owner of a create (0.9.4 and later), or no item could be unowned.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_owner_and_an_unset_field_filter_exactly() {
+    let client = client();
+    let address = ItemTypeAddress::new(OWNED_TYPE_GROUP, OWNED_TYPE_PLURAL)
+        .expect("a well-formed type address");
+    client
+        .put_item_type_definition(
+            &address,
+            &serde_json::json!({
+                "apiVersion": ItemTypeAddress::api_version(),
+                "kind": ItemTypeAddress::KIND,
+                "metadata": { "name": address.name() },
+                "spec": {
+                    "group": OWNED_TYPE_GROUP,
+                    "names": {
+                        "kind": OWNED_TYPE_KIND,
+                        "plural": OWNED_TYPE_PLURAL,
+                        "singular": "owned",
+                    },
+                    "scope": "Tenant",
+                    "versions": [{
+                        "name": "v1",
+                        "served": true,
+                        "schema": { "openAPIV31Schema": {
+                            "type": "object",
+                            "properties": { "spec": {
+                                "type": "object",
+                                "properties": { "stage": { "type": "string" } },
+                            } },
+                        } },
+                        "selectableFields": [{ "jsonPath": OWNED_FIELD }],
+                    }],
+                },
+            }),
+            false,
+        )
+        .await
+        .expect("the engine creates the owned type");
+
+    let items = [
+        (
+            OWNED_ITEM,
+            serde_json::json!({
+                "name": OWNED_ITEM,
+                "owner": { "type": "email", "ref": OWNER_EMAIL },
+            }),
+            serde_json::json!({ "stage": "live" }),
+        ),
+        (
+            UNOWNED_ITEM,
+            serde_json::json!({ "name": UNOWNED_ITEM }),
+            serde_json::json!({}),
+        ),
+    ];
+    for (name, metadata, spec) in items {
+        let item = ItemAddress::new(OWNED_TYPE_GROUP, "v1", OWNED_TYPE_PLURAL, name)
+            .expect("a well-formed address");
+        client
+            .put_item(
+                &item,
+                &serde_json::json!({
+                    "apiVersion": format!("{OWNED_TYPE_GROUP}/v1"),
+                    "kind": OWNED_TYPE_KIND,
+                    "metadata": metadata,
+                    "spec": spec,
+                }),
+                false,
+            )
+            .await
+            .expect("the engine accepts the item");
+    }
+
+    let family = FamilyAddress::new(OWNED_TYPE_GROUP, "v1", OWNED_TYPE_PLURAL).expect("a family");
+    let owner = || FieldPath::new("metadata.owner").expect("the owner is filterable");
+
+    assert_eq!(
+        names_matching(
+            &client,
+            &family,
+            Predicate::Eq {
+                field: owner(),
+                value: QueryValue::string(OWNER_EMAIL).expect("a value"),
+            },
+        )
+        .await,
+        vec![OWNED_ITEM]
+    );
+    assert_eq!(
+        names_matching(&client, &family, Predicate::Missing { field: owner() }).await,
+        vec![UNOWNED_ITEM],
+        "a create without an owner stores none"
+    );
+    assert_eq!(
+        names_matching(
+            &client,
+            &family,
+            Predicate::Missing {
+                field: FieldPath::new(OWNED_FIELD).expect("a spec path"),
+            },
+        )
+        .await,
+        vec![UNOWNED_ITEM]
+    );
+
+    let stored = client
+        .get_item_type_definition(&address)
+        .await
+        .expect("the type reads back")
+        .value;
+    client
+        .delete_item_type_definition(&address, stored["resourceVersion"].as_str())
+        .await
+        .expect("the throwaway type and its items go");
+}
 
 /// The throwaway type `delete_item_type`'s live test creates, with two items, and deletes: its own
 /// group.

@@ -50,6 +50,22 @@ pub const MAX_BRANCH_CHILDREN: usize = 20;
 /// Maximum operator nesting depth. Declared by the engine, unenforced there.
 pub const MAX_DEPTH: usize = 6;
 
+/// The catalog record's owner, filterable by its reference alone.
+pub const OWNER_FIELD: &str = "metadata.owner";
+
+/// The fields a filter may name, as an `invalid_input` lists them.
+const VALID_FIELDS: [&str; 9] = [
+    "apiVersion",
+    "kind",
+    "metadata.name",
+    "metadata.title",
+    "metadata.tags",
+    "metadata.urn",
+    OWNER_FIELD,
+    "metadata.labels.<key>",
+    "spec.<path>",
+];
+
 /// The engine's own `matches` literal pattern: `/pattern/` or `/pattern/i`.
 static MATCHES_LITERAL_RE: LazyLock<Regex> = LazyLock::new(|| {
     // PANIC: a compile-time constant pattern, copied from the engine.
@@ -92,6 +108,7 @@ impl FieldPath {
                 | "metadata.title"
                 | "metadata.tags"
                 | "metadata.urn"
+                | OWNER_FIELD
         ) || path
             .strip_prefix("metadata.labels.")
             .is_some_and(is_valid_label_key)
@@ -99,19 +116,30 @@ impl FieldPath {
                 .strip_prefix("spec.")
                 .is_some_and(|rest| !rest.is_empty());
 
+        // The owner is stored as `{type, ref}`, so a caller who has seen it reaches for
+        // `metadata.owner.ref`; the catalog filters on the whole field by the reference alone.
+        if path
+            .strip_prefix(OWNER_FIELD)
+            .is_some_and(|rest| rest.starts_with('.'))
+        {
+            return Err(ToolError::new(
+                codes::INVALID_INPUT,
+                Remedy::RetryAfterChange,
+                format!(
+                    "`{path}` is not a field the catalog can filter on: filter on `{OWNER_FIELD}` \
+                     with the reference alone, e.g. an e-mail."
+                ),
+            )
+            .with_details(json!({ "field": path, "validFields": VALID_FIELDS })));
+        }
+
         if !accepted {
             return Err(ToolError::new(
                 codes::INVALID_INPUT,
                 Remedy::RetryAfterChange,
                 format!("`{path}` is not a field the catalog can filter on."),
             )
-            .with_details(json!({
-                "field": path,
-                "validFields": [
-                    "apiVersion", "kind", "metadata.name", "metadata.title", "metadata.tags",
-                    "metadata.urn", "metadata.labels.<key>", "spec.<path>",
-                ],
-            })));
+            .with_details(json!({ "field": path, "validFields": VALID_FIELDS })));
         }
 
         Ok(Self(path.to_string()))
@@ -131,13 +159,22 @@ impl FieldPath {
 pub struct RegexLiteral(String);
 
 impl RegexLiteral {
-    /// Escapes `text` and wraps it as a case-insensitive literal.
+    /// Escapes `text` and wraps it as a case-insensitive literal: a substring match.
     ///
     /// The result is asserted to compile before it leaves: a pattern the engine cannot parse is
     /// a `400` on a parameter we built, which is the one kind of failure the model cannot fix.
     pub fn containing(text: &str) -> Result<Self, ToolError> {
-        let literal = format!("/{}/i", regex::escape(text));
+        Self::checked(format!("/{}/i", escape(text)))
+    }
 
+    /// Escapes `text` and anchors it at the start, case-sensitively: the value must begin with
+    /// exactly `text` — e.g. an `apiVersion` in one group, `<group>/`.
+    pub fn prefix(text: &str) -> Result<Self, ToolError> {
+        Self::checked(format!("/^{}/", escape(text)))
+    }
+
+    /// Bounds `literal` and asserts it compiles.
+    fn checked(literal: String) -> Result<Self, ToolError> {
         if literal.len() > MAX_REGEX_BYTES {
             return Err(ToolError::new(
                 codes::INVALID_INPUT,
@@ -167,6 +204,15 @@ impl RegexLiteral {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+}
+
+/// `text` as a pattern that matches it literally.
+///
+/// `regex::escape` leaves `/` alone, because it is not special to a regex — but it delimits the
+/// engine's literal, so an unescaped one ends the pattern early and the literal no longer parses.
+/// Escaped, it is still a plain `/` to both the engine and the database.
+fn escape(text: &str) -> String {
+    regex::escape(text).replace('/', r"\/")
 }
 
 /// An escaped literal that does not compile is a defect of ours, not of the caller's text.
@@ -250,7 +296,7 @@ fn floor_char_boundary(text: &str, max: usize) -> usize {
 
 /// **Only what the tool set emits.** Adding a variant is a deliberate act.
 ///
-/// The engine understands ten operators; four are enough for every tool in this server, and each
+/// The engine understands ten operators; five are enough for every tool in this server, and each
 /// one we do not emit is one whose semantics we do not have to explain to a model.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Predicate {
@@ -268,6 +314,14 @@ pub enum Predicate {
         field: FieldPath,
         /// The escaped literal.
         pattern: RegexLiteral,
+    },
+
+    /// `{"<field>": {"exists": false}}` — the field has no value.
+    ///
+    /// For *"items without an owner"*, which no equality can express.
+    Missing {
+        /// The field that must be unset.
+        field: FieldPath,
     },
 
     /// `{"and": [...]}` — every child must hold.
@@ -293,6 +347,7 @@ impl Predicate {
 
                 one_key(field.as_str(), Value::Object(operator))
             }
+            Self::Missing { field } => one_key(field.as_str(), json!({ "exists": false })),
             Self::And(children) => {
                 json!({ "and": children.iter().map(Self::to_json).collect::<Vec<_>>() })
             }
@@ -325,7 +380,7 @@ impl Predicate {
         }
 
         match self {
-            Self::Eq { .. } | Self::Matches { .. } => Ok(()),
+            Self::Eq { .. } | Self::Matches { .. } | Self::Missing { .. } => Ok(()),
             Self::And(children) | Self::Or(children) => {
                 if children.is_empty() {
                     return Err(ToolError::new(
@@ -353,7 +408,7 @@ impl Predicate {
     /// How many leaf predicates the tree carries.
     fn count_leaves(&self) -> usize {
         match self {
-            Self::Eq { .. } | Self::Matches { .. } => 1,
+            Self::Eq { .. } | Self::Matches { .. } | Self::Missing { .. } => 1,
             Self::And(children) | Self::Or(children) => {
                 children.iter().map(Self::count_leaves).sum()
             }

@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 // The relationship shaper and the client-side grouping. This is where the tool's size comes from: a
-// relationship on the wire is ~1 KB of BFF routing data, and the agent needs four fields of it.
+// relationship on the wire is ~1 KB of BFF routing data, and the agent needs a handful of its fields.
 
 use catalog_client::models::{ItemRelationshipEntry, RelationshipDirection};
 use serde::Serialize;
@@ -40,7 +40,7 @@ pub enum Grouping {
 
 /// One shaped relationship, in its serialised field order.
 ///
-/// A resolved entry is `{name, kind, type|direction}`; an unresolved one is `{urn,
+/// A resolved entry is `{name, kind, group, title?, type|direction}`; an unresolved one is `{urn,
 /// type|direction, unresolved: true}`. Whichever of `type` and `direction` is the grouping
 /// key is left out of the entry: it would be repeated, and always redundant.
 #[derive(Serialize)]
@@ -56,6 +56,12 @@ struct ShapedEntry {
     /// exactly what a follow-up `describe_item` call needs.
     #[serde(rename = "group", skip_serializing_if = "Option::is_none")]
     group: Option<String>,
+
+    /// The related item's human-readable title, when it has one. Names are often generated ids,
+    /// so the title is what tells the reader which related item matters; the engine already
+    /// sends it with the related item, so it costs no extra call.
+    #[serde(rename = "title", skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
 
     #[serde(rename = "urn", skip_serializing_if = "Option::is_none")]
     urn: Option<String>,
@@ -100,6 +106,7 @@ fn shape(entry: &ItemRelationshipEntry, grouping: Grouping) -> Value {
                 .api_version
                 .split_once('/')
                 .map(|(group, _)| group.to_string()),
+            title: related.metadata.title.clone(),
             urn: None,
             relationship_type,
             direction,
@@ -109,6 +116,7 @@ fn shape(entry: &ItemRelationshipEntry, grouping: Grouping) -> Value {
             name: None,
             kind: None,
             group: None,
+            title: None,
             urn: entry.other_end().map(str::to_string),
             relationship_type,
             direction,

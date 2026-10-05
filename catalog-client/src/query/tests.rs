@@ -75,6 +75,47 @@ fn test_matches_has_the_engines_shape() {
     );
 }
 
+/// "This field has no value" is `exists: false`, the one way the engine has to say it.
+#[rstest]
+fn test_missing_has_the_engines_shape() {
+    assert_eq!(
+        Predicate::Missing {
+            field: field("metadata.owner"),
+        }
+        .to_json(),
+        json!({ "metadata.owner": { "exists": false } })
+    );
+}
+
+/// A missing-field condition is one leaf, like any other.
+#[rstest]
+fn test_missing_counts_as_one_leaf() {
+    let missing = || Predicate::Missing {
+        field: field("metadata.owner"),
+    };
+    let at = Predicate::And(
+        (0..MAX_BRANCH_CHILDREN)
+            .map(|_| Predicate::And((0..2).map(|_| missing()).collect()))
+            .collect(),
+    );
+
+    assert!(
+        at.validate().is_ok(),
+        "{} leaves fit",
+        MAX_BRANCH_CHILDREN * 2
+    );
+
+    let over = Predicate::And(
+        (0..MAX_BRANCH_CHILDREN)
+            .map(|_| Predicate::And((0..3).map(|_| missing()).collect()))
+            .collect(),
+    );
+    assert_eq!(
+        over.validate().expect_err("over the leaf limit").code,
+        codes::QUERY_TOO_LARGE
+    );
+}
+
 #[rstest]
 fn test_and_has_the_engines_shape() {
     let predicate = Predicate::And(vec![
@@ -181,11 +222,28 @@ fn test_labels_and_fields_become_eq() {
 #[case("metadata.title")]
 #[case("metadata.tags")]
 #[case("metadata.urn")]
+#[case("metadata.owner")]
 #[case("metadata.labels.environment")]
 #[case("spec.replicas")]
 #[case("spec.container.image")]
 fn test_accepted_fields(#[case] path: &str) {
     assert!(FieldPath::new(path).is_ok());
+}
+
+/// The owner is filtered by its reference alone, so a path into it is refused with a message that
+/// says so — the stored `{type, ref}` shape is what makes `metadata.owner.ref` the first guess.
+#[rstest]
+#[case("metadata.owner.ref")]
+#[case("metadata.owner.type")]
+fn test_a_path_into_the_owner_is_refused_with_its_own_message(#[case] path: &str) {
+    let error = FieldPath::new(path).expect_err("refused");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(
+        error.message.contains("with the reference alone"),
+        "{}",
+        error.message
+    );
 }
 
 #[rstest]
@@ -215,12 +273,26 @@ fn test_refused_fields(#[case] path: &str) {
 #[case::bracket("[a-z]", r"/\[a\-z\]/i")]
 #[case::anchor("^end$", r"/\^end\$/i")]
 #[case::backslash(r"a\b", r"/a\\b/i")]
+#[case::slash("registry.example.com/cache", r"/registry\.example\.com\/cache/i")]
 fn test_metacharacters_are_escaped(#[case] text: &str, #[case] expected: &str) {
     assert_eq!(
         RegexLiteral::containing(text)
             .expect("an escapable literal")
             .as_str(),
         expected
+    );
+}
+
+/// A prefix is anchored at the start and case-sensitive, so `<group>/` matches that group's
+/// `apiVersion` and never one that only ends with the same text; its `/` is escaped, as the
+/// engine's literal delimiter must be.
+#[rstest]
+fn test_a_prefix_is_anchored_and_escaped() {
+    assert_eq!(
+        RegexLiteral::prefix("stable.example.com/")
+            .expect("an escapable literal")
+            .as_str(),
+        r"/^stable\.example\.com\//"
     );
 }
 

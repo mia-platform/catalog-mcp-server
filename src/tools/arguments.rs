@@ -26,14 +26,16 @@ const GROUP_ARGUMENT: &str = "group";
 /// Checks the optional `group` a kind-taking tool accepts.
 ///
 /// A kind is unique per group, not per tenant, so `group` is how a caller says which type a
-/// shared `kind` means. It is meaningless without a `kind`, and bound to the engine's `spec.group`
-/// grammar; either failure is an `invalid_input` the model can correct.
-pub(crate) fn validate_group(group: Option<&str>, has_kind: bool) -> Result<(), ToolError> {
+/// shared `kind` means. `usable` says whether this call gives `group` anything to narrow: a tool
+/// that only types a `kind` by it, called without one, does not — while a tool that finds an item
+/// by name can narrow the name to one group's items with `group` alone. The value is also bound to
+/// the engine's `spec.group` grammar; either failure is an `invalid_input` the model can correct.
+pub(crate) fn validate_group(group: Option<&str>, usable: bool) -> Result<(), ToolError> {
     let Some(group) = group else {
         return Ok(());
     };
 
-    let message = if !has_kind {
+    let message = if !usable {
         "`group` only says which type a shared `kind` means; give `kind` too.".to_string()
     } else if !is_valid_group(group) {
         format!("`{group}` is not an API group, such as `mia-platform.eu`.")

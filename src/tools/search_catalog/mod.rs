@@ -20,7 +20,7 @@ use crate::{
         ToolDescriptor,
         contract::{CallContext, Tool, ToolOutput},
     },
-    tools::arguments::validate_group,
+    tools::{arguments::validate_group, search_catalog::ast::FieldFilters},
 };
 use catalog_client::{
     EngineClient, FamilyAddress, Predicate, Remedy, ToolError,
@@ -29,7 +29,7 @@ use catalog_client::{
     models::{Item, ObjectMetadata, PartialObjectMetadata},
     ops::ListQuery,
     pagination::{DEFAULT_LIMIT, ListPage, MAX_LIMIT},
-    query::{MAX_VALUE_BYTES, is_valid_label_key},
+    query::{MAX_VALUE_BYTES, OWNER_FIELD, is_valid_label_key},
     resolve_kind_or_suggest,
 };
 use rmcp::model::ToolAnnotations;
@@ -42,6 +42,16 @@ const RELATIONSHIP_GROUP: &str = "mia-platform.eu";
 
 /// The relationships family, whose rows carry what each relationship connects.
 const RELATIONSHIP_FAMILY: &str = "relationships";
+
+/// The families of the relationships group that the catalog stores in tables of their own, with no
+/// owner column: their records never have an owner, and a filter on one would reach a column that
+/// does not exist.
+const UNOWNED_FAMILIES: [&str; 4] = [
+    RELATIONSHIP_FAMILY,
+    "relationship-types",
+    "relationship-constraints",
+    "custom-fields",
+];
 
 /// The scheme every catalog URN starts with, `urn:mia-platform-catalog:<group>:<version>:<kind>:<name>`.
 const URN_PREFIX: &str = "urn:mia-platform-catalog:";
@@ -62,9 +72,35 @@ pub const TOOL_NAME: &str = "search_catalog";
 const TOOL_DESCRIPTION: &str = "Searches the catalog. Use `query` for free text over names, \
      titles and tags; `kind` to restrict to one type; `labels` and `fields` to filter exactly. \
      `Relationship` rows include their `type`, `source` and `target`. Call `list_catalog_types` \
-     first if you do not know the exact `kind`. Add `group` for a shared `kind`. `total` counts \
-     every match; pass `cursor` back for more; `limit` appears only if yours was clamped; an \
-     empty result echoes the `filters` as understood.";
+     if unsure of the `kind`. Add `group` for a shared `kind`. `total` counts every match; pass \
+     `cursor` back for more; `limit` appears only if yours was clamped; an empty result echoes \
+     the `filters` as understood. Rows carry `owner` and `recordUpdatedAt` if set.";
+
+/// What a kind-less search filtered on a `spec.` path is answered with, on every page.
+///
+/// Without `kind` the catalog checks the path against each type's *filterable* fields only, so an
+/// item of a type that has the field but does not declare it filterable is silently left out —
+/// the result can be incomplete with nothing in it saying so. With `kind`, a path the type does not
+/// declare is refused instead, which is why adding it is the remedy.
+const SPEC_WITHOUT_KIND_WARNING: &str = "Without `kind`, a `spec.` filter matches only types that \
+     declare that field filterable, so items of other types may be missing. Add `kind` for a \
+     complete answer.";
+
+/// The `spec` paths that hold a relationship's ends, each an item's `urn`.
+const RELATIONSHIP_END_FIELDS: [&str; 2] = ["spec.sourceRef", "spec.targetRef"];
+
+/// What an empty `Relationship` search by free text is answered with.
+///
+/// Free text matches a relationship's own name, title and tags, never the items it connects, so
+/// searching an item's name among relationships finds nothing — and an agent that sees nothing
+/// concludes the item has no relationships. The ends are filterable, by the item's `urn`.
+const RELATIONSHIP_QUERY_HINT: &str = "`query` matches a relationship's name, title and tags, not \
+     its ends. To find an item's relationships, filter `fields` on `spec.sourceRef` or \
+     `spec.targetRef` with the item's `urn` from describe_item, or read them with describe_item.";
+
+/// The next step of a `spec.` path a `Relationship` search cannot filter on.
+const RELATIONSHIP_FIELDS_NEXT_STEP: &str =
+    "filter `spec.sourceRef` or `spec.targetRef` with the item's `urn`, from describe_item";
 
 /// The longest `query`, in bytes, **before** escaping.
 ///
@@ -110,9 +146,9 @@ pub struct SearchCatalogInput {
     #[serde(rename = "labels")]
     pub labels: Option<BTreeMap<String, String>>,
 
-    /// Exact-match field filters, by JSON path.
+    /// Exact-match field filters, by JSON path; null matches an unset field.
     #[serde(rename = "fields")]
-    pub fields: Option<BTreeMap<String, String>>,
+    pub fields: Option<FieldFilters>,
 
     /// Page size. Default 50, clamped to 200.
     #[serde(rename = "limit")]
@@ -159,6 +195,18 @@ pub struct SearchRow {
     /// `metadata.labels`, omitted when there are none.
     #[serde(rename = "labels", skip_serializing_if = "BTreeMap::is_empty")]
     pub labels: BTreeMap<String, String>,
+
+    /// `metadata.owner`, the catalog record's own owner: an identity reference (`{type, ref}`)
+    /// passed through as stored, exactly as `describe_item` shows it. Omitted when the record has
+    /// none, so a row without it is an item without an owner — which is what makes ownership
+    /// questions answerable from a search alone.
+    #[serde(rename = "owner", skip_serializing_if = "Option::is_none")]
+    pub owner: Option<Value>,
+
+    /// `metadata.updateTimestamp`: when the catalog record last changed, under the same name as in
+    /// `describe_item`. It is not a source system's own date inside `spec`.
+    #[serde(rename = "recordUpdatedAt", skip_serializing_if = "Option::is_none")]
+    pub record_updated_at: Option<String>,
 
     /// A relationship's type, the last segment of `spec.typeRef`. Only on relationship rows.
     #[serde(rename = "type", skip_serializing_if = "Option::is_none")]
@@ -219,6 +267,11 @@ struct SearchOutput {
     /// from *"I filtered wrongly"*.
     #[serde(rename = "filters", skip_serializing_if = "Option::is_none")]
     filters: Option<Value>,
+
+    /// The way to what the search most likely wanted, **only** on an empty result whose shape
+    /// shows a known dead end.
+    #[serde(rename = "hint", skip_serializing_if = "Option::is_none")]
+    hint: Option<&'static str>,
 }
 
 /// `search_catalog` — find items by free text, type, labels and fields.
@@ -333,6 +386,11 @@ impl Tool for SearchCatalog {
         // The page is emitted whole: the engine's cursor points after what was fetched.
         let items = page.items;
         let filters = items.is_empty().then(|| interpreted_filters(&input));
+        let hint = (items.is_empty()
+            && family.as_ref().is_some_and(is_relationships)
+            && input.query.is_some()
+            && !filters_on_an_end(input.fields.as_ref()))
+        .then_some(RELATIONSHIP_QUERY_HINT);
 
         let output = SearchOutput {
             items,
@@ -340,6 +398,7 @@ impl Tool for SearchCatalog {
             cursor: next_cursor,
             limit: limit_echo,
             filters,
+            hint,
         };
 
         let payload = serde_json::to_value(&output).map_err(|err| {
@@ -350,8 +409,32 @@ impl Tool for SearchCatalog {
             )
         })?;
 
-        Ok(ToolOutput::new(payload))
+        let output = ToolOutput::new(payload);
+
+        Ok(
+            if input.kind.is_none() && filters_on_spec(input.fields.as_ref()) {
+                output.with_warning(SPEC_WITHOUT_KIND_WARNING)
+            } else {
+                output
+            },
+        )
     }
+}
+
+/// Whether `fields` filters a relationship by one of its ends.
+fn filters_on_an_end(fields: Option<&FieldFilters>) -> bool {
+    fields
+        .into_iter()
+        .flat_map(BTreeMap::keys)
+        .any(|path| RELATIONSHIP_END_FIELDS.contains(&path.as_str()))
+}
+
+/// Whether `fields` filters on any `spec.` path.
+fn filters_on_spec(fields: Option<&FieldFilters>) -> bool {
+    fields
+        .into_iter()
+        .flat_map(BTreeMap::keys)
+        .any(|path| path.starts_with(SPEC_PATH_PREFIX))
 }
 
 /// Every input bound, checked before anything reaches the engine.
@@ -393,7 +476,12 @@ fn validate(input: &SearchCatalogInput) -> Result<(), ToolError> {
     validate_group(input.group.as_deref(), input.kind.is_some())?;
 
     if let Some(labels) = &input.labels {
-        validate_entries("labels", labels)?;
+        validate_entries(
+            "labels",
+            labels
+                .iter()
+                .map(|(key, value)| (key, Some(value.as_str()))),
+        )?;
 
         if let Some(key) = labels.keys().find(|key| !is_valid_label_key(key)) {
             return Err(invalid(
@@ -404,14 +492,22 @@ fn validate(input: &SearchCatalogInput) -> Result<(), ToolError> {
     }
 
     if let Some(fields) = &input.fields {
-        validate_entries("fields", fields)?;
+        validate_entries(
+            "fields",
+            fields.iter().map(|(path, value)| (path, value.as_deref())),
+        )?;
+        validate_unset(fields, input.kind.is_some())?;
     }
 
     Ok(())
 }
 
-/// The entry-count and value-length bounds shared by `labels` and `fields`.
-fn validate_entries(parameter: &str, entries: &BTreeMap<String, String>) -> Result<(), ToolError> {
+/// The entry-count and value-length bounds shared by `labels` and `fields`; a `fields` value is
+/// `None` when it asks for an unset field.
+fn validate_entries<'a>(
+    parameter: &str,
+    mut entries: impl ExactSizeIterator<Item = (&'a String, Option<&'a str>)>,
+) -> Result<(), ToolError> {
     if entries.len() > MAX_FILTER_ENTRIES {
         return Err(invalid(
             parameter,
@@ -422,10 +518,11 @@ fn validate_entries(parameter: &str, entries: &BTreeMap<String, String>) -> Resu
         ));
     }
 
-    if let Some(key) = entries
-        .iter()
-        .find_map(|(key, value)| (value.len() > MAX_VALUE_BYTES).then_some(key))
-    {
+    if let Some(key) = entries.find_map(|(key, value)| {
+        value
+            .is_some_and(|value| value.len() > MAX_VALUE_BYTES)
+            .then_some(key)
+    }) {
         return Err(invalid(
             parameter,
             format!("The value of `{parameter}.{key}` is longer than {MAX_VALUE_BYTES} bytes."),
@@ -433,6 +530,40 @@ fn validate_entries(parameter: &str, entries: &BTreeMap<String, String>) -> Resu
     }
 
     Ok(())
+}
+
+/// Where a `null` in `fields` — *"this field is unset"* — is accepted.
+///
+/// On `metadata.owner` always: it is how *"items without an owner"* is asked. On a `spec.` path
+/// only with `kind`: the type's own listing knows which fields it can filter, but without `kind`
+/// the catalog checks an unset `spec.` field against every type, and every type that does not
+/// declare it matches — the whole catalog, not the items that leave it unset. Nowhere else: the
+/// other filterable fields are always set, or are not something a caller asks to be absent.
+fn validate_unset(fields: &FieldFilters, has_kind: bool) -> Result<(), ToolError> {
+    let Some(path) = fields
+        .iter()
+        .filter(|(_, value)| value.is_none())
+        .map(|(path, _)| path)
+        .find(|path| {
+            path.as_str() != OWNER_FIELD && !(has_kind && path.starts_with(SPEC_PATH_PREFIX))
+        })
+    else {
+        return Ok(());
+    };
+
+    let message = if path.starts_with(SPEC_PATH_PREFIX) {
+        format!(
+            "`null` on `{path}` needs `kind`: without it, every item whose type does not declare \
+             the field would match."
+        )
+    } else {
+        format!(
+            "`null` on `{path}` is not accepted: `null` matches an unset field only on \
+             `{OWNER_FIELD}` and, with `kind`, on `spec.` fields."
+        )
+    };
+
+    Err(invalid("fields", message))
 }
 
 /// An `invalid_input` naming the offending parameter.
@@ -463,13 +594,27 @@ async fn resolve_family(
     engine: &EngineClient,
     kind: &str,
     group: Option<&str>,
-    fields: Option<&BTreeMap<String, String>>,
+    fields: Option<&FieldFilters>,
 ) -> Result<FamilyAddress, ToolError> {
     let coordinates = resolve_kind_or_suggest(engine, kind, group).await?;
+    let family = coordinates.family_address()?;
 
-    validate_fields_for(kind, fields, &coordinates.selectable_fields)?;
+    validate_fields_for(kind, fields, &coordinates.selectable_fields).map_err(|error| {
+        if is_relationships(&family) {
+            error.with_next_step(RELATIONSHIP_FIELDS_NEXT_STEP)
+        } else {
+            error
+        }
+    })?;
 
-    coordinates.family_address()
+    if fields.is_some_and(|fields| fields.contains_key(OWNER_FIELD)) && is_unowned(&family) {
+        return Err(invalid(
+            "fields",
+            format!("`{kind}` items have no owner, so they cannot be filtered on `{OWNER_FIELD}`."),
+        ));
+    }
+
+    Ok(family)
 }
 
 /// On the `kind` path a `spec.` filter must be one of the type's selectable fields.
@@ -479,7 +624,7 @@ async fn resolve_family(
 /// being baffling. `metadata.*` paths are accepted on both endpoints.
 fn validate_fields_for(
     kind: &str,
-    fields: Option<&BTreeMap<String, String>>,
+    fields: Option<&FieldFilters>,
     selectable: &[String],
 ) -> Result<(), ToolError> {
     let Some(path) = fields
@@ -514,6 +659,11 @@ fn log_if_ours(error: &ToolError, predicate: Option<&Predicate>) {
 /// Whether `family` is the relationships family, whose rows carry their ends.
 fn is_relationships(family: &FamilyAddress) -> bool {
     family.group() == RELATIONSHIP_GROUP && family.family() == RELATIONSHIP_FAMILY
+}
+
+/// Whether `family` is one whose records never have an owner.
+fn is_unowned(family: &FamilyAddress) -> bool {
+    family.group() == RELATIONSHIP_GROUP && UNOWNED_FAMILIES.contains(&family.family())
 }
 
 /// A listed page as rows.
@@ -572,6 +722,8 @@ fn row(api_version: String, kind: String, metadata: ObjectMetadata) -> SearchRow
         version,
         family: metadata.family,
         labels: metadata.labels,
+        owner: metadata.owner,
+        record_updated_at: metadata.update_timestamp,
         relationship_type: None,
         source: None,
         target: None,

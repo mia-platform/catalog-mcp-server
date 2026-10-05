@@ -20,7 +20,10 @@ use crate::{
         ToolDescriptor,
         contract::{CallContext, Tool, ToolOutput},
     },
-    tools::{arguments::validate_group, lookup::resolve},
+    tools::{
+        arguments::validate_group,
+        lookup::{Resolved, resolve},
+    },
 };
 use catalog_client::{
     ItemAddress, Remedy, ToolError,
@@ -35,7 +38,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 
-/// The four-field shaper and the grouping.
+/// The relationship shaper and the grouping.
 mod shape;
 
 use shape::Grouping;
@@ -169,6 +172,13 @@ struct DescribeItemOutput {
     #[serde(rename = "family")]
     family: String,
 
+    /// The item's catalog address, exactly as the engine generated it from the version the item
+    /// was written under. It is the value a `Relationship` search filters `spec.sourceRef` or
+    /// `spec.targetRef` on, so it is passed through rather than rebuilt from `group` and
+    /// `version`: a relationship end that names another version would not match a rebuilt one.
+    #[serde(rename = "urn", skip_serializing_if = "Option::is_none")]
+    urn: Option<String>,
+
     #[serde(rename = "title", skip_serializing_if = "Option::is_none")]
     title: Option<String>,
 
@@ -275,19 +285,24 @@ impl Tool for DescribeItem {
         );
         let engine = context.engine();
 
-        let (address, engine_cursor) = match &input.relationship_cursor {
-            Some(raw) => resume(raw, &cursor_fingerprint, &input.name)?,
-            None => (
-                resolve(
+        // A cursor pins the address it was minted for, so a later page resolves nothing again
+        // and has nothing to note.
+        let (address, engine_cursor, note) = match &input.relationship_cursor {
+            Some(raw) => {
+                let (address, engine_cursor) = resume(raw, &cursor_fingerprint, &input.name)?;
+                (address, engine_cursor, None)
+            }
+            None => {
+                let Resolved { address, note } = resolve(
                     engine,
                     TOOL_NAME,
                     &input.name,
                     input.kind.as_deref(),
                     input.group.as_deref(),
                 )
-                .await?,
-                None,
-            ),
+                .await?;
+                (address, None, note)
+            }
         };
 
         // The item and its relationships are independent, so they are fetched at once,
@@ -365,6 +380,7 @@ impl Tool for DescribeItem {
             group: address.group().to_string(),
             version: address.version().to_string(),
             family: address.family().to_string(),
+            urn: item.metadata.urn,
             title: item.metadata.title,
             labels: item.metadata.labels,
             owner: item.metadata.owner,
@@ -386,11 +402,10 @@ impl Tool for DescribeItem {
             )
         })?;
 
-        let output = ToolOutput::new(payload);
-        Ok(match warning {
-            Some(warning) => output.with_warning(warning),
-            None => output,
-        })
+        Ok(note
+            .into_iter()
+            .chain(warning)
+            .fold(ToolOutput::new(payload), ToolOutput::with_warning))
     }
 }
 
@@ -425,7 +440,8 @@ fn validate(input: &DescribeItemInput) -> Result<(), ToolError> {
         }
     }
 
-    validate_group(input.group.as_deref(), input.kind.is_some())
+    // `group` alone is usable here: it narrows the name to one group's items.
+    validate_group(input.group.as_deref(), true)
 }
 
 /// An `invalid_input` naming the offending parameter.
