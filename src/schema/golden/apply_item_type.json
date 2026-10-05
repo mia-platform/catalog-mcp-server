@@ -9,8 +9,12 @@
       "description": "The type's kind, e.g. \"Service\".",
       "type": "string"
     },
-    "metadata": {},
-    "spec": {}
+    "metadata": {
+      "description": "Metadata fields to set."
+    },
+    "spec": {
+      "description": "Spec fields to set. A new type needs `group`, `names.plural` and `versions`."
+    }
   },
   "required": [
     "kind"

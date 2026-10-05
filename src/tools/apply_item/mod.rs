@@ -46,7 +46,10 @@ pub const TOOL_NAME: &str = "apply_item";
 /// yet and a pointer to a tool that does not exist would send the model looking.
 const TOOL_DESCRIPTION: &str = "Creates or updates a catalog item. Send only the fields to \
      change; anything left out is kept. `null` removes a field. Lists such as `tags` are \
-     replaced, not appended. Custom fields cannot be set here.";
+     replaced, not appended. Custom fields cannot be set here. Returns `created`, the `changed` \
+     field paths (empty if nothing changed) and `retried` (a conflict was resolved by \
+     re-reading). Address the item by `name` and `kind` (and `group` for a shared kind); put the \
+     changes in `spec` and `metadata`.";
 
 /// The longest `name`, in bytes.
 pub const MAX_NAME_BYTES: usize = 256;
@@ -87,13 +90,11 @@ pub struct ApplyItemInput {
     #[serde(rename = "group")]
     pub group: Option<String>,
 
-    // Spec fields to set. Undocumented in the schema on purpose, like `metadata`: the tool's
-    // description states the merge rules both follow, and a description here is paid for in
-    // every `tools/list`.
+    /// Fields to set in the item's spec.
     #[serde(rename = "spec", default, deserialize_with = "patch::present")]
     pub spec: Option<Value>,
 
-    // Metadata fields to set.
+    /// Metadata fields to set.
     #[serde(rename = "metadata")]
     pub metadata: Option<ItemMetadataPatch>,
 }
@@ -105,23 +106,27 @@ pub struct ApplyItemInput {
 #[serde(deny_unknown_fields)]
 #[schemars(transform = patch::without_description)]
 pub struct ItemMetadataPatch {
-    // Undocumented on purpose: each name says what it is, and a description here would be paid
-    // for in every `tools/list`.
+    /// A human-readable title.
     #[serde(rename = "title", default, deserialize_with = "patch::present")]
     pub(crate) title: Option<Value>,
 
+    /// A short description.
     #[serde(rename = "description", default, deserialize_with = "patch::present")]
     pub(crate) description: Option<Value>,
 
+    /// Searchable key/value labels.
     #[serde(rename = "labels", default, deserialize_with = "patch::present")]
     pub(crate) labels: Option<Value>,
 
+    /// Free-form tags.
     #[serde(rename = "tags", default, deserialize_with = "patch::present")]
     pub(crate) tags: Option<Value>,
 
+    /// Key/value annotations, not searchable.
     #[serde(rename = "annotations", default, deserialize_with = "patch::present")]
     pub(crate) annotations: Option<Value>,
 
+    /// Links, each `{url, title?}`.
     #[serde(rename = "links", default, deserialize_with = "patch::present")]
     pub(crate) links: Option<Value>,
 }

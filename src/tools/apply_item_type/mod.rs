@@ -52,7 +52,9 @@ const TOOL_DESCRIPTION: &str = "Creates or updates a catalog type definition. Se
      Some fields cannot be changed after creation — the type's `kind`, `plural`, `group`, and its \
      history and audit settings — and attempts to change them are reported back as ignored. \
      Changing a type's schema does not re-validate items that already exist. `existingItems` \
-     counts the items you can read.";
+     counts the items you can read. `schemaChanged` and `versionsRemoved` flag changes affecting \
+     existing items; `backgroundJobs` lists work a creation started. `metadata` merges the same \
+     way.";
 
 /// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
@@ -99,11 +101,11 @@ pub struct ApplyItemTypeInput {
     #[serde(rename = "group")]
     pub group: Option<String>,
 
-    // Undocumented in the schema, as in `apply_item`: the description states the merge rules, and
-    // a description here is paid for in every `tools/list`.
+    /// Spec fields to set. A new type needs `group`, `names.plural` and `versions`.
     #[serde(rename = "spec", default, deserialize_with = "present")]
     pub spec: Option<Value>,
 
+    /// Metadata fields to set.
     #[serde(rename = "metadata", default, deserialize_with = "present")]
     pub metadata: Option<Value>,
 }

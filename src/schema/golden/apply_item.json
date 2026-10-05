@@ -11,13 +11,26 @@
     },
     "metadata": {
       "additionalProperties": false,
+      "description": "Metadata fields to set.",
       "properties": {
-        "annotations": {},
-        "description": {},
-        "labels": {},
-        "links": {},
-        "tags": {},
-        "title": {}
+        "annotations": {
+          "description": "Key/value annotations, not searchable."
+        },
+        "description": {
+          "description": "A short description."
+        },
+        "labels": {
+          "description": "Searchable key/value labels."
+        },
+        "links": {
+          "description": "Links, each `{url, title?}`."
+        },
+        "tags": {
+          "description": "Free-form tags."
+        },
+        "title": {
+          "description": "A human-readable title."
+        }
       },
       "type": "object"
     },
@@ -25,7 +38,9 @@
       "description": "The item's name.",
       "type": "string"
     },
-    "spec": {}
+    "spec": {
+      "description": "Fields to set in the item's spec."
+    }
   },
   "required": [
     "name",

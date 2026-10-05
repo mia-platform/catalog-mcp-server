@@ -44,7 +44,11 @@ pub mod contract;
 /// loose, roughly double what a well-written tool needs: a check that fires on ordinary work
 /// gets switched off, and a disabled check protects nothing. It catches bloat and ignores
 /// craftsmanship.
-pub const PER_TOOL_ALLOWANCE: usize = 800;
+///
+/// Raised from 800 to 1 000 so that each description can also name the output fields that drive an
+/// agent's next step — cursors, totals, flags — which no output schema declares: a model learns an
+/// output field only from an answer, unless the description mentions it.
+pub const PER_TOOL_ALLOWANCE: usize = 1_000;
 
 /// What the model sees for one tool. Built once at startup; never rebuilt per request.
 #[derive(Clone)]

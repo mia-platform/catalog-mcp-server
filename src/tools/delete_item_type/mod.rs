@@ -39,7 +39,9 @@ pub const TOOL_NAME: &str = "delete_item_type";
 const TOOL_DESCRIPTION: &str = "Deletes a catalog type definition and every item of that type, \
      along with their history and every relationship connected to them — including relationships \
      owned by items of other types. There is no undo. If the type has any items, the call is \
-     refused the first time and reports how many would be destroyed.";
+     refused the first time and reports how many would be destroyed: pass that count as \
+     `expected_items` to proceed. Add `group` for a shared `kind`. `relationshipsDeleted` is \
+     always null: the catalog does not count them.";
 
 /// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;

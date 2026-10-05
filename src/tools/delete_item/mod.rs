@@ -46,7 +46,7 @@ const TOOL_DESCRIPTION: &str = "Deletes a catalog item permanently. This also re
      relationship connected to it, in both directions, and its revision history — other items will \
      lose their links to it. There is no undo. Use `describe_item` first if you need to see what \
      will be affected. `relationshipsRemoved` counts the ones `describe_item` lists; the delete \
-     removes all of them.";
+     removes all of them. `kind` and `group` are needed only if `name` is ambiguous.";
 
 /// The longest `name`, in bytes, as for `describe_item`.
 pub const MAX_NAME_BYTES: usize = 256;

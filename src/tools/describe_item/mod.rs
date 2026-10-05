@@ -46,9 +46,12 @@ pub const TOOL_NAME: &str = "describe_item";
 /// What the tool does. The last sentence is there because nothing else tells the model in advance
 /// that relationships come in pages: output fields are learned only from the answers themselves.
 const TOOL_DESCRIPTION: &str = "Describes one catalog item: what it is, and what it is connected \
-     to. Give the item's name; `kind` only if the name is ambiguous. Returns the item together with \
-     its relationships, so you do not need a second call to find out what depends on it. If \
-     `relationshipsTruncated` is true, pass `relationshipCursor` back for the rest.";
+     to. Give the item's `name`; `kind` only if the name is ambiguous. Returns the item together \
+     with its relationships, so you do not need a second call to find out what depends on it. If \
+     `relationshipsTruncated` is true, pass `relationshipCursor` back as `relationship_cursor` \
+     for the rest. An `unresolved` entry is a link whose other end could not be read. Also: \
+     `group` for a shared kind; `include_spec`, `include_relationships`, `direction`, `group_by` \
+     and `relationship_limit` shape the answer.";
 
 /// The longest `name`, in bytes.
 pub const MAX_NAME_BYTES: usize = 256;

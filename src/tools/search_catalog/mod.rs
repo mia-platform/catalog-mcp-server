@@ -62,7 +62,9 @@ pub const TOOL_NAME: &str = "search_catalog";
 const TOOL_DESCRIPTION: &str = "Searches the catalog. Use `query` for free text over names, \
      titles and tags; `kind` to restrict to one type; `labels` and `fields` to filter exactly. \
      `Relationship` rows include their `type`, `source` and `target`. Call `list_catalog_types` \
-     first if you do not know the exact `kind`.";
+     first if you do not know the exact `kind`. Add `group` for a shared `kind`. `total` counts \
+     every match; pass `cursor` back for more; `limit` appears only if yours was clamped; an \
+     empty result echoes the `filters` as understood.";
 
 /// The longest `query`, in bytes, **before** escaping.
 ///

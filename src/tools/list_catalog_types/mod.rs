@@ -40,7 +40,7 @@ pub const TOOL_NAME: &str = "list_catalog_types";
 const TOOL_DESCRIPTION: &str = "Lists every item type in the catalog, with the coordinates needed \
      to address items of that type. Call this first when you do not already know a type's exact \
      `kind`. Returns every type in one response — there is no pagination. Use `search` to \
-     narrow by name or purpose.";
+     narrow by name or purpose; `filteredFrom` is how many types there were before.";
 
 /// The longest `search` term accepted, in bytes.
 ///

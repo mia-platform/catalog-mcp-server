@@ -40,7 +40,9 @@ pub const TOOL_NAME: &str = "get_item_schema";
 /// the whole thing — and `fields` for a change to an existing item.
 const TOOL_DESCRIPTION: &str = "Returns one catalog type's definition, including its items' \
      schema. Call it before creating an item or editing the type; to change an item, pass \
-     `fields` for just those fields' schema.";
+     `fields` for just those fields' schema; shared definitions come back under `$defs`, and an \
+     unknown path lists the `validFields` there. Needs `kind` (and `group` if shared); `version` \
+     defaults to the served one.";
 
 /// The longest `kind`, in bytes.
 pub const MAX_KIND_BYTES: usize = 128;
