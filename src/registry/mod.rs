@@ -48,7 +48,10 @@ pub mod contract;
 /// Raised from 800 to 1 000 so that each description can also name the output fields that drive an
 /// agent's next step — cursors, totals, flags — which no output schema declares: a model learns an
 /// output field only from an answer, unless the description mentions it.
-pub const PER_TOOL_ALLOWANCE: usize = 1_000;
+///
+/// Raised again, to 1 050, when a type's agent briefing moved off the type listing and behind a
+/// per-type call: the listing and `get_item_schema` each need words saying where to read it.
+pub const PER_TOOL_ALLOWANCE: usize = 1_050;
 
 /// What the model sees for one tool. Built once at startup; never rebuilt per request.
 #[derive(Clone)]

@@ -88,7 +88,7 @@ pub struct GetItemSchemaInput {
     #[serde(rename = "version")]
     pub version: Option<String>,
 
-    /// Only these fields' schema, e.g. ["spec.lifecycle"]. Absent returns the whole definition.
+    /// Only these fields' schema, e.g. ["spec.lifecycle"]; [] for the type alone. Absent returns the whole definition.
     #[serde(rename = "fields")]
     pub fields: Option<Vec<String>>,
 }
@@ -142,6 +142,17 @@ struct FieldsAnswer {
     #[serde(rename = "version")]
     version: String,
 
+    /// The type's briefing for agents, `spec.llmDescription`, verbatim — omitted when absent or
+    /// blank. The type listing only flags that a type has one, because briefings can be long and a
+    /// listing would carry every type's at once; here the caller asked for this type.
+    #[serde(rename = "llmDescription", skip_serializing_if = "Option::is_none")]
+    llm_description: Option<String>,
+
+    /// The type's short description, `metadata.description`, verbatim — omitted when absent or blank.
+    #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+
+    /// Each requested field's schema — empty, and still present, when none was asked for.
     #[serde(rename = "fields")]
     fields: Map<String, Value>,
 
@@ -194,6 +205,18 @@ impl Tool for GetItemSchema {
         )?;
 
         let payload = match &input.fields {
+            // `[]`: the type alone — what it is, without any schema, so a version that declares
+            // none is still answered.
+            Some(paths) if paths.is_empty() => to_payload(&FieldsAnswer {
+                kind: document.definition.spec.names.kind.clone(),
+                group: coordinates.group,
+                family: coordinates.family,
+                version,
+                llm_description: non_blank(document.definition.spec.llm_description.clone()),
+                description: non_blank(document.definition.metadata.description.clone()),
+                fields: Map::new(),
+                defs: Map::new(),
+            })?,
             Some(paths) => {
                 let root = version_schema(&document.raw, &version).ok_or_else(|| {
                     ToolError::new(
@@ -212,6 +235,8 @@ impl Tool for GetItemSchema {
                     group: coordinates.group,
                     family: coordinates.family,
                     version,
+                    llm_description: non_blank(document.definition.spec.llm_description.clone()),
+                    description: non_blank(document.definition.metadata.description.clone()),
                     fields: extracted.fields,
                     defs: extracted.defs,
                 })?
@@ -258,12 +283,12 @@ fn validate(input: &GetItemSchemaInput) -> Result<(), ToolError> {
     }
 
     if let Some(paths) = &input.fields {
-        if paths.is_empty() || paths.len() > MAX_FIELDS {
+        if paths.len() > MAX_FIELDS {
             return Err(invalid(
                 "fields",
                 format!(
-                    "`fields` takes between 1 and {MAX_FIELDS} paths; omit it for the whole \
-                     definition."
+                    "`fields` takes at most {MAX_FIELDS} paths; pass [] for the type alone, or \
+                     omit it for the whole definition."
                 ),
             ));
         }
@@ -379,6 +404,11 @@ fn full_definition(
         metadata,
         spec,
     }
+}
+
+/// `text`, unless it is absent or only whitespace.
+fn non_blank(text: Option<String>) -> Option<String> {
+    text.filter(|text| !text.trim().is_empty())
 }
 
 /// Serialises an answer, reporting the impossible failure as ours.

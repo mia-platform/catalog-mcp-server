@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "fields": {
-      "description": "Only these fields' schema, e.g. [\"spec.lifecycle\"]. Absent returns the whole definition.",
+      "description": "Only these fields' schema, e.g. [\"spec.lifecycle\"]; [] for the type alone. Absent returns the whole definition.",
       "items": {
         "type": "string"
       },

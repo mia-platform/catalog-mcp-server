@@ -46,8 +46,8 @@ const CALL_BUDGET: Duration = Duration::from_secs(25);
 /// not a limit.
 const RECORDED_FULL_BYTES: usize = 1_447;
 
-/// The recorded size of the same type asked for one field.
-const RECORDED_FIELDS_BYTES: usize = 153;
+/// The recorded size of the same type asked for one field, its two descriptions included.
+const RECORDED_FIELDS_BYTES: usize = 282;
 
 /// How far those goldens may drift.
 const SIZE_TOLERANCE_PERCENT: usize = 1;
@@ -315,6 +315,8 @@ async fn test_fields_returns_each_fields_schema() {
         payload,
         json!({
             "kind": "Skill", "group": "ai.mia-platform.eu", "family": "skills", "version": "v1",
+            "llmDescription": "Use a skill when the task has a known procedure.",
+            "description": "A specialized guideline to accomplish a task",
             "fields": {
                 "spec.owner.team": { "type": "string", "description": "The owning team." },
                 "spec.category": { "type": "string", "enum": ["how-to", "reference"] }
@@ -435,9 +437,8 @@ async fn test_fields_reads_the_requested_version() {
     );
 }
 
-/// `fields` bounds: at least one path, at most `MAX_FIELDS`, each a dotted name.
+/// `fields` bounds: at most `MAX_FIELDS` paths, each a dotted name.
 #[rstest]
-#[case::empty(vec![])]
 #[case::too_many((0..=MAX_FIELDS).map(|index| format!("spec.f{index}")).collect())]
 #[case::empty_segment(vec!["spec..category".to_string()])]
 #[tokio::test]
@@ -465,6 +466,83 @@ async fn test_fields_out_of_bounds_is_refused(#[case] paths: Vec<String>) {
             .map(|details| details["field"].clone()),
         Some(json!("fields"))
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// `fields: []`: the type alone.
+// ---------------------------------------------------------------------------------------------
+
+/// `fields: []` answers what the type is — its identity and both descriptions, byte for byte —
+/// with no field schema and no `$defs`, and `fields` still present so the answer says none was
+/// asked for.
+#[rstest]
+#[tokio::test]
+async fn test_no_fields_answers_the_type_alone() {
+    let payload = call_with(vec![mock_skill_type()], mock_fields_input("Skill", &[]))
+        .await
+        .expect("described");
+
+    assert_eq!(
+        payload,
+        json!({
+            "kind": "Skill", "group": "ai.mia-platform.eu", "family": "skills", "version": "v1",
+            "llmDescription": "Use a skill when the task has a known procedure.",
+            "description": "A specialized guideline to accomplish a task",
+            "fields": {}
+        })
+    );
+}
+
+/// A type with neither description, or only blank ones, answers without either key — it is not
+/// an error, and nothing is put in their place.
+#[rstest]
+#[case::absent(None)]
+#[case::blank(Some("   "))]
+#[tokio::test]
+async fn test_no_fields_without_descriptions_omits_them(#[case] text: Option<&str>) {
+    let mut itd = mock_skill_type();
+    match text {
+        Some(text) => {
+            itd["spec"]["llmDescription"] = json!(text);
+            itd["metadata"]["description"] = json!(text);
+        }
+        None => {
+            itd["spec"]
+                .as_object_mut()
+                .map(|spec| spec.remove("llmDescription"));
+            itd["metadata"]
+                .as_object_mut()
+                .map(|metadata| metadata.remove("description"));
+        }
+    }
+
+    let payload = call_with(vec![itd], mock_fields_input("Skill", &[]))
+        .await
+        .expect("described");
+
+    assert!(payload.get("llmDescription").is_none(), "{payload}");
+    assert!(payload.get("description").is_none(), "{payload}");
+    assert_eq!(payload["fields"], json!({}));
+}
+
+/// `fields: []` needs no schema, so a version that declares none is still answered.
+#[rstest]
+#[tokio::test]
+async fn test_no_fields_does_not_need_a_schema() {
+    let mut itd = mock_skill_type();
+    itd["spec"]["versions"][0]
+        .as_object_mut()
+        .map(|version| version.remove("schema"));
+
+    let payload = call_with(vec![itd.clone()], mock_fields_input("Skill", &[]))
+        .await
+        .expect("the type alone needs no schema");
+    assert_eq!(payload["fields"], json!({}));
+
+    let error = call_with(vec![itd], mock_fields_input("Skill", &["spec.category"]))
+        .await
+        .expect_err("a field needs a schema");
+    assert_eq!(error.code, codes::UNADDRESSABLE_TYPE);
 }
 
 /// Extracts `paths` from `root` directly.
@@ -929,7 +1007,7 @@ async fn test_an_input_over_its_bound_is_refused(
 // ---------------------------------------------------------------------------------------------
 
 /// The realistic type's two answers serialise to recorded sizes — a regression in either shape is
-/// a diff — and the `fields` answer is a small fraction of the whole.
+/// a diff — and the `fields` answer, descriptions included, is a small fraction of the whole.
 #[rstest]
 #[tokio::test]
 async fn test_both_answers_serialise_to_their_recorded_sizes() {

@@ -166,15 +166,28 @@ impl ItemTypeDefinitionSpec {
 
 /// One entry of the type listing, read **only** as far as `list_catalog_types` needs it.
 ///
-/// There is no `metadata` and nothing past the names and versions: `list_catalog_types`
-/// addresses a type by its `spec`, never by decomposing `metadata.name`, and every field not
-/// declared here is skipped by the deserialiser without being built.
+/// Of `metadata`, only the short description: `list_catalog_types` addresses a type by its
+/// `spec`, never by decomposing `metadata.name`, and every field not declared here is skipped by
+/// the deserialiser without being built.
 #[derive(Clone, Deserialize)]
 #[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
 pub struct ItdListEntry {
+    /// The part of the type's `metadata` the listing reads.
+    #[serde(rename = "metadata", default)]
+    pub metadata: ItdListMetadata,
+
     /// What the type declares.
     #[serde(rename = "spec")]
     pub spec: ItdSpec,
+}
+
+/// The part of an Item Type Definition's `metadata` the type listing reads.
+#[derive(Clone, Default, Deserialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
+pub struct ItdListMetadata {
+    /// The type's short, human description.
+    #[serde(rename = "description", default)]
+    pub description: Option<String>,
 }
 
 /// The part of an Item Type Definition's `spec` the type listing reads.

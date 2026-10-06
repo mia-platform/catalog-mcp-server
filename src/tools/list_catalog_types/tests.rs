@@ -52,7 +52,7 @@ const RICH_DESCRIPTION: &str = "# Services\n\nA **deployable** unit — «donné
 
 /// The recorded size of the realistic fixture's output. **Regression
 /// detection, not a limit**: update it deliberately when growth is intended.
-const RECORDED_REALISTIC_BYTES: usize = 30_469;
+const RECORDED_REALISTIC_BYTES: usize = 13_265;
 
 /// How far the realistic fixture may drift before the golden fails.
 const SIZE_TOLERANCE_PERCENT: usize = 1;
@@ -182,14 +182,57 @@ fn kinds(payload: &Value) -> Vec<String> {
 }
 
 // ---------------------------------------------------------------------------------------------
-// `llmDescription` is returned verbatim.
+// The short description is listed; the briefing is only flagged.
 // ---------------------------------------------------------------------------------------------
 
-/// The description is **byte-identical** to the engine's: markdown, paragraphs, a code fence
-/// and non-ASCII text all survive untouched.
+/// `mock_itd` with its `metadata.description` replaced, or removed for `None`.
+fn with_short_description(mut itd: Value, text: Option<&str>) -> Value {
+    match text {
+        Some(text) => itd["metadata"]["description"] = json!(text),
+        None => {
+            itd["metadata"]
+                .as_object_mut()
+                .map(|metadata| metadata.remove("description"));
+        }
+    }
+    itd
+}
+
+/// The short description is **byte-identical** to the engine's: markdown, paragraphs, a code
+/// fence and non-ASCII text all survive untouched.
 #[rstest]
 #[tokio::test]
-async fn test_a_description_is_returned_byte_identical() {
+async fn test_a_short_description_is_returned_byte_identical() {
+    let row = only_row(with_short_description(
+        mock_itd("Service", "services", "mia-platform.eu", json!({})),
+        Some(RICH_DESCRIPTION),
+    ))
+    .await;
+
+    assert_eq!(row["description"].as_str(), Some(RICH_DESCRIPTION));
+}
+
+/// Why nothing is ever shortened: an opening negation, which any shortening risks turning into
+/// its opposite, survives intact.
+#[rstest]
+#[tokio::test]
+async fn test_a_description_opening_with_a_negation_survives() {
+    let negation = "This type is not used for deployments. It records what was deployed, after \
+                    the fact, for audit.";
+    let row = only_row(with_short_description(
+        mock_itd("Release", "releases", "mia-platform.eu", json!({})),
+        Some(negation),
+    ))
+    .await;
+
+    assert_eq!(row["description"].as_str(), Some(negation));
+}
+
+/// A type's briefing is flagged and **never listed**: a briefing can be long, and its text is read
+/// one type at a time with `get_item_schema`. No part of it reaches the row.
+#[rstest]
+#[tokio::test]
+async fn test_a_briefing_is_flagged_never_listed() {
     let row = only_row(mock_itd(
         "Service",
         "services",
@@ -198,69 +241,82 @@ async fn test_a_description_is_returned_byte_identical() {
     ))
     .await;
 
-    assert_eq!(row["description"].as_str(), Some(RICH_DESCRIPTION));
+    assert_eq!(row["hasLlmDescription"], json!(true));
+    assert_eq!(row["description"], json!("Not a briefing."));
+    let rendered = serde_json::to_string(&row).expect("a row serialises");
+    assert!(
+        !rendered.contains("deployable") && !rendered.contains("Überwachung"),
+        "{rendered}"
+    );
 }
 
-/// The clearest statement of why the description is returned verbatim: an opening negation, which
-/// any shortening risks turning into its opposite, survives intact.
-#[rstest]
-#[tokio::test]
-async fn test_a_description_opening_with_a_negation_survives() {
-    let negation = "This type is not used for deployments. It records what was deployed, after \
-                    the fact, for audit.";
-    let row = only_row(mock_itd(
-        "Release",
-        "releases",
-        "mia-platform.eu",
-        json!({ "llmDescription": negation }),
-    ))
-    .await;
-
-    assert_eq!(row["description"].as_str(), Some(negation));
-}
-
-/// A blank description is absent — omitted, never `""`.
+/// A blank text is absent — the short description omitted, the flag not raised.
 #[rstest]
 #[case::empty("")]
 #[case::whitespace("   \n\t ")]
 #[tokio::test]
-async fn test_a_blank_description_is_omitted(#[case] blank: &str) {
-    let row = only_row(mock_itd(
-        "Service",
-        "services",
-        "mia-platform.eu",
-        json!({ "llmDescription": blank }),
+async fn test_a_blank_text_is_omitted(#[case] blank: &str) {
+    let row = only_row(with_short_description(
+        mock_itd(
+            "Service",
+            "services",
+            "mia-platform.eu",
+            json!({ "llmDescription": blank }),
+        ),
+        Some(blank),
     ))
     .await;
 
     assert!(row.get("description").is_none(), "{row}");
+    assert!(row.get("hasLlmDescription").is_none(), "{row}");
 }
 
-/// Nothing is synthesised: with no `llmDescription`, neither `metadata.description` nor the
-/// display name is backfilled into the briefing.
+/// Nothing is synthesised, either way: a type with neither text lists neither, and a type with
+/// only a briefing carries the flag and no `description` made from it.
 #[rstest]
 #[tokio::test]
 async fn test_nothing_is_synthesised_into_a_missing_description() {
-    let row = only_row(mock_itd(
-        "Service",
-        "services",
-        "mia-platform.eu",
-        json!({ "names": { "kind": "Service", "plural": "services", "displayPlural": "Services" } }),
+    let row = only_row(with_short_description(
+        mock_itd(
+            "Service",
+            "services",
+            "mia-platform.eu",
+            json!({ "names": { "kind": "Service", "plural": "services",
+                               "displayPlural": "Services" } }),
+        ),
+        None,
     ))
     .await;
-
     assert!(row.get("description").is_none(), "{row}");
+    assert!(row.get("hasLlmDescription").is_none(), "{row}");
     assert_eq!(row["displayName"], json!("Services"));
+
+    let row = only_row(with_short_description(
+        mock_itd(
+            "Service",
+            "services",
+            "mia-platform.eu",
+            json!({ "llmDescription": "A deployable unit." }),
+        ),
+        None,
+    ))
+    .await;
+    assert_eq!(row["hasLlmDescription"], json!(true));
+    assert!(row.get("description").is_none(), "{row}");
 }
 
 // ---------------------------------------------------------------------------------------------
 // `search`.
 // ---------------------------------------------------------------------------------------------
 
-/// Three types, each findable by exactly one field.
+/// Four types, each findable by exactly one field.
 fn mock_searchable() -> Vec<Value> {
     vec![
         mock_itd("Service", "services", "mia-platform.eu", json!({})),
+        with_short_description(
+            mock_itd("Ledger", "ledgers", "example.com", json!({})),
+            Some("Bookkeeping entries."),
+        ),
         mock_itd(
             "Template",
             "templates",
@@ -277,12 +333,14 @@ fn mock_searchable() -> Vec<Value> {
     ]
 }
 
-/// Matching is over all four fields: `kind`, `family`, `displayName`, `llmDescription`.
+/// Matching is over all five texts: `kind`, `family`, `displayName`, the short `description` and
+/// the briefing the row does not show.
 #[rstest]
 #[case::kind("Service", "Service")]
 #[case::family("templates", "Template")]
 #[case::display_name("blueprint", "Template")]
-#[case::description("signals", "Monitor")]
+#[case::description("bookkeeping", "Ledger")]
+#[case::briefing("signals", "Monitor")]
 #[tokio::test]
 async fn test_search_matches_each_field(#[case] term: &str, #[case] expected: &str) {
     let payload = call_with(mock_searchable(), Some(term))
@@ -330,6 +388,49 @@ async fn test_search_finds_a_term_only_in_the_descriptions_tail() {
     .expect("the listing succeeds");
 
     assert_eq!(kinds(&payload), vec!["Service".to_string()]);
+    assert_eq!(payload["types"][0]["matchedOn"], json!("llmDescription"));
+}
+
+/// `matchedOn` marks a row found **only** in its briefing — the one text searched that the row does
+/// not show. A match on any text the row shows needs no mark, even when the briefing matches too.
+#[rstest]
+#[case::briefing_only("signals", Some("llmDescription"))]
+#[case::kind_and_briefing("monitor", None)]
+#[case::short_description("bookkeeping", None)]
+#[tokio::test]
+async fn test_matched_on_marks_a_match_only_in_the_briefing(
+    #[case] term: &str,
+    #[case] expected: Option<&str>,
+) {
+    let mut types = mock_searchable();
+    types[3]["spec"]["llmDescription"] = json!("Tracks Überwachung signals for each monitor.");
+    let payload = call_with(types, Some(term))
+        .await
+        .expect("the listing succeeds");
+
+    assert_eq!(payload["total"], json!(1), "{payload}");
+    assert_eq!(
+        payload["types"][0].get("matchedOn").cloned(),
+        expected.map(|value| json!(value))
+    );
+}
+
+/// Without a `search`, no row carries `matchedOn`.
+#[rstest]
+#[tokio::test]
+async fn test_matched_on_needs_a_search() {
+    let payload = call_with(mock_searchable(), None)
+        .await
+        .expect("the listing succeeds");
+
+    assert!(
+        payload["types"]
+            .as_array()
+            .expect("an array")
+            .iter()
+            .all(|row| row.get("matchedOn").is_none()),
+        "{payload}"
+    );
 }
 
 /// No match is **not** an empty catalogue: the term and the unfiltered count come back.
@@ -342,7 +443,7 @@ async fn test_no_match_reports_the_term_and_what_it_filtered() {
 
     assert_eq!(
         payload,
-        json!({ "types": [], "total": 0, "search": "gatewy", "filteredFrom": 3 })
+        json!({ "types": [], "total": 0, "search": "gatewy", "filteredFrom": 4 })
     );
 }
 
@@ -392,6 +493,41 @@ async fn test_an_over_long_search_is_rejected_before_the_engine() {
     run(&context, Some(&"x".repeat(MAX_SEARCH_BYTES)))
         .await
         .expect("a term of exactly the limit is accepted");
+}
+
+/// An empty or blank term is refused **before** the engine is asked: it would match every type,
+/// which is what omitting `search` already means.
+#[rstest]
+#[case::empty("")]
+#[case::spaces("   ")]
+#[case::whitespace("\t\n")]
+#[tokio::test]
+async fn test_an_empty_or_blank_search_is_rejected_before_the_engine(#[case] search: &str) {
+    let engine = MockEngine::start().await;
+    engine.get_ok(LISTING_PATH, mock_page(vec![], None)).await;
+
+    let error = run(&mock_context(&engine), Some(search))
+        .await
+        .expect_err("a blank search is refused");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert_eq!(error.remedy, Remedy::RetryAfterChange);
+    assert_eq!(
+        error
+            .details
+            .as_ref()
+            .map(|details| details["field"].clone()),
+        Some(json!("search"))
+    );
+    assert!(
+        engine
+            .server()
+            .received_requests()
+            .await
+            .unwrap_or_default()
+            .is_empty(),
+        "the engine was called for a request that was already invalid"
+    );
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -444,8 +580,9 @@ async fn test_the_selected_version_reaches_the_row() {
 // Projection and ordering.
 // ---------------------------------------------------------------------------------------------
 
-/// The row has exactly its documented shape **in its documented order** — `kind` first, the long
-/// `description` after the coordinates — with absent fields omitted rather than null.
+/// The row has exactly its documented shape **in its documented order** — `kind` first, the
+/// description and the briefing flag after the coordinates — with absent fields omitted rather than
+/// null.
 ///
 /// Compared as a string on purpose: the order is what is under test. It holds because the
 /// workspace enables `serde_json`'s `preserve_order`; without it a `Value` sorts its keys and the
@@ -467,7 +604,7 @@ async fn test_a_row_is_the_documented_shape() {
 
     assert_eq!(
         serde_json::to_string(&row).expect("a row serialises"),
-        r#"{"kind":"Service","family":"services","group":"mia-platform.eu","version":"v1","displayName":"Services","description":"A deployable unit.","historyEnabled":true}"#
+        r#"{"kind":"Service","family":"services","group":"mia-platform.eu","version":"v1","displayName":"Services","description":"Not a briefing.","hasLlmDescription":true,"historyEnabled":true}"#
     );
 }
 
@@ -758,7 +895,8 @@ async fn test_two_tenants_see_their_own_catalogues() {
 // The byte golden: regression detection, not a limit.
 // ---------------------------------------------------------------------------------------------
 
-/// Sixty-eight realistic types, each with a ~300-byte briefing, serialise to a recorded size.
+/// Sixty-eight realistic types, each with a short description and a ~300-byte briefing — which
+/// the listing only flags — serialise to a recorded size.
 /// A projection regression shows up here as a diff while it is still a design discussion.
 #[rstest]
 #[tokio::test]
@@ -808,6 +946,8 @@ fn test_absent_row_fields_never_serialise_as_null() {
         version: "v1".to_string(),
         display_name: None,
         description: None,
+        has_llm_description: false,
+        matched_on: None,
         history_enabled: false,
     };
 

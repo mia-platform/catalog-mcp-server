@@ -40,7 +40,8 @@ pub const TOOL_NAME: &str = "list_catalog_types";
 const TOOL_DESCRIPTION: &str = "Lists every item type in the catalog, with the coordinates needed \
      to address items of that type. Call this first when you do not already know a type's exact \
      `kind`. Returns every type in one response — there is no pagination. Use `search` to \
-     narrow by name or purpose; `filteredFrom` is how many types there were before.";
+     narrow by name or purpose; `filteredFrom` is how many types there were before. \
+     `hasLlmDescription`: read its briefing with get_item_schema `fields: []`.";
 
 /// The longest `search` term accepted, in bytes.
 ///
@@ -89,10 +90,25 @@ pub struct CatalogType {
     #[serde(rename = "displayName", skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
 
-    /// `spec.llmDescription`, **verbatim** — omitted when absent or blank, and never
-    /// synthesised from anything else.
+    /// `metadata.description`, the type's short description, **verbatim** — omitted when absent or
+    /// blank, and never synthesised from anything else.
     #[serde(rename = "description", skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+
+    /// Whether the type has an agent briefing, `spec.llmDescription`. Only the flag is listed:
+    /// a briefing can be long, and a listing would carry every type's at once, so its text is read
+    /// one type at a time, with `get_item_schema`.
+    #[serde(
+        rename = "hasLlmDescription",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
+    pub has_llm_description: bool,
+
+    /// `"llmDescription"` when a `search` matched this type **only** in its briefing — the one text
+    /// searched that the row does not show — so the caller can tell why it came back. Omitted
+    /// otherwise, and always without a `search`.
+    #[serde(rename = "matchedOn", skip_serializing_if = "Option::is_none")]
+    pub matched_on: Option<&'static str>,
 
     /// `spec.history.enabled`, defaulting to `false`.
     #[serde(rename = "historyEnabled")]
@@ -156,7 +172,7 @@ impl Tool for ListCatalogTypes {
         };
 
         let fetched = entries.len();
-        let mut types: Vec<CatalogType> = entries.into_iter().filter_map(project).collect();
+        let mut types: Vec<Listed> = entries.into_iter().filter_map(project).collect();
 
         // The evidence for revisiting the version-selection rule. `omitted` is zero everywhere
         // today; a non-zero value is the first sign the rule has started firing.
@@ -169,20 +185,27 @@ impl Tool for ListCatalogTypes {
         // By `kind`, byte-wise; `group` then `family` break the tie two groups sharing
         // a kind would otherwise leave to the engine's unspecified order.
         types.sort_by(|left, right| {
-            (&left.kind, &left.group, &left.family).cmp(&(&right.kind, &right.group, &right.family))
+            (&left.row.kind, &left.row.group, &left.row.family).cmp(&(
+                &right.row.kind,
+                &right.row.group,
+                &right.row.family,
+            ))
         });
 
         let output = match input.search {
             None => ListCatalogTypesOutput {
                 total: types.len(),
-                types,
+                types: types.into_iter().map(|listed| listed.row).collect(),
                 search: None,
                 filtered_from: None,
             },
             Some(search) => {
                 let filtered_from = types.len();
                 let needle = search.to_lowercase();
-                types.retain(|row| matches_search(row, &needle));
+                let types: Vec<CatalogType> = types
+                    .into_iter()
+                    .filter_map(|listed| matched(listed, &needle))
+                    .collect();
 
                 ListCatalogTypesOutput {
                     total: types.len(),
@@ -205,8 +228,20 @@ impl Tool for ListCatalogTypes {
     }
 }
 
-/// Rejects a `search` term longer than [`MAX_SEARCH_BYTES`].
+/// Rejects an empty or blank `search`, and one longer than [`MAX_SEARCH_BYTES`].
+///
+/// An empty term is a substring of every text, so it would silently mean *"every type"* — which is
+/// what leaving `search` out already says, and the model should say it that way.
 fn validate_search(search: &str) -> Result<(), ToolError> {
+    if search.trim().is_empty() {
+        return Err(ToolError::new(
+            codes::INVALID_INPUT,
+            Remedy::RetryAfterChange,
+            "`search` is empty: omit it to list every type, or give a word to narrow by.",
+        )
+        .with_details(json!({ "field": SEARCH_FIELD })));
+    }
+
     if search.len() <= MAX_SEARCH_BYTES {
         return Ok(());
     }
@@ -236,33 +271,73 @@ async fn fetch_every_type(context: &CallContext) -> Result<Vec<ItdListEntry>, To
         .await
 }
 
+/// A row, and the briefing it is searched by but does not show.
+struct Listed {
+    row: CatalogType,
+    llm_description: Option<String>,
+}
+
+/// The value of `matchedOn` for a row found only in its briefing.
+const MATCHED_ON_LLM_DESCRIPTION: &str = "llmDescription";
+
 /// Projects one listed type into its row, or `None` when it has no served version.
 ///
 /// A type with nothing served is **omitted**: nothing about it is addressable, and
 /// listing it would invite a call that can only fail.
-fn project(entry: ItdListEntry) -> Option<CatalogType> {
+fn project(entry: ItdListEntry) -> Option<Listed> {
     let spec = entry.spec;
     let version = select_served_version(&spec.versions)?.name.clone();
 
-    Some(CatalogType {
-        kind: spec.names.kind,
-        family: spec.names.plural,
-        group: spec.group,
-        version,
-        display_name: spec.names.display_plural,
-        // Verbatim or nothing: a blank description is absent, and there is no fallback.
-        description: spec
-            .llm_description
-            .filter(|description| !description.trim().is_empty()),
-        history_enabled: spec.history.is_some_and(|history| history.enabled),
+    // Verbatim or nothing, for both: a blank text is absent, and neither stands in for the other.
+    let llm_description = non_blank(spec.llm_description);
+
+    Some(Listed {
+        row: CatalogType {
+            kind: spec.names.kind,
+            family: spec.names.plural,
+            group: spec.group,
+            version,
+            display_name: spec.names.display_plural,
+            description: non_blank(entry.metadata.description),
+            has_llm_description: llm_description.is_some(),
+            matched_on: None,
+            history_enabled: spec.history.is_some_and(|history| history.enabled),
+        },
+        llm_description,
     })
 }
 
-/// Whether `row` matches an already-lowercased `needle`.
+/// `text`, unless it is absent or only whitespace.
+fn non_blank(text: Option<String>) -> Option<String> {
+    text.filter(|text| !text.trim().is_empty())
+}
+
+/// The row, if `listed` matches the already-lowercased `needle` — marked when only its briefing,
+/// which the row does not show, did.
+fn matched(listed: Listed, needle: &str) -> Option<CatalogType> {
+    let Listed {
+        mut row,
+        llm_description,
+    } = listed;
+
+    if matches_search(&row, needle) {
+        return Some(row);
+    }
+
+    llm_description
+        .is_some_and(|briefing| contains(&briefing, needle))
+        .then(|| {
+            row.matched_on = Some(MATCHED_ON_LLM_DESCRIPTION);
+            row
+        })
+}
+
+/// Whether the texts `row` shows match an already-lowercased `needle`.
 ///
-/// A plain substring over the four fields, case-insensitive under **full Unicode** lowercasing —
-/// `to_ascii_lowercase` would silently fail on accented text. The description searched is the
-/// description returned, so nothing can match on text the caller cannot see.
+/// A plain substring over `kind`, `family`, `displayName` and the short `description`,
+/// case-insensitive under **full Unicode** lowercasing — `to_ascii_lowercase` would silently fail
+/// on accented text. The briefing is searched too, by [`matched`], which marks a row found only
+/// there.
 fn matches_search(row: &CatalogType, needle: &str) -> bool {
     [
         Some(row.kind.as_str()),
@@ -272,7 +347,12 @@ fn matches_search(row: &CatalogType, needle: &str) -> bool {
     ]
     .into_iter()
     .flatten()
-    .any(|field| field.to_lowercase().contains(needle))
+    .any(|field| contains(field, needle))
+}
+
+/// Whether `text`, lowercased, contains the already-lowercased `needle`.
+fn contains(text: &str, needle: &str) -> bool {
+    text.to_lowercase().contains(needle)
 }
 
 #[cfg(test)]
