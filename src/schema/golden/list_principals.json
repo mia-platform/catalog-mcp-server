@@ -1,0 +1,37 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "cursor": {
+      "description": "The previous answer's `cursor`, to continue.",
+      "type": "string"
+    },
+    "displayName": {
+      "description": "Part of the display name, any case.",
+      "type": "string"
+    },
+    "email": {
+      "description": "Part of the e-mail, any case; users only.",
+      "type": "string"
+    },
+    "ids": {
+      "description": "Only these ids (an owner's `ref`), 1–20.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "me": {
+      "description": "true: only you, the caller. Takes no other argument.",
+      "type": "boolean"
+    },
+    "type": {
+      "description": "Only users or only service accounts.",
+      "enum": [
+        "user",
+        "serviceAccount"
+      ],
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

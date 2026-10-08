@@ -106,7 +106,7 @@ pub struct ObjectMetadata {
     )]
     pub update_timestamp: Option<String>,
 
-    /// The object's owner, as an identity reference. Not writable by an agent.
+    /// The object's owner, as an identity reference: `{type, ref}`.
     #[serde(rename = "owner", default, skip_serializing_if = "Option::is_none")]
     pub owner: Option<Value>,
 

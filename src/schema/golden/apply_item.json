@@ -25,6 +25,9 @@
         "links": {
           "description": "Links, each `{url, title?}`."
         },
+        "owner": {
+          "description": "`{type:\"principal\",ref}` from list_principals, or `{type:\"email\",ref}`; null removes."
+        },
         "tags": {
           "description": "Free-form tags."
         },

@@ -24,7 +24,7 @@ use crate::{
 };
 use catalog_client::{
     ConflictPolicy, ItemAddress, Remedy, ResourceVersionIn, ToolError, TypeCoordinates, WriteCycle,
-    error::codes, is_valid_kind, is_valid_name, resolve_kind_or_suggest,
+    error::codes, is_valid_kind, is_valid_name, models::OwnerRef, resolve_kind_or_suggest,
 };
 use regex::Regex;
 use rmcp::model::ToolAnnotations;
@@ -51,6 +51,9 @@ const TOOL_DESCRIPTION: &str = "Creates or updates a catalog item. Send only the
      re-reading). Address the item by `name` and `kind` (and `group` for a shared kind); put the \
      changes in `spec` and `metadata`.";
 
+/// The owner, as errors name it.
+const OWNER_FIELD: &str = "metadata.owner";
+
 /// The longest `name`, in bytes.
 pub const MAX_NAME_BYTES: usize = 256;
 
@@ -71,9 +74,9 @@ static VIOLATION_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
 
 /// Arguments for `apply_item`; `group` says which type a shared `kind` means.
 ///
-/// `owner` and `followers` are absent **by construction**, `resourceVersion` because the
-/// server reads it itself, and `customFields` because a `PUT` ignores it. Unknown
-/// arguments — any of those three included — are refused by name.
+/// `followers` is absent **by construction**, `resourceVersion` because the server reads it
+/// itself, and `customFields` because a `PUT` ignores it. Unknown arguments — any of those three
+/// included — are refused by name.
 #[derive(Deserialize, schemars::JsonSchema)]
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
@@ -129,6 +132,13 @@ pub struct ItemMetadataPatch {
     /// Links, each `{url, title?}`.
     #[serde(rename = "links", default, deserialize_with = "patch::present")]
     pub(crate) links: Option<Value>,
+
+    /// `{type:"principal",ref}` from list_principals, or `{type:"email",ref}`; null removes.
+    //
+    // A raw value like its siblings, so that `null` reaches the merge as a deletion; its shape is
+    // checked by `validate`, against the engine's own rules, before anything is sent.
+    #[serde(rename = "owner", default, deserialize_with = "patch::present")]
+    pub(crate) owner: Option<Value>,
 }
 
 /// What the write did — not the item, which the model already knows.
@@ -272,7 +282,25 @@ fn validate(input: &ApplyItemInput) -> Result<(), ToolError> {
         .with_next_step("call list_catalog_types to see the kinds that exist"));
     }
 
-    validate_group(input.group.as_deref(), true)
+    validate_group(input.group.as_deref(), true)?;
+
+    validate_owner(input)
+}
+
+/// The owner, when one is set: either form the engine stores, a principal by a UUID and an e-mail
+/// by the engine's e-mail rule. It is **not** looked up in the principal directory: the reference
+/// is the one `list_principals` gave.
+fn validate_owner(input: &ApplyItemInput) -> Result<(), ToolError> {
+    match input
+        .metadata
+        .as_ref()
+        .and_then(|metadata| metadata.owner.as_ref())
+    {
+        None | Some(Value::Null) => Ok(()),
+        Some(owner) => OwnerRef::parse(owner)
+            .map(|_| ())
+            .map_err(|message| invalid(OWNER_FIELD, message)),
+    }
 }
 
 /// An `invalid_input` naming the offending parameter.

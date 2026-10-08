@@ -1700,3 +1700,114 @@ async fn test_the_tenant_listing_is_reachable_where_the_client_expects_it() {
         "`/bff/tenants` is not where this client looks for it"
     );
 }
+
+/// **Live: the principal directory reports authz, not the catalog.** Both routes are proxied to
+/// authz, which this environment does not configure, so the engine answers `502` — reached where
+/// this client looks for them (a wrong path would be a `404`), and worded as authz.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_principal_directory_reports_authz_rather_than_the_catalog() {
+    let client = client();
+    let errors = [
+        client
+            .get_me()
+            .await
+            .expect_err("authz is not configured in this environment"),
+        client
+            .list_principals(&catalog_client::ops::principals::PrincipalQuery::default())
+            .await
+            .expect_err("authz is not configured in this environment"),
+    ];
+
+    for error in errors {
+        assert_eq!(
+            (error.code, error.remedy),
+            (codes::UPSTREAM_UNAVAILABLE, catalog_client::Remedy::Retry),
+            "{}",
+            error.message
+        );
+    }
+}
+
+/// The item the owner test creates, patches and deletes.
+const OWNER_PROBE: &str = "e2e-owner-probe";
+
+/// A fictional principal id.
+const OWNER_PRINCIPAL: &str = "523f5c33-1a5c-7270-aa81-bbc05ab201dc";
+
+/// **Live: an owner is written in either form, found by the owner filter, and removed by `null`.**
+/// The cycle `apply_item` runs carries `metadata.owner` like any other metadata field: an e-mail
+/// owner on create, a principal on a patch — stored without any check against the directory — and
+/// `null` removing it.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_an_owner_is_written_found_and_removed() {
+    let client = client();
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", OWNER_PROBE)
+        .expect("a well-formed address");
+    let family = FamilyAddress::new("ai.mia-platform.eu", "v1", "agents").expect("a family");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds the described agent")
+        .value;
+    let identity = serde_json::json!({
+        "apiVersion": seeded.api_version,
+        "kind": seeded.kind,
+        "metadata": { "name": OWNER_PROBE },
+    });
+    let cycle = WriteCycle::new(&client, ConflictPolicy::RetryOnce, ResourceVersionIn::Body);
+    let owned_by = |value: &str| Predicate::Eq {
+        field: FieldPath::new("metadata.owner").expect("the owner is filterable"),
+        value: QueryValue::string(value).expect("a value"),
+    };
+
+    let mut create = identity.clone();
+    create["metadata"]["owner"] = serde_json::json!({ "type": "email", "ref": OWNER_EMAIL });
+    create["spec"] = seeded.spec.clone();
+    cycle
+        .apply(&probe, &create)
+        .await
+        .expect("the create lands");
+    assert!(
+        names_matching(&client, &family, owned_by(OWNER_EMAIL))
+            .await
+            .contains(&OWNER_PROBE.to_string())
+    );
+
+    let mut patch = identity.clone();
+    patch["metadata"]["owner"] = serde_json::json!({ "type": "principal", "ref": OWNER_PRINCIPAL });
+    let patched = cycle.apply(&probe, &patch).await.expect("the patch lands");
+    assert!(
+        patched
+            .changed
+            .iter()
+            .all(|path| path.starts_with("metadata.owner")),
+        "{:?}",
+        patched.changed
+    );
+    assert_eq!(
+        names_matching(&client, &family, owned_by(OWNER_PRINCIPAL)).await,
+        vec![OWNER_PROBE.to_string()]
+    );
+
+    let mut removal = identity;
+    removal["metadata"]["owner"] = serde_json::Value::Null;
+    cycle
+        .apply(&probe, &removal)
+        .await
+        .expect("the removal lands");
+    let stored = client
+        .get_item(&probe)
+        .await
+        .expect("the item reads back")
+        .value;
+    assert_eq!(stored.metadata.owner, None, "`null` removes the owner");
+
+    client
+        .delete_item(&probe, stored.resource_version.as_deref())
+        .await
+        .expect("the probe goes");
+}

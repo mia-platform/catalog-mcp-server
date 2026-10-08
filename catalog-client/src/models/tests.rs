@@ -67,3 +67,53 @@ fn test_a_titleless_link_decodes_and_renders_without_a_title(
     assert_eq!(rendered["metadata"]["links"], mock_titleless_links());
     assert!(rendered["metadata"]["links"][0].get("title").is_none());
 }
+
+// ---------------------------------------------------------------------------------------------
+// Owners.
+// ---------------------------------------------------------------------------------------------
+
+/// An owner is read as either form the engine stores, a principal id normalised to the engine's
+/// own spelling so that what is written compares equal to what is stored.
+#[rstest]
+#[case::principal(
+    json!({ "type": "principal", "ref": "3fa85f64-5717-4562-b3fc-2c963f66afa6" }),
+    crate::models::OwnerRef::principal("3fa85f64-5717-4562-b3fc-2c963f66afa6")
+)]
+#[case::principal_uppercase(
+    json!({ "type": "principal", "ref": "3FA85F64-5717-4562-B3FC-2C963F66AFA6" }),
+    crate::models::OwnerRef::principal("3fa85f64-5717-4562-b3fc-2c963f66afa6")
+)]
+#[case::email(
+    json!({ "type": "email", "ref": "ada@example.com" }),
+    crate::models::OwnerRef::Email { reference: "ada@example.com".to_string() }
+)]
+fn test_an_owner_is_parsed(#[case] value: Value, #[case] expected: crate::models::OwnerRef) {
+    assert_eq!(crate::models::OwnerRef::parse(&value), Ok(expected));
+}
+
+/// Anything else is refused with a sentence, never passed on for the engine to reject.
+#[rstest]
+#[case::not_a_uuid(json!({ "type": "principal", "ref": "ada" }), "not a principal id")]
+#[case::malformed_email(json!({ "type": "email", "ref": "ada@localhost" }), "not an e-mail")]
+#[case::unknown_type(json!({ "type": "group", "ref": "devs" }), "must be")]
+#[case::resolved_principal(
+    json!({ "type": "principal", "ref": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            "principal": { "displayName": "Ada" } }),
+    "no other field"
+)]
+#[case::missing_ref(json!({ "type": "email" }), "must be")]
+#[case::a_string(json!("ada@example.com"), "must be")]
+fn test_a_wrong_owner_is_refused(#[case] value: Value, #[case] expected: &str) {
+    let message = crate::models::OwnerRef::parse(&value).expect_err("refused");
+
+    assert!(message.contains(expected), "{message}");
+}
+
+/// An owner renders as exactly `{type, ref}`.
+#[rstest]
+fn test_an_owner_renders_as_type_and_ref() {
+    assert_eq!(
+        serde_json::to_value(crate::models::OwnerRef::principal("p-1")).expect("serialisable"),
+        json!({ "type": "principal", "ref": "p-1" })
+    );
+}

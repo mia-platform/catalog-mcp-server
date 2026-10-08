@@ -901,3 +901,189 @@ fn test_a_pointer_becomes_a_dotted_path(#[case] pointer: &str, #[case] expected:
 fn test_array_indices_are_dropped_for_the_schema(#[case] path: &str, #[case] expected: &str) {
     assert_eq!(schema_field(path), expected);
 }
+
+// ---------------------------------------------------------------------------------------------
+// The owner.
+// ---------------------------------------------------------------------------------------------
+
+/// A principal id the tests own.
+const OWNER_ID: &str = "523f5c33-1a5c-7270-aa81-bbc05ab201dc";
+
+/// The fixture item, owned by an e-mail address.
+fn mock_owned_item() -> Value {
+    let mut item = mock_rich_item();
+    item["metadata"]["owner"] = json!({ "type": "email", "ref": "previous@example.com" });
+    item
+}
+
+/// A read of an owned item and a write that succeeds.
+async fn mock_owned_update() -> MockEngine {
+    let engine = mock_engine().await;
+    mount_read(
+        &engine,
+        ResponseTemplate::new(200).set_body_json(mock_owned_item()),
+    )
+    .await;
+    mount_write(
+        &engine,
+        ResponseTemplate::new(200).set_body_json(mock_owned_item()),
+    )
+    .await;
+
+    engine
+}
+
+/// Either form the engine stores is written as given, a principal id in the engine's own spelling;
+/// `null` removes the owner.
+#[rstest]
+#[case::principal(
+    json!({ "type": "principal", "ref": OWNER_ID }),
+    json!({ "type": "principal", "ref": OWNER_ID })
+)]
+#[case::principal_uppercase(
+    json!({ "type": "principal", "ref": OWNER_ID.to_uppercase() }),
+    json!({ "type": "principal", "ref": OWNER_ID })
+)]
+#[case::email(
+    json!({ "type": "email", "ref": "ada@example.com" }),
+    json!({ "type": "email", "ref": "ada@example.com" })
+)]
+#[case::removed(Value::Null, Value::Null)]
+#[tokio::test]
+async fn test_an_owner_is_written(#[case] owner: Value, #[case] expected: Value) {
+    let engine = mock_owned_update().await;
+
+    run(
+        &engine,
+        json!({ "name": MOCK_ITEM_NAME, "kind": "Service", "metadata": { "owner": owner } }),
+    )
+    .await
+    .expect("the write succeeds");
+
+    let sent = sent_body(&engine).await;
+    assert_eq!(
+        sent["metadata"]
+            .get("owner")
+            .cloned()
+            .unwrap_or(Value::Null),
+        expected
+    );
+}
+
+/// A patch that does not mention the owner keeps the stored one.
+#[rstest]
+#[tokio::test]
+async fn test_an_unmentioned_owner_is_kept() {
+    let engine = mock_owned_update().await;
+
+    run(
+        &engine,
+        json!({ "name": MOCK_ITEM_NAME, "kind": "Service", "metadata": { "title": "New" } }),
+    )
+    .await
+    .expect("the write succeeds");
+
+    assert_eq!(
+        sent_body(&engine).await["metadata"]["owner"],
+        mock_owned_item()["metadata"]["owner"]
+    );
+}
+
+/// A wrong owner is refused before anything is sent, naming the field.
+#[rstest]
+#[case::not_a_uuid(json!({ "type": "principal", "ref": "ada" }))]
+#[case::malformed_email(json!({ "type": "email", "ref": "ada@localhost" }))]
+#[case::unknown_type(json!({ "type": "group", "ref": "devs" }))]
+#[case::resolved_principal(
+    json!({ "type": "principal", "ref": OWNER_ID, "principal": { "displayName": "Ada" } })
+)]
+#[case::a_bare_string(json!("ada@example.com"))]
+#[tokio::test]
+async fn test_a_wrong_owner_is_refused(#[case] owner: Value) {
+    let engine = mock_owned_update().await;
+
+    let error = run(
+        &engine,
+        json!({ "name": MOCK_ITEM_NAME, "kind": "Service", "metadata": { "owner": owner } }),
+    )
+    .await
+    .expect_err("refused");
+
+    assert_eq!(
+        (error.code, error.remedy),
+        (codes::INVALID_INPUT, Remedy::RetryAfterChange)
+    );
+    assert_eq!(
+        error.details.as_deref(),
+        Some(&json!({ "field": "metadata.owner" }))
+    );
+    assert!(
+        engine
+            .server()
+            .received_requests()
+            .await
+            .expect("the mock records its requests")
+            .is_empty(),
+        "nothing reaches the engine"
+    );
+}
+
+/// The owner is not looked up in the principal directory: the write is the read, the type lookup
+/// and the `PUT`, nothing else.
+#[rstest]
+#[tokio::test]
+async fn test_a_principal_owner_is_written_unchecked() {
+    let engine = mock_owned_update().await;
+
+    run(
+        &engine,
+        json!({
+            "name": MOCK_ITEM_NAME, "kind": "Service",
+            "metadata": { "owner": { "type": "principal", "ref": OWNER_ID } }
+        }),
+    )
+    .await
+    .expect("the write succeeds");
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    assert!(
+        requests
+            .iter()
+            .all(|request| !request.url.path().starts_with("/bff/")),
+        "no directory call"
+    );
+}
+
+/// `changed` names the owner like any other field.
+#[rstest]
+#[tokio::test]
+async fn test_an_owner_change_is_reported() {
+    let mut written = mock_owned_item();
+    written["metadata"]["owner"] = json!({ "type": "principal", "ref": OWNER_ID });
+    let engine = mock_engine().await;
+    mount_read(
+        &engine,
+        ResponseTemplate::new(200).set_body_json(mock_owned_item()),
+    )
+    .await;
+    mount_write(&engine, ResponseTemplate::new(200).set_body_json(written)).await;
+
+    let payload = run(
+        &engine,
+        json!({
+            "name": MOCK_ITEM_NAME, "kind": "Service",
+            "metadata": { "owner": { "type": "principal", "ref": OWNER_ID } }
+        }),
+    )
+    .await
+    .expect("the write succeeds");
+
+    let mut changed: Vec<String> =
+        serde_json::from_value(payload["changed"].clone()).expect("changed is a list of paths");
+    changed.sort();
+    assert_eq!(changed, vec!["metadata.owner.ref", "metadata.owner.type"]);
+}

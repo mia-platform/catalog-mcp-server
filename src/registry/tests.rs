@@ -25,13 +25,20 @@ use serde_json::Value;
 /// identity, which a tool receives as an opaque capability it cannot address. With hand-written
 /// tools there is no code path from a tool argument to an outbound header — this test is what
 /// stops one being added by accident.
+///
+/// The word `principal` alone is allowed: an item owner is stored as `{"type": "principal", "ref":
+/// <id>}`, so the owner argument must name that type. What stays forbidden is the caller's
+/// principal **id**, under any spelling.
 const FORBIDDEN_SCHEMA_TERMS: &[&str] = &[
     "acl",
     "authorization",
     "bearer",
     "header",
     "organization",
-    "principal",
+    "principal id",
+    "principal-id",
+    "principal_id",
+    "principalid",
     "tenant",
     "token",
     "x-mia",
@@ -230,6 +237,13 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
     serde_json::json!({ "kind": "Service", "group": "example.com", "version": "v1", "fields": ["spec.replicas"] })
 )]
 #[case::list_tenants(deserialise::<crate::tools::list_tenants::ListTenantsInput>, serde_json::json!({}))]
+#[case::list_principals(
+    deserialise::<crate::tools::list_principals::ListPrincipalsInput>,
+    serde_json::json!({
+        "me": false, "type": "user", "ids": ["523f5c33-1a5c-7270-aa81-bbc05ab201dc"],
+        "displayName": "Ada", "email": "ada@example.com", "cursor": "abc"
+    })
+)]
 #[case::apply_item(
     deserialise::<crate::tools::apply_item::ApplyItemInput>,
     serde_json::json!({
@@ -237,7 +251,8 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
         "spec": { "replicas": 2 },
         "metadata": {
             "title": null, "description": "An example.", "labels": { "tier": "backend" },
-            "tags": ["api"], "annotations": {}, "links": [{ "url": "https://example.com" }]
+            "tags": ["api"], "annotations": {}, "links": [{ "url": "https://example.com" }],
+            "owner": { "type": "email", "ref": "ada@example.com" }
         }
     })
 )]
@@ -301,10 +316,10 @@ fn test_every_documented_argument_is_accepted(
     serde_json::json!({ "name": "example-item", "kind": "Service", "customFields": {} }),
     "customFields"
 )]
-#[case::apply_item_owner(
+#[case::apply_item_followers(
     deserialise::<crate::tools::apply_item::ApplyItemInput>,
-    serde_json::json!({ "name": "example-item", "kind": "Service", "metadata": { "owner": {} } }),
-    "owner"
+    serde_json::json!({ "name": "example-item", "kind": "Service", "metadata": { "followers": [] } }),
+    "followers"
 )]
 #[case::delete_item_confirm(
     deserialise::<crate::tools::delete_item::DeleteItemInput>,

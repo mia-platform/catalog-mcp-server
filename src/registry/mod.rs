@@ -165,6 +165,7 @@ impl Registry {
                 .with_route(route_for(tools::describe_item::DescribeItem))
                 .with_route(route_for(tools::get_item_schema::GetItemSchema))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
+                .with_route(route_for(tools::list_principals::ListPrincipals))
                 .with_route(route_for(tools::list_tenants::ListTenants))
                 .with_route(route_for(tools::search_catalog::SearchCatalog)),
         )

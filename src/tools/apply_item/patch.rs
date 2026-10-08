@@ -19,7 +19,7 @@
 // the `customFields` check.
 
 use crate::tools::apply_item::{ApplyItemInput, ItemMetadataPatch};
-use catalog_client::{ItemAddress, Remedy, ToolError, error::codes};
+use catalog_client::{ItemAddress, Remedy, ToolError, error::codes, models::OwnerRef};
 use serde::{Deserialize, Deserializer};
 use serde_json::{Map, Value, json};
 
@@ -97,10 +97,25 @@ fn metadata_patch(metadata: &ItemMetadataPatch) -> Map<String, Value> {
         ("tags", &metadata.tags),
         ("annotations", &metadata.annotations),
         ("links", &metadata.links),
+        ("owner", &metadata.owner.as_ref().map(normalised_owner)),
     ]
     .into_iter()
     .filter_map(|(key, value)| value.clone().map(|value| (key.to_string(), value)))
     .collect()
+}
+
+/// An owner as the engine stores it, so that what is written compares equal to what is read back:
+/// a principal id in its lowercase, hyphenated spelling. `null` stays a deletion, and a value the
+/// tool's validation would have refused is passed through unchanged.
+fn normalised_owner(owner: &Value) -> Value {
+    if owner.is_null() {
+        return Value::Null;
+    }
+
+    OwnerRef::parse(owner)
+        .ok()
+        .and_then(|owner| serde_json::to_value(owner).ok())
+        .unwrap_or_else(|| owner.clone())
 }
 
 /// Custom fields are refused rather than silently ignored — a model told its write

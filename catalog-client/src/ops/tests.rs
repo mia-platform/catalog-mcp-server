@@ -22,8 +22,9 @@ use crate::{
     identity::{ACL_CONTEXT_HEADER, AUTHORIZATION_HEADER, PRINCIPAL_ID_HEADER},
     models::ItemTypeDefinition,
     ops::{
-        COUNT_FAMILY_ITEMS, COUNT_ITEMS, GET_ITEM, GET_RELATIONSHIPS, LIST_FAMILY_ITEMS,
-        LIST_ITEM_TYPE_DEFINITIONS, LIST_ITEMS, LIST_TENANTS, ListQuery, OPERATIONS, OperationSpec,
+        COUNT_FAMILY_ITEMS, COUNT_ITEMS, GET_ITEM, GET_ME, GET_RELATIONSHIPS, LIST_FAMILY_ITEMS,
+        LIST_ITEM_TYPE_DEFINITIONS, LIST_ITEMS, LIST_PRINCIPALS, LIST_TENANTS, ListQuery,
+        OPERATIONS, OperationSpec,
     },
     pagination::{EngineCursor, ListPage, paginate_all},
     testing::{
@@ -109,6 +110,11 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
                 &mock_address(),
                 &super::relationships::RelationshipQuery::default(),
             )
+            .await
+            .map(|_| ()),
+        "get_me" => client.get_me().await.map(|_| ()),
+        "list_principals" => client
+            .list_principals(&super::principals::PrincipalQuery::default())
             .await
             .map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
@@ -258,7 +264,9 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_family_items",
             "count_items",
             "count_family_items",
-            "get_relationships"
+            "get_relationships",
+            "get_me",
+            "list_principals"
         ]
     );
 }
@@ -1051,6 +1059,8 @@ async fn test_the_relationships_call_never_sends_group_by_or_rawq() {
 /// from the gateway in front of the engine, and is the catalog being unavailable.
 #[rstest]
 #[case::list_tenants(&LIST_TENANTS, codes::UPSTREAM_UNAVAILABLE)]
+#[case::get_me(&GET_ME, codes::UPSTREAM_UNAVAILABLE)]
+#[case::list_principals(&LIST_PRINCIPALS, codes::UPSTREAM_UNAVAILABLE)]
 #[case::list_items(&LIST_ITEMS, codes::CATALOG_UNAVAILABLE)]
 #[case::get_item(&GET_ITEM, codes::CATALOG_UNAVAILABLE)]
 #[case::list_item_type_definitions(&LIST_ITEM_TYPE_DEFINITIONS, codes::CATALOG_UNAVAILABLE)]
@@ -1081,4 +1091,89 @@ async fn test_a_502_is_mapped_per_operation(
         "{}",
         error.message
     );
+}
+
+// ---------------------------------------------------------------------------------------------
+// The caller and the principal directory.
+// ---------------------------------------------------------------------------------------------
+
+/// Every parameter of a principal query reaches the engine under the name it declares, `id` as one
+/// comma-separated list.
+#[rstest]
+#[tokio::test]
+async fn test_list_principals_sends_every_parameter() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path("/bff/principals"))
+        .respond_with(
+            ResponseTemplate::new(200).set_body_json(mock_list_envelope(Vec::new(), None)),
+        )
+        .mount(engine.server())
+        .await;
+
+    engine
+        .client(mock_identity())
+        .list_principals(&super::principals::PrincipalQuery {
+            limit: Some(20),
+            cursor: Some(EngineCursor::new("next-page")),
+            search: Some("ada lovelace".to_string()),
+            principal_type: Some(crate::models::PrincipalType::ServiceAccount),
+            ids: Some(vec!["a".to_string(), "b".to_string()]),
+        })
+        .await
+        .expect("the listing succeeds");
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    let sent: Vec<(String, String)> = requests[0]
+        .url
+        .query_pairs()
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect();
+
+    assert_eq!(
+        sent,
+        vec![
+            ("limit".to_string(), "20".to_string()),
+            ("continue".to_string(), "next-page".to_string()),
+            ("search".to_string(), "ada lovelace".to_string()),
+            ("type".to_string(), "serviceAccount".to_string()),
+            ("id".to_string(), "a,b".to_string()),
+        ]
+    );
+}
+
+/// The listing is a `List` envelope, not a bare array, and its `continue` becomes the next page.
+#[rstest]
+#[tokio::test]
+async fn test_list_principals_reads_the_envelope() {
+    let engine = MockEngine::start().await;
+    engine
+        .get_ok(
+            "/bff/principals",
+            mock_list_envelope(
+                vec![
+                    serde_json::json!({ "id": "p-1", "type": "user", "displayName": "Ada",
+                                        "email": "ada@example.com" }),
+                    serde_json::json!({ "id": "p-2", "type": "robot" }),
+                ],
+                Some("token-2"),
+            ),
+        )
+        .await;
+
+    let page = engine
+        .client(mock_identity())
+        .list_principals(&super::principals::PrincipalQuery::default())
+        .await
+        .expect("the listing succeeds")
+        .value;
+
+    assert_eq!(page.next, Some(EngineCursor::new("token-2")));
+    assert_eq!(page.items[0].email.as_deref(), Some("ada@example.com"));
+    // An unknown principal kind does not fail the page: it reads as no type.
+    assert_eq!(page.items[1].principal_type, None);
 }
