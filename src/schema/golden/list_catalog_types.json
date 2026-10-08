@@ -2,7 +2,7 @@
   "additionalProperties": false,
   "properties": {
     "search": {
-      "description": "Case-insensitive substring, matched over kind, family, display name and description.",
+      "description": "Case-insensitive substring, matched over kind, group, family, display name and description.",
       "type": "string"
     }
   },

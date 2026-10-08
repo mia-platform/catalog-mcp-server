@@ -40,7 +40,7 @@ pub const TOOL_NAME: &str = "list_catalog_types";
 const TOOL_DESCRIPTION: &str = "Lists every item type in the catalog, with the coordinates needed \
      to address items of that type. Call this first when you do not already know a type's exact \
      `kind`. Returns every type in one response — there is no pagination. Use `search` to \
-     narrow by name or purpose; `filteredFrom` is how many types there were before. \
+     narrow by name, group or purpose; `filteredFrom` is how many types there were before. \
      `hasLlmDescription`: read its briefing with get_item_schema `fields: []`.";
 
 /// The longest `search` term accepted, in bytes.
@@ -56,7 +56,7 @@ const SEARCH_FIELD: &str = "search";
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 #[serde(deny_unknown_fields)]
 pub struct ListCatalogTypesInput {
-    /// Case-insensitive substring, matched over kind, family, display name and description.
+    /// Case-insensitive substring, matched over kind, group, family, display name and description.
     //
     // No `#[serde(default)]`: an absent `Option` is already `None`, and the attribute would put
     // `"default": null` into the schema every `tools/list` pays for.
@@ -334,13 +334,14 @@ fn matched(listed: Listed, needle: &str) -> Option<CatalogType> {
 
 /// Whether the texts `row` shows match an already-lowercased `needle`.
 ///
-/// A plain substring over `kind`, `family`, `displayName` and the short `description`,
+/// A plain substring over `kind`, `group`, `family`, `displayName` and the short `description`,
 /// case-insensitive under **full Unicode** lowercasing — `to_ascii_lowercase` would silently fail
 /// on accented text. The briefing is searched too, by [`matched`], which marks a row found only
 /// there.
 fn matches_search(row: &CatalogType, needle: &str) -> bool {
     [
         Some(row.kind.as_str()),
+        Some(row.group.as_str()),
         Some(row.family.as_str()),
         row.display_name.as_deref(),
         row.description.as_deref(),

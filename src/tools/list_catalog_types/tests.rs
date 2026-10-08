@@ -309,7 +309,8 @@ async fn test_nothing_is_synthesised_into_a_missing_description() {
 // `search`.
 // ---------------------------------------------------------------------------------------------
 
-/// Four types, each findable by exactly one field.
+/// Four types, each findable by exactly one field besides its `group`, which two types share with
+/// each other.
 fn mock_searchable() -> Vec<Value> {
     vec![
         mock_itd("Service", "services", "mia-platform.eu", json!({})),
@@ -333,21 +334,23 @@ fn mock_searchable() -> Vec<Value> {
     ]
 }
 
-/// Matching is over all five texts: `kind`, `family`, `displayName`, the short `description` and
-/// the briefing the row does not show.
+/// Matching is over all six texts: `kind`, `group`, `family`, `displayName`, the short
+/// `description` and the briefing the row does not show. A `group` finds every type in it, so a
+/// search for a group name lists that group.
 #[rstest]
-#[case::kind("Service", "Service")]
-#[case::family("templates", "Template")]
-#[case::display_name("blueprint", "Template")]
-#[case::description("bookkeeping", "Ledger")]
-#[case::briefing("signals", "Monitor")]
+#[case::kind("Service", &["Service"])]
+#[case::group("example.com", &["Ledger", "Monitor"])]
+#[case::family("templates", &["Template"])]
+#[case::display_name("blueprint", &["Template"])]
+#[case::description("bookkeeping", &["Ledger"])]
+#[case::briefing("signals", &["Monitor"])]
 #[tokio::test]
-async fn test_search_matches_each_field(#[case] term: &str, #[case] expected: &str) {
+async fn test_search_matches_each_field(#[case] term: &str, #[case] expected: &[&str]) {
     let payload = call_with(mock_searchable(), Some(term))
         .await
         .expect("the listing succeeds");
 
-    assert_eq!(kinds(&payload), vec![expected.to_string()]);
+    assert_eq!(kinds(&payload), expected);
 }
 
 /// Case-insensitive under full Unicode lowercasing, not ASCII-only.
@@ -412,6 +415,23 @@ async fn test_matched_on_marks_a_match_only_in_the_briefing(
     assert_eq!(
         payload["types"][0].get("matchedOn").cloned(),
         expected.map(|value| json!(value))
+    );
+}
+
+/// A `group` match is on a text the row shows, so it is not marked: `Monitor` comes back on its
+/// group alone, its briefing does not contain the term.
+#[rstest]
+#[tokio::test]
+async fn test_matched_on_does_not_mark_a_group_match() {
+    let payload = call_with(mock_searchable(), Some("example"))
+        .await
+        .expect("the listing succeeds");
+
+    assert_eq!(kinds(&payload), ["Ledger", "Monitor"]);
+    let types = payload["types"].as_array().expect("types is an array");
+    assert!(
+        types.iter().all(|row| row.get("matchedOn").is_none()),
+        "{payload}"
     );
 }
 
