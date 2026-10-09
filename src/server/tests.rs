@@ -107,8 +107,8 @@ fn mock_echo_router(mock_config: Config) -> Router {
     )
 }
 
-/// The ten tools this server ships, in `tools/list` order.
-const SHIPPED_TOOLS: [&str; 10] = [
+/// The eight tools this server ships, in `tools/list` order.
+const SHIPPED_TOOLS: [&str; 8] = [
     "apply_item",
     "apply_item_type",
     "delete_item",
@@ -116,8 +116,6 @@ const SHIPPED_TOOLS: [&str; 10] = [
     "describe_item",
     "get_item_schema",
     "list_catalog_types",
-    "list_principals",
-    "list_tenants",
     "search_catalog",
 ];
 
@@ -325,7 +323,12 @@ fn tool_payload(response: &Value) -> Value {
 #[tokio::test]
 async fn test_stateless_era_lists_and_calls_a_tool(mock_config: Config) {
     let engine = catalog_client::testing::MockEngine::start().await;
-    engine.get_ok("/bff/tenants", json!([])).await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
     let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
 
     let listed = stateless_request(&router, "tools/list", None, json!({}), &[]).await;
@@ -342,14 +345,14 @@ async fn test_stateless_era_lists_and_calls_a_tool(mock_config: Config) {
     let called = stateless_request(
         &router,
         "tools/call",
-        Some("list_tenants"),
-        json!({ "name": "list_tenants", "arguments": {} }),
+        Some("list_catalog_types"),
+        json!({ "name": "list_catalog_types", "arguments": {} }),
         &[("x-mia-acl-context", &acl_for("era-stateless"))],
     )
     .await;
 
     assert_eq!(called["result"]["isError"], json!(false));
-    assert_eq!(tool_payload(&called)["tenants"], json!([]));
+    assert_eq!(tool_payload(&called)["types"], json!([]));
 
     // A result is one text block of compact JSON, never the same thing twice.
     assert!(
@@ -363,7 +366,12 @@ async fn test_stateless_era_lists_and_calls_a_tool(mock_config: Config) {
 #[tokio::test]
 async fn test_legacy_era_lists_and_calls_a_tool(mock_config: Config) {
     let engine = catalog_client::testing::MockEngine::start().await;
-    engine.get_ok("/bff/tenants", json!([])).await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
     let router = mock_shipped_router_against(&engine.server().uri(), mock_config);
     let session_id = legacy_handshake(&router).await;
 
@@ -382,13 +390,13 @@ async fn test_legacy_era_lists_and_calls_a_tool(mock_config: Config) {
         &router,
         &session_id,
         "tools/call",
-        json!({ "name": "list_tenants", "arguments": {} }),
+        json!({ "name": "list_catalog_types", "arguments": {} }),
         &[("x-mia-acl-context", &acl_for("era-legacy"))],
     )
     .await;
 
     assert_eq!(called["result"]["isError"], json!(false));
-    assert_eq!(tool_payload(&called)["tenants"], json!([]));
+    assert_eq!(tool_payload(&called)["types"], json!([]));
 
     // A result is one text block of compact JSON, never the same thing twice.
     assert!(
@@ -1043,7 +1051,7 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
             .as_array()
             .expect("an array")
             .iter()
-            .any(|tool| tool["name"] == json!("list_tenants")),
+            .any(|tool| tool["name"] == json!("list_catalog_types")),
         "the whole set is listed despite the cursor"
     );
     assert_eq!(
@@ -1161,15 +1169,15 @@ async fn probe_as(router: &Router, acl_context: &str) -> Value {
 async fn test_an_engine_warning_reaches_the_model_through_the_adapter(mock_config: Config) {
     use crate::{
         registry::{Registry, route_for},
-        tools::list_tenants::ListTenants,
+        tools::list_catalog_types::ListCatalogTypes,
     };
     use rmcp::handler::server::router::tool::ToolRouter;
 
     let engine = catalog_client::testing::MockEngine::start().await;
     engine
         .get_ok_with_warnings(
-            "/bff/tenants",
-            json!([]),
+            "/mia-platform.eu/v1/item-type-definitions",
+            catalog_client::testing::mock_list_envelope(vec![], None),
             &["mia-platform.eu/v1 Service is deprecated"],
         )
         .await;
@@ -1182,7 +1190,7 @@ async fn test_an_engine_warning_reaches_the_model_through_the_adapter(mock_confi
         .expect("the fixture is a valid configuration");
     let state = AppState::build(
         config,
-        Registry::new(ToolRouter::new().with_route(route_for(ListTenants))),
+        Registry::new(ToolRouter::new().with_route(route_for(ListCatalogTypes))),
         None,
     )
     .expect("a valid state");
@@ -1191,8 +1199,8 @@ async fn test_an_engine_warning_reaches_the_model_through_the_adapter(mock_confi
     let response = stateless_request(
         &router,
         "tools/call",
-        Some("list_tenants"),
-        json!({ "name": "list_tenants", "arguments": {} }),
+        Some("list_catalog_types"),
+        json!({ "name": "list_catalog_types", "arguments": {} }),
         &[],
     )
     .await;
@@ -1531,8 +1539,8 @@ async fn test_a_tool_call_is_counted(mock_config: Config) {
     stateless_request(
         &router,
         "tools/call",
-        Some("list_tenants"),
-        json!({ "name": "list_tenants", "arguments": {} }),
+        Some("list_catalog_types"),
+        json!({ "name": "list_catalog_types", "arguments": {} }),
         &[],
     )
     .await;
@@ -1540,7 +1548,7 @@ async fn test_a_tool_call_is_counted(mock_config: Config) {
     let body = scrape(&router).await;
 
     assert!(
-        body.contains(r#"tool="list_tenants""#),
+        body.contains(r#"tool="list_catalog_types""#),
         "the call was not counted:\n{body}"
     );
 }
@@ -2228,7 +2236,12 @@ async fn test_identity_fields_land_on_the_requests_own_span(mock_config: Config)
 #[tokio::test]
 async fn test_structured_content_follows_the_switch(mock_config: Config) {
     let engine = catalog_client::testing::MockEngine::start().await;
-    engine.get_ok("/bff/tenants", json!([])).await;
+    engine
+        .get_ok(
+            "/mia-platform.eu/v1/item-type-definitions",
+            catalog_client::testing::mock_list_envelope(vec![], None),
+        )
+        .await;
     let mut config = mock_config;
     config.response.structured_content = true;
     let router = mock_shipped_router_against(&engine.server().uri(), config);
@@ -2236,8 +2249,8 @@ async fn test_structured_content_follows_the_switch(mock_config: Config) {
     let response = stateless_request(
         &router,
         "tools/call",
-        Some("list_tenants"),
-        json!({ "name": "list_tenants", "arguments": {} }),
+        Some("list_catalog_types"),
+        json!({ "name": "list_catalog_types", "arguments": {} }),
         &[("x-mia-acl-context", &acl_for("structured-content"))],
     )
     .await;
@@ -2279,7 +2292,6 @@ fn test_no_tool_declares_an_output_schema_with_the_switch_on(mock_config: Config
 #[case::list_catalog_types("list_catalog_types", json!({ "query": "agent" }), "query")]
 #[case::describe_item("describe_item", json!({ "name": "example-item", "includeSpec": false }), "includeSpec")]
 #[case::get_item_schema("get_item_schema", json!({ "kind": "Service", "field": ["spec.replicas"] }), "field")]
-#[case::list_tenants("list_tenants", json!({ "tenant": "other" }), "tenant")]
 #[tokio::test]
 async fn test_an_unknown_argument_is_invalid_arguments(
     mock_router: Router,

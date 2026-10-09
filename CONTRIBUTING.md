@@ -38,8 +38,7 @@ The `.dev/` directory contains the configuration needed to spin up a development
 The stack is composed of:
 
 - an instance of PostgreSQL, which keeps its data across restarts;
-- an instance of the Catalog Engine, pinned to the version `catalog-helm-chart` deploys and exposed locally on port `3000`;
-- a small stub of the authz service, serving one fictional tenant, so that the tenant listing works without the real one.
+- an instance of the Catalog Engine, pinned to the version `catalog-helm-chart` deploys and exposed locally on port `3000`.
 
 There is nothing to seed: the engine provisions its own item type definitions and AI items on first start, and registers a tenant the first time a request names it.
 
@@ -66,7 +65,7 @@ cargo make dev_down
 > [!TIP]
 > See the [README](./README.md) for detailed client integration instructions.
 
-There is no gateway locally, so the client has to send the caller's identity itself. The value below is the URL-safe base64 of `{"organization":"my-org","tenant":"my-tenant"}`, the tenant the authz stub serves:
+There is no gateway locally, so the client has to send the caller's identity itself. The value below is the URL-safe base64 of `{"organization":"my-org","tenant":"my-tenant"}`, a fictional tenant the engine registers on first use:
 
 ```json
 {

@@ -47,12 +47,5 @@ pub mod describe_item;
 /// Every item type the caller can see, with the coordinates to address its items.
 pub mod list_catalog_types;
 
-/// Who can own an item: the tenant's users and service accounts, or the caller alone.
-pub mod list_principals;
-
 /// Search the catalog by free text, type, labels and fields.
 pub mod search_catalog;
-
-/// The worked example of the tool contract, and the cheapest end-to-end probe of the identity
-/// path in the whole tool set.
-pub mod list_tenants;

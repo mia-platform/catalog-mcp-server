@@ -16,7 +16,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 use regex::Regex;
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::sync::LazyLock;
 
@@ -43,105 +43,6 @@ pub fn normalise_principal_id(id: &str) -> Option<String> {
         .ok()
         .map(|uuid| uuid.hyphenated().to_string())
 }
-
-/// The two kinds of principal: the only ones that can own an item.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PrincipalType {
-    /// A person.
-    #[serde(rename = "user")]
-    User,
-
-    /// A machine identity.
-    #[serde(rename = "serviceAccount")]
-    ServiceAccount,
-}
-
-impl PrincipalType {
-    /// The value `/bff/principals` takes and returns.
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            Self::User => "user",
-            Self::ServiceAccount => "serviceAccount",
-        }
-    }
-}
-
-/// A principal as `GET /bff/principals` lists one.
-///
-/// Only `id` is always there. The engine omits `type` for a principal kind it does not
-/// recognise, and `email` for every service account.
-#[derive(Clone, Deserialize)]
-#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
-pub struct Principal {
-    /// The principal id: the `ref` of an owner that names it.
-    #[serde(rename = "id")]
-    pub id: String,
-
-    /// Whether it is a user or a service account; `None` when absent or unrecognised.
-    #[serde(rename = "type", default, deserialize_with = "lenient_principal_type")]
-    pub principal_type: Option<PrincipalType>,
-
-    /// The name to show, as the engine derives it.
-    #[serde(rename = "displayName", default)]
-    pub display_name: Option<String>,
-
-    /// The e-mail, for a user.
-    #[serde(rename = "email", default)]
-    pub email: Option<String>,
-}
-
-/// Reads a principal's `type`, turning a value this client does not know into `None` rather than
-/// failing the whole page over one row.
-fn lenient_principal_type<'de, D>(deserializer: D) -> Result<Option<PrincipalType>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let raw = Option::<Value>::deserialize(deserializer)?;
-
-    Ok(raw.and_then(|value| serde_json::from_value(value).ok()))
-}
-
-/// The part of `GET /bff/me` that says who the caller is.
-///
-/// The rest — organizations, tenants, roles, groups and their permissions — answers what the
-/// caller may do, not who they are, and is not read.
-#[derive(Clone, Deserialize)]
-#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
-pub struct MeContext {
-    /// The principal id, the same one `/bff/principals` lists.
-    #[serde(rename = "id")]
-    pub id: String,
-
-    /// `user` or `service_account` — snake case here, unlike `/bff/principals`.
-    #[serde(rename = "kind", default)]
-    pub kind: Option<String>,
-
-    /// The identity provider's subject.
-    #[serde(rename = "subject", default)]
-    pub subject: Option<String>,
-
-    /// The e-mail, for a user.
-    #[serde(rename = "email", default)]
-    pub email: Option<String>,
-
-    /// The person's name.
-    #[serde(rename = "name", default)]
-    pub name: Option<String>,
-
-    /// The login name.
-    #[serde(rename = "preferredUsername", default)]
-    pub preferred_username: Option<String>,
-
-    /// A service account's name.
-    #[serde(rename = "clientName", default)]
-    pub client_name: Option<String>,
-}
-
-/// `/bff/me`'s `kind` for a service account.
-pub const ME_KIND_SERVICE_ACCOUNT: &str = "service_account";
-
-/// `/bff/me`'s `kind` for a user.
-pub const ME_KIND_USER: &str = "user";
 
 /// An item's owner, as the engine stores `metadata.owner`.
 ///
@@ -196,7 +97,7 @@ impl OwnerRef {
             Self::Principal { reference } => normalise_principal_id(&reference)
                 .map(Self::principal)
                 .ok_or_else(|| {
-                    format!("`{reference}` is not a principal id. Find one with list_principals.")
+                    format!("`{reference}` is not a principal id: a principal's `ref` is a UUID.")
                 }),
             Self::Email { reference } if is_valid_email(&reference) => {
                 Ok(Self::Email { reference })

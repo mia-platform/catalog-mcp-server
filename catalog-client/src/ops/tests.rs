@@ -22,9 +22,8 @@ use crate::{
     identity::{ACL_CONTEXT_HEADER, AUTHORIZATION_HEADER, PRINCIPAL_ID_HEADER},
     models::ItemTypeDefinition,
     ops::{
-        COUNT_FAMILY_ITEMS, COUNT_ITEMS, GET_ITEM, GET_ME, GET_RELATIONSHIPS, LIST_FAMILY_ITEMS,
-        LIST_ITEM_TYPE_DEFINITIONS, LIST_ITEMS, LIST_PRINCIPALS, LIST_TENANTS, ListQuery,
-        OPERATIONS, OperationSpec,
+        COUNT_FAMILY_ITEMS, COUNT_ITEMS, GET_ITEM, GET_RELATIONSHIPS, LIST_FAMILY_ITEMS,
+        LIST_ITEM_TYPE_DEFINITIONS, LIST_ITEMS, ListQuery, OPERATIONS, OperationSpec,
     },
     pagination::{EngineCursor, ListPage, paginate_all},
     testing::{
@@ -75,7 +74,6 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             .delete_item(&mock_address(), Some("1"))
             .await
             .map(|_| ()),
-        "list_tenants" => client.list_tenants().await.map(|_| ()),
         "list_item_type_definitions" => client
             .list_item_type_definitions::<ItemTypeDefinition>(&query)
             .await
@@ -110,11 +108,6 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
                 &mock_address(),
                 &super::relationships::RelationshipQuery::default(),
             )
-            .await
-            .map(|_| ()),
-        "get_me" => client.get_me().await.map(|_| ()),
-        "list_principals" => client
-            .list_principals(&super::principals::PrincipalQuery::default())
             .await
             .map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
@@ -256,7 +249,6 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "get_item",
             "put_item",
             "delete_item",
-            "list_tenants",
             "list_item_type_definitions",
             "get_item_type_definition",
             "put_item_type_definition",
@@ -264,9 +256,7 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_family_items",
             "count_items",
             "count_family_items",
-            "get_relationships",
-            "get_me",
-            "list_principals"
+            "get_relationships"
         ]
     );
 }
@@ -839,22 +829,6 @@ async fn test_a_400_on_a_listing_with_the_callers_filter_is_invalid_input() {
     assert_eq!(error.remedy, crate::error::Remedy::RetryAfterChange);
 }
 
-/// The tenant listing declares no parameters, so nothing in it can be the caller's fault.
-#[rstest]
-#[tokio::test]
-async fn test_a_400_on_the_tenant_listing_is_a_server_defect() {
-    let engine = MockEngine::start().await;
-    engine.get_error("/bff/tenants", 400, "bad request").await;
-
-    let error = engine
-        .client(mock_identity())
-        .list_tenants()
-        .await
-        .expect_err("a 400 is an error");
-
-    assert_eq!(error.code, codes::SERVER_DEFECT);
-}
-
 // ---------------------------------------------------------------------------------------------
 // `search_catalog` — the family listing and the two counts.
 // ---------------------------------------------------------------------------------------------
@@ -1052,15 +1026,12 @@ async fn test_the_relationships_call_never_sends_group_by_or_rawq() {
 }
 
 // ---------------------------------------------------------------------------------------------
-// A `502` is the authorization service's only where the operation proxies it.
+// A `502` on a catalog operation is the catalog being unavailable.
 // ---------------------------------------------------------------------------------------------
 
-/// `list_tenants` is proxied to authz, so its `502` says so; on every catalog read a `502` comes
-/// from the gateway in front of the engine, and is the catalog being unavailable.
+/// On every catalog read a `502` comes from the gateway in front of the engine, and is the catalog
+/// being unavailable — never the authorization service.
 #[rstest]
-#[case::list_tenants(&LIST_TENANTS, codes::UPSTREAM_UNAVAILABLE)]
-#[case::get_me(&GET_ME, codes::UPSTREAM_UNAVAILABLE)]
-#[case::list_principals(&LIST_PRINCIPALS, codes::UPSTREAM_UNAVAILABLE)]
 #[case::list_items(&LIST_ITEMS, codes::CATALOG_UNAVAILABLE)]
 #[case::get_item(&GET_ITEM, codes::CATALOG_UNAVAILABLE)]
 #[case::list_item_type_definitions(&LIST_ITEM_TYPE_DEFINITIONS, codes::CATALOG_UNAVAILABLE)]
@@ -1084,96 +1055,9 @@ async fn test_a_502_is_mapped_per_operation(
         .expect_err("a 502 is an error");
 
     assert_eq!((error.code, error.remedy), (expected, Remedy::Retry));
-    // The two are told apart in wording as well as in code.
-    assert_eq!(
-        error.message.contains("authorization service"),
-        expected == codes::UPSTREAM_UNAVAILABLE,
+    assert!(
+        !error.message.contains("authorization service"),
         "{}",
         error.message
     );
-}
-
-// ---------------------------------------------------------------------------------------------
-// The caller and the principal directory.
-// ---------------------------------------------------------------------------------------------
-
-/// Every parameter of a principal query reaches the engine under the name it declares, `id` as one
-/// comma-separated list.
-#[rstest]
-#[tokio::test]
-async fn test_list_principals_sends_every_parameter() {
-    let engine = MockEngine::start().await;
-    Mock::given(method("GET"))
-        .and(path("/bff/principals"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(mock_list_envelope(Vec::new(), None)),
-        )
-        .mount(engine.server())
-        .await;
-
-    engine
-        .client(mock_identity())
-        .list_principals(&super::principals::PrincipalQuery {
-            limit: Some(20),
-            cursor: Some(EngineCursor::new("next-page")),
-            search: Some("ada lovelace".to_string()),
-            principal_type: Some(crate::models::PrincipalType::ServiceAccount),
-            ids: Some(vec!["a".to_string(), "b".to_string()]),
-        })
-        .await
-        .expect("the listing succeeds");
-
-    let requests = engine
-        .server()
-        .received_requests()
-        .await
-        .expect("the mock records its requests");
-    let sent: Vec<(String, String)> = requests[0]
-        .url
-        .query_pairs()
-        .map(|(key, value)| (key.into_owned(), value.into_owned()))
-        .collect();
-
-    assert_eq!(
-        sent,
-        vec![
-            ("limit".to_string(), "20".to_string()),
-            ("continue".to_string(), "next-page".to_string()),
-            ("search".to_string(), "ada lovelace".to_string()),
-            ("type".to_string(), "serviceAccount".to_string()),
-            ("id".to_string(), "a,b".to_string()),
-        ]
-    );
-}
-
-/// The listing is a `List` envelope, not a bare array, and its `continue` becomes the next page.
-#[rstest]
-#[tokio::test]
-async fn test_list_principals_reads_the_envelope() {
-    let engine = MockEngine::start().await;
-    engine
-        .get_ok(
-            "/bff/principals",
-            mock_list_envelope(
-                vec![
-                    serde_json::json!({ "id": "p-1", "type": "user", "displayName": "Ada",
-                                        "email": "ada@example.com" }),
-                    serde_json::json!({ "id": "p-2", "type": "robot" }),
-                ],
-                Some("token-2"),
-            ),
-        )
-        .await;
-
-    let page = engine
-        .client(mock_identity())
-        .list_principals(&super::principals::PrincipalQuery::default())
-        .await
-        .expect("the listing succeeds")
-        .value;
-
-    assert_eq!(page.next, Some(EngineCursor::new("token-2")));
-    assert_eq!(page.items[0].email.as_deref(), Some("ada@example.com"));
-    // An unknown principal kind does not fail the page: it reads as no type.
-    assert_eq!(page.items[1].principal_type, None);
 }

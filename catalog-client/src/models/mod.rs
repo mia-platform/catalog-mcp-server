@@ -29,14 +29,11 @@ pub mod item_type_definition;
 /// The engine's list and count envelopes.
 pub mod list;
 
-/// Principals, the caller and item owners, as the authz service and the engine describe them.
+/// Item owners, as the engine stores them.
 pub mod principal;
 
 /// A relationship between two items, as the relationships listing returns it.
 pub mod relationship;
-
-/// Tenants, as the authz service describes them.
-pub mod tenant;
 
 pub use item::{Item, Link, ObjectMetadata, PartialObjectMetadata};
 pub use item_type_definition::{
@@ -44,11 +41,8 @@ pub use item_type_definition::{
     ItemTypeDefinitionSpec, TypeNames, TypeVersion,
 };
 pub use list::{Count, ListEnvelope, ListMetadata};
-pub use principal::{
-    MeContext, OwnerRef, Principal, PrincipalType, is_valid_email, normalise_principal_id,
-};
+pub use principal::{OwnerRef, is_valid_email, normalise_principal_id};
 pub use relationship::{ItemRelationshipEntry, RelationshipDirection};
-pub use tenant::Tenant;
 
 #[cfg(test)]
 mod tests;

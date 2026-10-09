@@ -26,7 +26,7 @@
           "description": "Links, each `{url, title?}`."
         },
         "owner": {
-          "description": "`{type:\"principal\",ref}` from list_principals, or `{type:\"email\",ref}`; null removes."
+          "description": "`{type:\"principal\",ref:<UUID>}` or `{type:\"email\",ref}`, as the user gives it; null removes."
         },
         "tags": {
           "description": "Free-form tags."

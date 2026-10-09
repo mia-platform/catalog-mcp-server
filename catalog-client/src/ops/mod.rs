@@ -85,33 +85,6 @@ pub const DELETE_ITEM: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
-/// The tenants the caller can see. **Not a catalog read** — the engine proxies it to authz.
-pub const LIST_TENANTS: OperationSpec = OperationSpec {
-    id: "list_tenants",
-    method: "get",
-    path: "/bff/tenants",
-    query: &[],
-    upstream: Upstream::Authz,
-};
-
-/// The caller's own identity. **Not a catalog read** — the engine proxies it to authz.
-pub const GET_ME: OperationSpec = OperationSpec {
-    id: "get_me",
-    method: "get",
-    path: "/bff/me",
-    query: &[],
-    upstream: Upstream::Authz,
-};
-
-/// The tenant's principal directory. **Not a catalog read** — the engine proxies it to authz.
-pub const LIST_PRINCIPALS: OperationSpec = OperationSpec {
-    id: "list_principals",
-    method: "get",
-    path: "/bff/principals",
-    query: &["limit", "continue", "search", "type", "id"],
-    upstream: Upstream::Authz,
-};
-
 /// The Item Type Definition listing.
 pub const LIST_ITEM_TYPE_DEFINITIONS: OperationSpec = OperationSpec {
     id: "list_item_type_definitions",
@@ -197,7 +170,6 @@ pub const OPERATIONS: &[OperationSpec] = &[
     GET_ITEM,
     PUT_ITEM,
     DELETE_ITEM,
-    LIST_TENANTS,
     LIST_ITEM_TYPE_DEFINITIONS,
     GET_ITEM_TYPE_DEFINITION,
     PUT_ITEM_TYPE_DEFINITION,
@@ -206,8 +178,6 @@ pub const OPERATIONS: &[OperationSpec] = &[
     COUNT_ITEMS,
     COUNT_FAMILY_ITEMS,
     GET_RELATIONSHIPS,
-    GET_ME,
-    LIST_PRINCIPALS,
 ];
 
 /// How a listing is narrowed and paged.
@@ -364,12 +334,6 @@ pub mod item_type_definitions;
 
 /// One item's relationships, flat and unfiltered.
 pub mod relationships;
-
-/// The tenant listing, which is not a catalog read at all.
-pub mod tenants;
-
-/// The caller and the tenant's principal directory, neither of them a catalog read.
-pub mod principals;
 
 #[cfg(test)]
 mod tests;

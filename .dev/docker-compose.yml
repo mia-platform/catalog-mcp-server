@@ -34,24 +34,6 @@ services:
       timeout: 5s
       retries: 15
 
-  # Stands in for the Mia-Platform authz service, which `catalog-engine` proxies for its tenant
-  # listing. Without it `list_tenants` answers `502` — the engine's documented behaviour when
-  # `authzBaseUrl` is unset — and one of the two tools that exist today cannot be tried locally.
-  # It serves one fixed, fictional tenant and nothing else.
-  authz-stub:
-    image: docker.io/nginx:1.29-alpine
-    container_name: authz-stub4catalog-mcp-server-dev
-    volumes:
-      - ./authz-stub/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./authz-stub/tenants.json:/usr/share/nginx/stub/tenants.json:ro
-    networks:
-      - ring
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/api/authz/tenants > /dev/null"]
-      interval: 2s
-      timeout: 5s
-      retries: 15
-
   catalog-engine:
     image: nexus.mia-platform.eu/catalog/catalog-engine:0.9.4
     platform: linux/amd64
@@ -74,8 +56,6 @@ services:
       start_period: 10s
     depends_on:
       postgres:
-        condition: service_healthy
-      authz-stub:
         condition: service_healthy
 
 volumes:

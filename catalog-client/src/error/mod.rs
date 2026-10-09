@@ -308,7 +308,7 @@ pub enum Upstream {
     /// A catalog read or write, served by the engine itself.
     Catalog,
 
-    /// A route the engine proxies to the authz/identity service (`list_tenants` today).
+    /// A route the engine proxies to the authz/identity service. No operation uses one today.
     Authz,
 }
 

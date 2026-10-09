@@ -133,7 +133,7 @@ pub struct ItemMetadataPatch {
     #[serde(rename = "links", default, deserialize_with = "patch::present")]
     pub(crate) links: Option<Value>,
 
-    /// `{type:"principal",ref}` from list_principals, or `{type:"email",ref}`; null removes.
+    /// `{type:"principal",ref:<UUID>}` or `{type:"email",ref}`, as the user gives it; null removes.
     //
     // A raw value like its siblings, so that `null` reaches the merge as a deletion; its shape is
     // checked by `validate`, against the engine's own rules, before anything is sent.
@@ -289,7 +289,7 @@ fn validate(input: &ApplyItemInput) -> Result<(), ToolError> {
 
 /// The owner, when one is set: either form the engine stores, a principal by a UUID and an e-mail
 /// by the engine's e-mail rule. It is **not** looked up in the principal directory: the reference
-/// is the one `list_principals` gave.
+/// is the one the user gave.
 fn validate_owner(input: &ApplyItemInput) -> Result<(), ToolError> {
     match input
         .metadata

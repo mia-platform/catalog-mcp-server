@@ -51,7 +51,10 @@ pub mod contract;
 ///
 /// Raised again, to 1 050, when a type's agent briefing moved off the type listing and behind a
 /// per-type call: the listing and `get_item_schema` each need words saying where to read it.
-pub const PER_TOOL_ALLOWANCE: usize = 1_050;
+///
+/// Raised to 1 150 when the tenant and principal listings moved to their own server: they were
+/// among the shortest tools, so the average rose although no description grew.
+pub const PER_TOOL_ALLOWANCE: usize = 1_150;
 
 /// What the model sees for one tool. Built once at startup; never rebuilt per request.
 #[derive(Clone)]
@@ -165,8 +168,6 @@ impl Registry {
                 .with_route(route_for(tools::describe_item::DescribeItem))
                 .with_route(route_for(tools::get_item_schema::GetItemSchema))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
-                .with_route(route_for(tools::list_principals::ListPrincipals))
-                .with_route(route_for(tools::list_tenants::ListTenants))
                 .with_route(route_for(tools::search_catalog::SearchCatalog)),
         )
     }

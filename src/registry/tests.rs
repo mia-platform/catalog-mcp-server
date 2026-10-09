@@ -236,14 +236,6 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
     deserialise::<crate::tools::get_item_schema::GetItemSchemaInput>,
     serde_json::json!({ "kind": "Service", "group": "example.com", "version": "v1", "fields": ["spec.replicas"] })
 )]
-#[case::list_tenants(deserialise::<crate::tools::list_tenants::ListTenantsInput>, serde_json::json!({}))]
-#[case::list_principals(
-    deserialise::<crate::tools::list_principals::ListPrincipalsInput>,
-    serde_json::json!({
-        "me": false, "type": "user", "ids": ["523f5c33-1a5c-7270-aa81-bbc05ab201dc"],
-        "displayName": "Ada", "email": "ada@example.com", "cursor": "abc"
-    })
-)]
 #[case::apply_item(
     deserialise::<crate::tools::apply_item::ApplyItemInput>,
     serde_json::json!({
@@ -300,11 +292,6 @@ fn test_every_documented_argument_is_accepted(
     deserialise::<crate::tools::get_item_schema::GetItemSchemaInput>,
     serde_json::json!({ "kind": "Service", "field": ["spec.replicas"] }),
     "field"
-)]
-#[case::list_tenants(
-    deserialise::<crate::tools::list_tenants::ListTenantsInput>,
-    serde_json::json!({ "tenant": "other" }),
-    "tenant"
 )]
 #[case::apply_item_resource_version(
     deserialise::<crate::tools::apply_item::ApplyItemInput>,
