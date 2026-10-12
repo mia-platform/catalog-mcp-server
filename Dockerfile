@@ -27,7 +27,11 @@ RUN --mount=type=cache,target=/usr/src/target \
 
 ##############################################################################################
 
-FROM docker.io/alpine:3.23.2@sha256:865b95f46d98cf867a156fe4a135ad3fe50d2056aa3f25ed31662dff6da4eb62
+FROM docker.io/alpine:3.23.6@sha256:85fe1e81d6758c208f3e1eed4338a1997e19d4be002d4dd32d3100c9a8c010a0
+
+# The base image is pinned by digest, so its packages stay as they were when that tag was
+# published. Upgrade them to the latest security fixes of the same Alpine branch at build time.
+RUN apk upgrade --no-cache;
 
 COPY --from=builder /usr/local/bin/catalog-mcp-server /usr/local/bin/catalog-mcp-server
 
