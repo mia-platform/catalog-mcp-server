@@ -62,7 +62,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         false => None,
     };
 
-    let state = AppState::build(config, registry::Registry::with_shipped_tools(), metrics)?;
+    let registry = registry::Registry::with_shipped_tools(&config.tools.defaults);
+    let state = AppState::build(config, registry, metrics)?;
 
     rt.block_on(async {
         signal::register_shutdown_listeners();

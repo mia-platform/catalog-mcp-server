@@ -57,6 +57,8 @@ axum = { version = "0.8.6", default-features = false, features = [
     "tokio",
 ] }
 catalog-client = { path = "catalog-client" }
+# Compliance runs and campaigns carry RFC 3339 times that are compared with each other and with now.
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
 clap = { version = "4.5.53", features = ["derive", "env"] }
 configuration = { path = "configuration" }
 dirs = "6.0.0"

@@ -19,7 +19,7 @@ use crate::{
     address::ItemAddress,
     client::{EngineClient, EngineResponse},
     error::{BadRequestOrigin, ToolError, Upstream},
-    models::Item,
+    models::{Item, PartialObjectMetadata},
     pagination::EngineCursor,
     projection::Projection,
 };
@@ -63,6 +63,24 @@ pub const GET_ITEM: OperationSpec = OperationSpec {
     id: "get_item",
     method: "get",
     path: "/{group}/{version}/items/{family}/{name}",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
+/// One item, by address, metadata only — its `resourceVersion` and metadata, never its `spec`.
+pub const GET_ITEM_METADATA: OperationSpec = OperationSpec {
+    id: "get_item_metadata",
+    method: "get",
+    path: "/{group}/{version}/items/{family}/{name}",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
+/// One compliance evaluation started: a rule, a scorecard or a campaign.
+pub const EVALUATE_COMPLIANCE: OperationSpec = OperationSpec {
+    id: "evaluate_compliance",
+    method: "post",
+    path: "/compliance.mia-platform.eu/v1/items/{family}/{name}/evaluate",
     query: &[],
     upstream: Upstream::Catalog,
 };
@@ -178,6 +196,8 @@ pub const OPERATIONS: &[OperationSpec] = &[
     COUNT_ITEMS,
     COUNT_FAMILY_ITEMS,
     GET_RELATIONSHIPS,
+    GET_ITEM_METADATA,
+    EVALUATE_COMPLIANCE,
 ];
 
 /// How a listing is narrowed and paged.
@@ -203,6 +223,10 @@ pub struct ListQuery {
 
     /// `label=<key>=<value>` filters, for the endpoints that accept them.
     pub label: Vec<String>,
+
+    /// Whether `sort` was chosen by this server rather than asked for by the caller — as when a
+    /// tool lists runs newest first — so that a `400` on it is not blamed on the caller.
+    pub sort_is_ours: bool,
 }
 
 impl ListQuery {
@@ -213,7 +237,10 @@ impl ListQuery {
     /// carrying none of the caller's is one the engine can only have rejected because of us, and
     /// telling the model to change its input would send it round a loop it cannot win.
     pub(crate) fn bad_request_origin(&self) -> BadRequestOrigin {
-        if self.field.is_empty() && self.label.is_empty() && self.sort.is_empty() {
+        if self.field.is_empty()
+            && self.label.is_empty()
+            && (self.sort.is_empty() || self.sort_is_ours)
+        {
             BadRequestOrigin::ServerBuilt
         } else {
             BadRequestOrigin::CallerInput
@@ -280,6 +307,26 @@ impl EngineClient {
         .await
     }
 
+    /// `GET /{group}/{version}/items/{family}/{name}` with the metadata-only projection: the item's
+    /// metadata and `resourceVersion`, without its `spec`.
+    ///
+    /// What a poll reads to learn whether an item changed, at a fraction of a full read's size.
+    /// Used only on items this server located itself, so the address is ours.
+    pub async fn get_item_metadata(
+        &self,
+        address: &ItemAddress,
+    ) -> Result<EngineResponse<PartialObjectMetadata>, ToolError> {
+        let url = self.url(address.segments())?;
+
+        self.get_json(
+            &GET_ITEM_METADATA,
+            url,
+            Projection::PartialObjectMetadata.accept(),
+            BadRequestOrigin::ServerBuilt,
+        )
+        .await
+    }
+
     /// `DELETE /{group}/{version}/items/{family}/{name}?resourceVersion=…` — delete one item.
     ///
     /// `resource_version` is always sent by `delete_item`: without it the engine deletes whatever
@@ -334,6 +381,9 @@ pub mod item_type_definitions;
 
 /// One item's relationships, flat and unfiltered.
 pub mod relationships;
+
+/// Compliance evaluations: start one on a rule, a scorecard or a campaign.
+pub mod compliance;
 
 #[cfg(test)]
 mod tests;

@@ -49,7 +49,7 @@ const GOLDEN_DIR: &str = "src/schema/golden";
 
 #[fixture]
 fn mock_registry() -> Registry {
-    Registry::with_shipped_tools()
+    Registry::with_shipped_tools(&configuration::tools::ToolDefaults::default())
 }
 
 /// The specification asks for a deterministic order, and `list_all()` sorts by name — so

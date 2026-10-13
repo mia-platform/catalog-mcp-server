@@ -1,0 +1,100 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "failure_sample": {
+      "description": "Failures to list. Default 50, clamped to 500; counts stay exact.",
+      "type": "integer"
+    },
+    "name": {
+      "description": "Its name.",
+      "type": "string"
+    },
+    "scope": {
+      "additionalProperties": false,
+      "description": "Rule only: the items to evaluate.",
+      "properties": {
+        "fields": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "As search_catalog.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "group": {
+          "description": "As search_catalog.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "description": "As search_catalog.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "As search_catalog.",
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "query": {
+          "description": "As search_catalog.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "view": {
+          "description": "A View, by name or URN. Alone.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "target": {
+      "description": "What to run: rule, scorecard or campaign.",
+      "oneOf": [
+        {
+          "const": "rule",
+          "description": "A rule.",
+          "type": "string"
+        },
+        {
+          "const": "scorecard",
+          "description": "A scorecard.",
+          "type": "string"
+        },
+        {
+          "const": "campaign",
+          "description": "A campaign.",
+          "type": "string"
+        }
+      ]
+    },
+    "wait": {
+      "description": "Seconds to wait for the result. Default 20; 0 returns at once.",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "target",
+    "name"
+  ],
+  "type": "object"
+}

@@ -110,6 +110,16 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             )
             .await
             .map(|_| ()),
+        "get_item_metadata" => client.get_item_metadata(&mock_address()).await.map(|_| ()),
+        "evaluate_compliance" => client
+            .evaluate(
+                super::compliance::EvaluationFamily::Rules,
+                MOCK_ITEM_NAME,
+                Some(&serde_json::json!({ "scope": { "type": "view-ref", "content": "urn" } })),
+                crate::error::BadRequestOrigin::ServerBuilt,
+            )
+            .await
+            .map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
     }
 }
@@ -256,7 +266,9 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_family_items",
             "count_items",
             "count_family_items",
-            "get_relationships"
+            "get_relationships",
+            "get_item_metadata",
+            "evaluate_compliance"
         ]
     );
 }
@@ -769,6 +781,14 @@ async fn test_a_paginated_listing_walks_exactly_once() {
     ListQuery { sort: vec!["metadata.name".to_string()], ..ListQuery::default() },
     crate::error::BadRequestOrigin::CallerInput
 )]
+#[case::a_sort_chosen_by_the_server_is_ours(
+    ListQuery {
+        sort: vec!["-metadata.creationTimestamp".to_string()],
+        sort_is_ours: true,
+        ..ListQuery::default()
+    },
+    crate::error::BadRequestOrigin::ServerBuilt
+)]
 fn test_a_listings_bad_request_origin_follows_what_it_carries(
     #[case] query: ListQuery,
     #[case] expected: crate::error::BadRequestOrigin,
@@ -1060,4 +1080,115 @@ async fn test_a_502_is_mapped_per_operation(
         "{}",
         error.message
     );
+}
+
+/// The metadata-only read asks for `PartialObjectMetadata` and returns the `resourceVersion` a poll
+/// compares.
+#[rstest]
+#[tokio::test]
+async fn test_get_item_metadata_reads_the_metadata_projection() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!(
+            "/stable.example.com/v1/items/services/{MOCK_ITEM_NAME}"
+        )))
+        .and(wiremock::matchers::header(
+            "accept",
+            crate::projection::Projection::PartialObjectMetadata.accept(),
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "apiVersion": "stable.example.com/v1",
+            "kind": "Service",
+            "metadata": { "name": MOCK_ITEM_NAME },
+            "resourceVersion": "4242"
+        })))
+        .expect(1)
+        .mount(engine.server())
+        .await;
+
+    let response = engine
+        .client(mock_identity())
+        .get_item_metadata(&mock_address())
+        .await
+        .expect("the metadata is read");
+
+    assert_eq!(response.value.resource_version.as_deref(), Some("4242"));
+}
+
+/// An evaluation is posted to the family's `evaluate` path, with the body given and only once,
+/// and answers the engine's URN.
+#[rstest]
+#[case::rule_with_scope(
+    crate::ops::compliance::EvaluationFamily::Rules,
+    Some(serde_json::json!({ "scope": { "type": "raw-query", "content": { "kind": { "eq": "Service" } } } }))
+)]
+#[case::scorecard_without_body(crate::ops::compliance::EvaluationFamily::Scorecards, None)]
+#[case::campaign_without_body(crate::ops::compliance::EvaluationFamily::Campaigns, None)]
+#[tokio::test]
+async fn test_evaluate_posts_once_to_the_family_path(
+    #[case] family: super::compliance::EvaluationFamily,
+    #[case] body: Option<serde_json::Value>,
+) {
+    let engine = MockEngine::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!(
+            "/compliance.mia-platform.eu/v1/items/{}/my-target/evaluate",
+            family.as_str()
+        )))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(serde_json::json!({ "urn": "urn:mia-platform-catalog:x:v1:K:n" })),
+        )
+        .expect(1)
+        .mount(engine.server())
+        .await;
+
+    let response = engine
+        .client(mock_identity())
+        .evaluate(
+            family,
+            "my-target",
+            body.as_ref(),
+            crate::error::BadRequestOrigin::ServerBuilt,
+        )
+        .await
+        .expect("the evaluation starts");
+
+    assert_eq!(response.value.urn, "urn:mia-platform-catalog:x:v1:K:n");
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    let sent: Option<serde_json::Value> = (!requests[0].body.is_empty())
+        .then(|| serde_json::from_slice(&requests[0].body).expect("a JSON body"));
+    assert_eq!(sent, body);
+}
+
+/// A failed evaluation is **never** retried, and a `5XX` after it left is `unknown_outcome`:
+/// a repeat would start a second run.
+#[rstest]
+#[tokio::test]
+async fn test_evaluate_is_never_retried_and_a_5xx_is_unknown_outcome() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("POST"))
+        .respond_with(ResponseTemplate::new(503))
+        .expect(1)
+        .mount(engine.server())
+        .await;
+
+    let error = engine
+        .client(mock_identity())
+        .evaluate(
+            super::compliance::EvaluationFamily::Scorecards,
+            "my-target",
+            None,
+            crate::error::BadRequestOrigin::CallerInput,
+        )
+        .await
+        .expect_err("the engine failed");
+
+    assert_eq!(error.code, codes::UNKNOWN_OUTCOME);
+    assert_eq!(error.remedy, Remedy::Unknown);
 }

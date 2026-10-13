@@ -324,6 +324,14 @@ pub enum Predicate {
         field: FieldPath,
     },
 
+    /// `{"<field>": {"exists": true}}` — the field has a value.
+    ///
+    /// For *"runs that have finished"*: a run's end time is set exactly when it is done.
+    Present {
+        /// The field that must be set.
+        field: FieldPath,
+    },
+
     /// `{"and": [...]}` — every child must hold.
     And(Vec<Predicate>),
 
@@ -348,6 +356,7 @@ impl Predicate {
                 one_key(field.as_str(), Value::Object(operator))
             }
             Self::Missing { field } => one_key(field.as_str(), json!({ "exists": false })),
+            Self::Present { field } => one_key(field.as_str(), json!({ "exists": true })),
             Self::And(children) => {
                 json!({ "and": children.iter().map(Self::to_json).collect::<Vec<_>>() })
             }
@@ -380,7 +389,10 @@ impl Predicate {
         }
 
         match self {
-            Self::Eq { .. } | Self::Matches { .. } | Self::Missing { .. } => Ok(()),
+            Self::Eq { .. }
+            | Self::Matches { .. }
+            | Self::Missing { .. }
+            | Self::Present { .. } => Ok(()),
             Self::And(children) | Self::Or(children) => {
                 if children.is_empty() {
                     return Err(ToolError::new(
@@ -408,7 +420,10 @@ impl Predicate {
     /// How many leaf predicates the tree carries.
     fn count_leaves(&self) -> usize {
         match self {
-            Self::Eq { .. } | Self::Matches { .. } | Self::Missing { .. } => 1,
+            Self::Eq { .. }
+            | Self::Matches { .. }
+            | Self::Missing { .. }
+            | Self::Present { .. } => 1,
             Self::And(children) | Self::Or(children) => {
                 children.iter().map(Self::count_leaves).sum()
             }

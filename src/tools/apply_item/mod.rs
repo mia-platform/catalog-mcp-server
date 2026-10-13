@@ -49,7 +49,8 @@ const TOOL_DESCRIPTION: &str = "Creates or updates a catalog item. Send only the
      replaced, not appended. Custom fields cannot be set here. Returns `created`, the `changed` \
      field paths (empty if nothing changed) and `retried` (a conflict was resolved by \
      re-reading). Address the item by `name` and `kind` (and `group` for a shared kind); put the \
-     changes in `spec` and `metadata`.";
+     changes in `spec` and `metadata`. Creating or changing a `Campaign` schedules notifications \
+     to item owners and followers: confirm with the user first.";
 
 /// The owner, as errors name it.
 const OWNER_FIELD: &str = "metadata.owner";

@@ -32,6 +32,9 @@ pub mod list;
 /// Item owners, as the engine stores them.
 pub mod principal;
 
+/// The compliance items an evaluation writes, and the definitions its results are read against.
+pub mod compliance;
+
 /// A relationship between two items, as the relationships listing returns it.
 pub mod relationship;
 

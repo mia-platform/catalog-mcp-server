@@ -205,6 +205,8 @@ fn test_omitted_blocks_take_their_defaults() {
     assert_eq!(config.engine.timeout_ms, 5_000);
     assert_eq!(config.tools.rate_limit.per_tenant_calls_per_minute, 120);
     assert_eq!(config.tools.defaults.max_write_bytes, 262_144);
+    assert_eq!(config.tools.defaults.compliance_wait_seconds, 20);
+    assert_eq!(config.tools.defaults.failure_sample, 50);
     assert_eq!(config.transport.sse_keep_alive_seconds, 15);
     // ...and it is still refused, because `allowedHosts` has no usable default.
     assert!(config.validate().is_err());

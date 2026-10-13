@@ -517,6 +517,30 @@ impl EngineClient {
         self.decode(raw)
     }
 
+    /// Issues one `POST` that starts something, and deserialises what the engine answered.
+    ///
+    /// **Never retried**: a `POST` that starts work is not idempotent — a repeat would start it a
+    /// second time — so a failure after the request left is `unknown_outcome`, never a clean
+    /// failure the model could retry.
+    pub async fn post_json<T: DeserializeOwned>(
+        &self,
+        operation: &'static OperationSpec,
+        url: Url,
+        body: Option<&Value>,
+        origin: BadRequestOrigin,
+    ) -> Result<EngineResponse<T>, ToolError> {
+        let raw = self
+            .send(
+                operation,
+                Request::post(url, body.cloned()),
+                Intent::Write { retryable: false },
+                origin,
+            )
+            .await?;
+
+        self.decode(raw)
+    }
+
     /// Issues one `DELETE`, whose success carries no body — only the warnings the engine attached.
     ///
     /// Never retried: a delete that may have landed is `unknown_outcome`, and whether a
@@ -796,6 +820,7 @@ impl EngineClient {
 enum Request {
     Get { url: Url, accept: String },
     Put { url: Url, body: Value },
+    Post { url: Url, body: Option<Value> },
     Delete { url: Url },
 }
 
@@ -805,6 +830,7 @@ impl Request {
         match self {
             Self::Get { .. } => "GET",
             Self::Put { .. } => "PUT",
+            Self::Post { .. } => "POST",
             Self::Delete { .. } => "DELETE",
         }
     }
@@ -820,6 +846,11 @@ impl Request {
     /// A `PUT` carrying `body`.
     fn put(url: Url, body: Value) -> Self {
         Self::Put { url, body }
+    }
+
+    /// A `POST`, with a body or without one.
+    fn post(url: Url, body: Option<Value>) -> Self {
+        Self::Post { url, body }
     }
 
     /// A `DELETE`, which carries no body either way.
@@ -840,6 +871,17 @@ impl Request {
                     crate::projection::Projection::Full.accept(),
                 )
                 .json(body),
+            Self::Post { url, body } => {
+                let builder = http.post(url.clone()).header(
+                    http::header::ACCEPT,
+                    crate::projection::Projection::Full.accept(),
+                );
+
+                match body {
+                    Some(body) => builder.json(body),
+                    None => builder,
+                }
+            }
             // The engine answers a delete with `204` and no body; an error is its usual JSON.
             Self::Delete { url } => http.delete(url.clone()).header(
                 http::header::ACCEPT,

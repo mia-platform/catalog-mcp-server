@@ -78,7 +78,9 @@ fn mock_router(mock_config: Config) -> Router {
     build_router(
         AppState::build(
             mock_config,
-            crate::registry::Registry::with_shipped_tools(),
+            crate::registry::Registry::with_shipped_tools(
+                &configuration::tools::ToolDefaults::default(),
+            ),
             None,
         )
         .expect("a valid state"),
@@ -107,15 +109,17 @@ fn mock_echo_router(mock_config: Config) -> Router {
     )
 }
 
-/// The eight tools this server ships, in `tools/list` order.
-const SHIPPED_TOOLS: [&str; 8] = [
+/// The ten tools this server ships, in `tools/list` order.
+const SHIPPED_TOOLS: [&str; 10] = [
     "apply_item",
     "apply_item_type",
     "delete_item",
     "delete_item_type",
     "describe_item",
+    "get_compliance_results",
     "get_item_schema",
     "list_catalog_types",
+    "run_compliance_evaluation",
     "search_catalog",
 ];
 
@@ -543,7 +547,9 @@ async fn test_disallowed_host_is_rejected(mock_config: Config) {
     let router = build_router(
         AppState::build(
             mock_config,
-            crate::registry::Registry::with_shipped_tools(),
+            crate::registry::Registry::with_shipped_tools(
+                &configuration::tools::ToolDefaults::default(),
+            ),
             None,
         )
         .expect("a valid state"),
@@ -606,7 +612,9 @@ async fn test_configured_origin_allowlist_rejects_a_foreign_origin(mock_config: 
     let router = build_router(
         AppState::build(
             config,
-            crate::registry::Registry::with_shipped_tools(),
+            crate::registry::Registry::with_shipped_tools(
+                &configuration::tools::ToolDefaults::default(),
+            ),
             None,
         )
         .expect("a valid state"),
@@ -681,7 +689,9 @@ async fn test_healthz_answers_ok(mock_router: Router) {
 async fn test_healthz_stays_ok_while_draining(mock_config: Config) {
     let state = AppState::build(
         mock_config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");
@@ -710,7 +720,9 @@ async fn test_ready_reports_not_ready_before_startup_completes(mock_router: Rout
 async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
     let state = AppState::build(
         mock_config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");
@@ -730,7 +742,9 @@ async fn test_ready_reports_ok_once_startup_completes(mock_config: Config) {
 async fn test_ready_reports_not_ready_while_draining(mock_config: Config) {
     let state = AppState::build(
         mock_config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");
@@ -764,7 +778,9 @@ fn mock_probing_state(engine_url: &str, mock_config: Config, timeout_ms: u64) ->
 
     let state = AppState::build(
         config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");
@@ -953,7 +969,9 @@ async fn test_healthz_never_probes_the_engine(mock_config: Config) {
 async fn test_operational_routes_are_not_behind_the_transport_checks(mock_config: Config) {
     let state = AppState::build(
         mock_config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");
@@ -1059,9 +1077,11 @@ async fn test_tools_list_ignores_a_cursor(mock_router: Router) {
             .as_array()
             .expect("an array")
             .len(),
-        crate::registry::Registry::with_shipped_tools()
-            .tools()
-            .len()
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default()
+        )
+        .tools()
+        .len()
     );
     assert!(listed["result"].get("nextCursor").is_none());
 }
@@ -1447,7 +1467,9 @@ fn shared_metrics() -> metrics_exporter_prometheus::PrometheusHandle {
 fn mock_router_with_metrics(config: Config) -> Router {
     let state = AppState::build(
         config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         Some(shared_metrics()),
     )
     .expect("a valid state");
@@ -1649,7 +1671,9 @@ async fn test_metrics_is_absent_when_disabled(mock_config: Config) {
 
     let state = AppState::build(
         config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");
@@ -1938,7 +1962,9 @@ fn mock_shipped_router_against(engine_url: &str, mock_config: Config) -> Router 
 
     let state = AppState::build(
         config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         Some(shared_metrics()),
     )
     .expect("a valid state");
@@ -2269,7 +2295,9 @@ fn test_no_tool_declares_an_output_schema_with_the_switch_on(mock_config: Config
     config.response.structured_content = true;
     let state = AppState::build(
         config,
-        crate::registry::Registry::with_shipped_tools(),
+        crate::registry::Registry::with_shipped_tools(
+            &configuration::tools::ToolDefaults::default(),
+        ),
         None,
     )
     .expect("a valid state");

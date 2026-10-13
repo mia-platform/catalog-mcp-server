@@ -28,6 +28,12 @@ mod arguments;
 /// Finding one item from its name, and `kind` when given.
 mod lookup;
 
+/// `search_catalog`'s filters — free text, type, labels, fields — shared by every tool taking them.
+pub(crate) mod filters;
+
+/// What the two compliance tools share: targets, runs, and how a run's result is shaped.
+pub(crate) mod compliance;
+
 /// Create or merge-patch one item, through `catalog-client`'s read-merge-write cycle.
 pub mod apply_item;
 
@@ -49,3 +55,9 @@ pub mod list_catalog_types;
 
 /// Search the catalog by free text, type, labels and fields.
 pub mod search_catalog;
+
+/// Run a compliance rule, scorecard or campaign, wait for it in the cluster, and report what failed.
+pub mod run_compliance_evaluation;
+
+/// Read a compliance rule's, scorecard's or campaign's results without running anything.
+pub mod get_compliance_results;

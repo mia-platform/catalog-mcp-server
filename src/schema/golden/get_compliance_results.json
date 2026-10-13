@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "failure_sample": {
+      "description": "Failures to list. Default 50, clamped to 500; counts stay exact.",
+      "type": "integer"
+    },
+    "history": {
+      "description": "Earlier runs to list. Default 5, clamped to 20; 0 for none. Not for campaigns.",
+      "type": "integer"
+    },
+    "name": {
+      "description": "Its name.",
+      "type": "string"
+    },
+    "run": {
+      "description": "A run's name, instead of the latest. Not for campaigns.",
+      "type": "string"
+    },
+    "target": {
+      "description": "Whose results: rule, scorecard or campaign.",
+      "oneOf": [
+        {
+          "const": "rule",
+          "description": "A rule.",
+          "type": "string"
+        },
+        {
+          "const": "scorecard",
+          "description": "A scorecard.",
+          "type": "string"
+        },
+        {
+          "const": "campaign",
+          "description": "A campaign.",
+          "type": "string"
+        }
+      ]
+    }
+  },
+  "required": [
+    "target",
+    "name"
+  ],
+  "type": "object"
+}

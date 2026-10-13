@@ -217,6 +217,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "catalog-client",
+ "chrono",
  "clap",
  "configuration",
  "dirs",

@@ -34,7 +34,9 @@ fn mock_handler() -> CatalogHandler {
     CatalogHandler::new(
         AppState::build(
             config,
-            crate::registry::Registry::with_shipped_tools(),
+            crate::registry::Registry::with_shipped_tools(
+                &configuration::tools::ToolDefaults::default(),
+            ),
             None,
         )
         .expect("a valid state"),

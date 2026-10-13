@@ -295,6 +295,14 @@
           "minimum": 0,
           "default": 20
         },
+        "failureSample": {
+          "description": "Failing items a compliance result lists by default; the failed count stays exact.",
+          "type": "integer",
+          "format": "uint16",
+          "minimum": 0,
+          "maximum": 65535,
+          "default": 50
+        },
         "maxWriteBytes": {
           "description": "Ceiling on the bytes a caller may send us in one write.",
           "type": "integer",

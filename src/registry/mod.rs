@@ -24,6 +24,7 @@ use crate::{
     tools,
 };
 use catalog_client::TraceContext;
+use configuration::tools::ToolDefaults;
 use rmcp::{
     handler::server::{
         common::schema_for_input,
@@ -54,7 +55,10 @@ pub mod contract;
 ///
 /// Raised to 1 150 when the tenant and principal listings moved to their own server: they were
 /// among the shortest tools, so the average rose although no description grew.
-pub const PER_TOOL_ALLOWANCE: usize = 1_150;
+///
+/// Raised to 1 400 with the two compliance tools, whose descriptions must name an asynchronous
+/// run's outcome and its follow-up, leaving headroom rather than a ceiling met to the byte.
+pub const PER_TOOL_ALLOWANCE: usize = 1_400;
 
 /// What the model sees for one tool. Built once at startup; never rebuilt per request.
 #[derive(Clone)]
@@ -154,11 +158,12 @@ impl Registry {
         }
     }
 
-    /// The complete tool set this server ships.
+    /// The complete tool set this server ships, each tool given the defaults the configuration
+    /// sets for it.
     ///
     /// Ordering is not set here: `list_all()` sorts by name, which is the determinism the
     /// specification asks for, so nothing sorts twice.
-    pub fn with_shipped_tools() -> Self {
+    pub fn with_shipped_tools(defaults: &ToolDefaults) -> Self {
         Self::new(
             ToolRouter::new()
                 .with_route(route_for(tools::apply_item::ApplyItem))
@@ -166,8 +171,14 @@ impl Registry {
                 .with_route(route_for(tools::delete_item::DeleteItem))
                 .with_route(route_for(tools::delete_item_type::DeleteItemType))
                 .with_route(route_for(tools::describe_item::DescribeItem))
+                .with_route(route_for(
+                    tools::get_compliance_results::GetComplianceResults::new(defaults),
+                ))
                 .with_route(route_for(tools::get_item_schema::GetItemSchema))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
+                .with_route(route_for(
+                    tools::run_compliance_evaluation::RunComplianceEvaluation::new(defaults),
+                ))
                 .with_route(route_for(tools::search_catalog::SearchCatalog)),
         )
     }

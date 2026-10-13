@@ -87,6 +87,20 @@ fn test_missing_has_the_engines_shape() {
     );
 }
 
+/// "This field has a value" is `exists: true`, and is one leaf like any other.
+#[rstest]
+fn test_present_has_the_engines_shape() {
+    let present = Predicate::Present {
+        field: field("spec.runEndTime"),
+    };
+
+    assert_eq!(
+        present.to_json(),
+        json!({ "spec.runEndTime": { "exists": true } })
+    );
+    assert!(Predicate::And(vec![present]).validate().is_ok());
+}
+
 /// A missing-field condition is one leaf, like any other.
 #[rstest]
 fn test_missing_counts_as_one_leaf() {

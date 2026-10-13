@@ -54,6 +54,10 @@ pub static DEFAULT_AUDIT_LIMIT: u32 = 25;
 /// Default time a compliance evaluation is waited on, in seconds.
 pub static DEFAULT_COMPLIANCE_WAIT_SECONDS: u64 = 20;
 
+/// Default number of failing items a compliance result lists. The failed count is always exact;
+/// only the list is cut.
+pub static DEFAULT_FAILURE_SAMPLE: u16 = 50;
+
 /// Default ceiling on the bytes a caller may send us in one write.
 pub static DEFAULT_MAX_WRITE_BYTES: usize = 262_144;
 
@@ -105,6 +109,11 @@ pub fn default_audit_limit() -> u32 {
 /// Returns [`DEFAULT_COMPLIANCE_WAIT_SECONDS`].
 pub fn default_compliance_wait_seconds() -> u64 {
     DEFAULT_COMPLIANCE_WAIT_SECONDS
+}
+
+/// Returns [`DEFAULT_FAILURE_SAMPLE`].
+pub fn default_failure_sample() -> u16 {
+    DEFAULT_FAILURE_SAMPLE
 }
 
 /// Returns [`DEFAULT_MAX_WRITE_BYTES`].
@@ -177,6 +186,10 @@ pub struct ToolDefaults {
     )]
     pub compliance_wait_seconds: u64,
 
+    /// Failing items a compliance result lists by default; the failed count stays exact.
+    #[serde(default = "default_failure_sample", rename = "failureSample")]
+    pub failure_sample: u16,
+
     /// Ceiling on the bytes a caller may send us in one write.
     #[serde(default = "default_max_write_bytes", rename = "maxWriteBytes")]
     pub max_write_bytes: usize,
@@ -190,6 +203,7 @@ impl Default for ToolDefaults {
             history_limit: default_history_limit(),
             audit_limit: default_audit_limit(),
             compliance_wait_seconds: default_compliance_wait_seconds(),
+            failure_sample: default_failure_sample(),
             max_write_bytes: default_max_write_bytes(),
         }
     }
