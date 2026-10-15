@@ -1919,3 +1919,141 @@ async fn test_the_engine_refuses_custom_fields_as_expected() {
         .expect("the field for another type is listed");
     assert_eq!(other.applicable_to, Some(vec![OTHER_TYPE_URN.to_string()]));
 }
+
+/// The item the audit-log test writes, so its entries are its own.
+const AUDIT_PROBE: &str = "e2e-audit-probe";
+
+/// How long the audit-log test waits for an entry after one write: the engine writes entries
+/// through a buffer flushed every 250 ms.
+const AUDIT_WAIT: Duration = Duration::from_secs(4);
+
+/// How many writes the audit-log test makes before giving up. The engine drops every entry of a
+/// tenant flushed in the same batch as one it cannot store — a write refused before naming its
+/// resource is such an entry, and another test in this suite makes one on purpose — so a single
+/// write can go unrecorded through no fault of the read path under test.
+const AUDIT_WRITES: usize = 3;
+
+/// How often it looks.
+const AUDIT_POLL: Duration = Duration::from_millis(250);
+
+/// **Live: the audit log records a write and answers the filters `get_audit_log` sends** — the
+/// entry found by the item's URN and by its type definition's URN, `occurredUntil` exclusive, the
+/// envelope, an unknown action refused, the vocabulary a bare array. Filtered by this test's own
+/// URN, never by totals: the suite shares one tenant and runs in parallel.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_audit_log_records_a_write_and_filters_it() {
+    use catalog_client::{error::BadRequestOrigin, ops::audit_log::AuditLogQuery};
+
+    let client = client();
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds the described agent")
+        .value;
+
+    // Each attempt writes an item of its own, so every write is a create.
+    let mut found = None;
+    for attempt in 0..AUDIT_WRITES {
+        let name = format!("{AUDIT_PROBE}-{attempt}");
+        let probe = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", &name)
+            .expect("a well-formed address");
+        let item_urn = format!(
+            "urn:mia-platform-catalog:ai.mia-platform.eu:v1:{}:{name}",
+            seeded.kind
+        );
+        let by_item = AuditLogQuery {
+            resource_urn: Some(item_urn.clone()),
+            actions: vec!["item.upsert".to_string()],
+            limit: 50,
+            ..AuditLogQuery::default()
+        };
+
+        client
+            .put_item(
+                &probe,
+                &serde_json::json!({
+                    "apiVersion": seeded.api_version,
+                    "kind": seeded.kind,
+                    "metadata": { "name": name },
+                    "spec": seeded.spec,
+                }),
+                false,
+            )
+            .await
+            .expect("the probe is written");
+
+        let started = std::time::Instant::now();
+        while started.elapsed() < AUDIT_WAIT {
+            let page = client
+                .list_audit_log(&by_item, BadRequestOrigin::CallerInput)
+                .await
+                .expect("the audit log answers")
+                .value;
+            if !page.items.is_empty() {
+                found = Some((page, item_urn.clone(), by_item.clone()));
+                break;
+            }
+            tokio::time::sleep(AUDIT_POLL).await;
+        }
+        if found.is_some() {
+            break;
+        }
+    }
+    let (page, item_urn, by_item) = found.expect("a write is recorded");
+    let entry = page.items.first().expect("the write is recorded");
+    assert_eq!(entry.action.code, "item.upsert");
+    assert_eq!(entry.resource.urn.as_deref(), Some(item_urn.as_str()));
+    assert!(page.metadata.total_is_exact);
+
+    let (definition, _) = find_item_type(&client, &seeded.kind, Some("ai.mia-platform.eu"))
+        .await
+        .expect("the agent type resolves");
+    let by_type = AuditLogQuery {
+        resource_type_urn: Some(format!(
+            "urn:mia-platform-catalog:mia-platform.eu:v1:ItemTypeDefinition:{}",
+            definition.metadata.name
+        )),
+        ..by_item.clone()
+    };
+    let typed = client
+        .list_audit_log(&by_type, BadRequestOrigin::CallerInput)
+        .await
+        .expect("the audit log answers")
+        .value;
+    assert!(typed.items.iter().any(|found| found.uid == entry.uid));
+
+    // The entry happened within its second, so a bound at that second excludes it.
+    let until_its_second = AuditLogQuery {
+        until: Some(entry.timestamp.clone()),
+        ..by_item.clone()
+    };
+    let before = client
+        .list_audit_log(&until_its_second, BadRequestOrigin::CallerInput)
+        .await
+        .expect("the audit log answers")
+        .value;
+    assert!(
+        before.items.iter().all(|found| found.uid != entry.uid),
+        "`until` is exclusive"
+    );
+
+    let unknown = AuditLogQuery {
+        actions: vec!["e2e.no-such-action".to_string()],
+        ..by_item
+    };
+    let error = client
+        .list_audit_log(&unknown, BadRequestOrigin::CallerInput)
+        .await
+        .expect_err("an unknown action is refused");
+    assert_eq!(error.code, codes::INVALID_INPUT);
+
+    let vocabulary = client
+        .list_audit_log_actions()
+        .await
+        .expect("the vocabulary is listed")
+        .value;
+    assert!(vocabulary.iter().any(|action| action.code == "item.upsert"));
+}

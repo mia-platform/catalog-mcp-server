@@ -127,6 +127,17 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             )
             .await
             .map(|_| ()),
+        "list_audit_log" => client
+            .list_audit_log(
+                &super::audit_log::AuditLogQuery {
+                    limit: 50,
+                    ..super::audit_log::AuditLogQuery::default()
+                },
+                crate::error::BadRequestOrigin::CallerInput,
+            )
+            .await
+            .map(|_| ()),
+        "list_audit_log_actions" => client.list_audit_log_actions().await.map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
     }
 }
@@ -276,7 +287,9 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "get_relationships",
             "get_item_metadata",
             "evaluate_compliance",
-            "patch_item_custom_fields"
+            "patch_item_custom_fields",
+            "list_audit_log",
+            "list_audit_log_actions"
         ]
     );
 }

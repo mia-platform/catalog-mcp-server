@@ -45,6 +45,9 @@ pub mod apply_item_type;
 /// type can take.
 pub mod patch_item_custom_fields;
 
+/// Who did what in the catalog, and when, from its audit log.
+pub mod get_audit_log;
+
 /// Delete one type and every item of it, guarded by the item count.
 pub mod delete_item_type;
 

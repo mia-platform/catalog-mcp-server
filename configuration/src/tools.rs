@@ -49,7 +49,7 @@ pub static DEFAULT_RELATIONSHIP_LIMIT: u32 = 50;
 pub static DEFAULT_HISTORY_LIMIT: u32 = 10;
 
 /// Default `limit` for audit-log listings.
-pub static DEFAULT_AUDIT_LIMIT: u32 = 25;
+pub static DEFAULT_AUDIT_LIMIT: u32 = 50;
 
 /// Default time a compliance evaluation is waited on, in seconds.
 pub static DEFAULT_COMPLIANCE_WAIT_SECONDS: u64 = 20;

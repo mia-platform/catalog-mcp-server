@@ -1,0 +1,65 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "action": {
+      "description": "Action codes.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "cursor": {
+      "description": "From the previous page.",
+      "type": "string"
+    },
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The type; alone, the whole type.",
+      "type": "string"
+    },
+    "limit": {
+      "description": "Default 50, at most 200.",
+      "type": "integer"
+    },
+    "name": {
+      "description": "With `kind`: one item.",
+      "type": "string"
+    },
+    "outcome": {
+      "description": "How a call ended.",
+      "enum": [
+        "success",
+        "error"
+      ],
+      "type": "string"
+    },
+    "principal": {
+      "description": "Entries' `whoId` values.",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "scope": {
+      "description": "What an entry names.",
+      "enum": [
+        "instance",
+        "collection",
+        "none"
+      ],
+      "type": "string"
+    },
+    "since": {
+      "description": "Inclusive.",
+      "type": "string"
+    },
+    "until": {
+      "description": "Exclusive.",
+      "type": "string"
+    }
+  },
+  "type": "object"
+}

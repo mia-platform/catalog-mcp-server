@@ -286,7 +286,7 @@
           "type": "integer",
           "format": "uint32",
           "minimum": 0,
-          "default": 25
+          "default": 50
         },
         "complianceWaitSeconds": {
           "description": "How long a compliance evaluation is waited on, in seconds.",

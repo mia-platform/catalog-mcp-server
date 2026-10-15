@@ -27,8 +27,9 @@ use serde_json::Value;
 /// stops one being added by accident.
 ///
 /// The word `principal` alone is allowed: an item owner is stored as `{"type": "principal", "ref":
-/// <id>}`, so the owner argument must name that type. What stays forbidden is the caller's
-/// principal **id**, under any spelling.
+/// <id>}`, so the owner argument must name that type, and the audit log's `principal` filter takes
+/// the ids of entries' actors — data to match, never an identity sent to the engine. What stays
+/// forbidden is the caller's principal **id**, under any spelling.
 const FORBIDDEN_SCHEMA_TERMS: &[&str] = &[
     "acl",
     "authorization",
@@ -270,6 +271,15 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
         "fields": { "sensitivity": "high", "owner-team": null }
     })
 )]
+#[case::get_audit_log(
+    deserialise::<crate::tools::get_audit_log::GetAuditLogInput>,
+    serde_json::json!({
+        "name": "example-item", "kind": "Service", "group": "example.com",
+        "since": "2026-09-01", "until": "2026-10-01T00:00:00Z",
+        "principal": ["019f1cb8-12ec-7f43-94d4-285b77930ce7"], "action": ["item.upsert"],
+        "outcome": "error", "scope": "instance", "limit": 20, "cursor": "abc"
+    })
+)]
 fn test_every_documented_argument_is_accepted(
     #[case] deserialise: fn(Value) -> Result<(), String>,
     #[case] arguments: Value,
@@ -329,6 +339,16 @@ fn test_every_documented_argument_is_accepted(
     deserialise::<crate::tools::delete_item_type::DeleteItemTypeInput>,
     serde_json::json!({ "kind": "Service", "confirm": true }),
     "confirm"
+)]
+#[case::get_audit_log_include_audit_log_reads(
+    deserialise::<crate::tools::get_audit_log::GetAuditLogInput>,
+    serde_json::json!({ "includeAuditLogReads": true }),
+    "includeAuditLogReads"
+)]
+#[case::get_audit_log_resource_urn(
+    deserialise::<crate::tools::get_audit_log::GetAuditLogInput>,
+    serde_json::json!({ "resourceUrn": "urn:mia-platform-catalog:x:v1:K:n" }),
+    "resourceUrn"
 )]
 #[case::patch_item_custom_fields_resource_version(
     deserialise::<crate::tools::patch_item_custom_fields::PatchItemCustomFieldsInput>,

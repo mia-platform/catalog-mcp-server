@@ -89,6 +89,8 @@ tracing-subscriber = { version = "0.3.20", features = [
     "fmt",
     "json",
 ] }
+# The audit log filters by principal, and the engine takes only UUIDs: checked before sending.
+uuid.workspace = true
 
 [build-dependencies]
 configuration = { path = "./configuration", features = ["json-schema"] }

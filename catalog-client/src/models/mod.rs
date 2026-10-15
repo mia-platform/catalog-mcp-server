@@ -41,6 +41,13 @@ pub mod relationship;
 /// A custom field's definition.
 pub mod custom_field;
 
+/// The audit log's page and entries.
+pub mod audit_log;
+
+pub use audit_log::{
+    AuditAction, AuditCaller, AuditLogEntry, AuditLogPage, AuditLogPageMetadata, AuditResource,
+    AuditResult,
+};
 pub use custom_field::CustomFieldSpec;
 pub use item::{Item, Link, ObjectMetadata, PartialObjectMetadata};
 pub use item_type_definition::{

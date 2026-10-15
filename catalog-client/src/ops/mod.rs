@@ -94,6 +94,36 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
+/// One page of the tenant's audit log — offset-addressed, the only listing that is.
+/// `includeAuditLogReads` is deliberately absent: reads of the log itself are never asked for.
+pub const LIST_AUDIT_LOG: OperationSpec = OperationSpec {
+    id: "list_audit_log",
+    method: "get",
+    path: "/audit-log",
+    query: &[
+        "occurredSince",
+        "occurredUntil",
+        "principal",
+        "action",
+        "outcome",
+        "scope",
+        "resourceUrn",
+        "resourceTypeUrn",
+        "skip",
+        "limit",
+    ],
+    upstream: Upstream::Catalog,
+};
+
+/// The audit log's action vocabulary.
+pub const LIST_AUDIT_LOG_ACTIONS: OperationSpec = OperationSpec {
+    id: "list_audit_log_actions",
+    method: "get",
+    path: "/audit-log/actions",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
 /// One item's custom fields, merge-patched at the top level of the map.
 pub const PATCH_ITEM_CUSTOM_FIELDS: OperationSpec = OperationSpec {
     id: "patch_item_custom_fields",
@@ -214,6 +244,8 @@ pub const OPERATIONS: &[OperationSpec] = &[
     GET_ITEM_METADATA,
     EVALUATE_COMPLIANCE,
     PATCH_ITEM_CUSTOM_FIELDS,
+    LIST_AUDIT_LOG,
+    LIST_AUDIT_LOG_ACTIONS,
 ];
 
 /// How a listing is narrowed and paged.
@@ -418,6 +450,9 @@ impl EngineClient {
 
 /// The item listings and counts: global, and scoped to one family.
 pub mod items;
+
+/// The audit log and its action vocabulary.
+pub mod audit_log;
 
 /// The Item Type Definition listing, generic over the model it is read into.
 pub mod item_type_definitions;

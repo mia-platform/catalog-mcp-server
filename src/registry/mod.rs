@@ -171,6 +171,7 @@ impl Registry {
                 .with_route(route_for(tools::delete_item::DeleteItem))
                 .with_route(route_for(tools::delete_item_type::DeleteItemType))
                 .with_route(route_for(tools::describe_item::DescribeItem))
+                .with_route(route_for(tools::get_audit_log::GetAuditLog::new(defaults)))
                 .with_route(route_for(
                     tools::get_compliance_results::GetComplianceResults::new(defaults),
                 ))
