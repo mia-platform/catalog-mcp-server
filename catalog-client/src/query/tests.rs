@@ -533,6 +533,135 @@ fn test_the_compliance_scope_is_plain_json() {
     );
 }
 
+/// The operators a compliance scope accepts, with the JSON type each one takes.
+const SCOPE_OPERATORS: &[(&str, ScopeOperand)] = &[
+    ("eq", ScopeOperand::Primitive),
+    ("not_eq", ScopeOperand::Primitive),
+    ("contains", ScopeOperand::Primitive),
+    ("not_contains", ScopeOperand::Primitive),
+    ("gt", ScopeOperand::Number),
+    ("gte", ScopeOperand::Number),
+    ("lt", ScopeOperand::Number),
+    ("lte", ScopeOperand::Number),
+    ("matches", ScopeOperand::String),
+    ("exists", ScopeOperand::Boolean),
+];
+
+/// What an operator compares against.
+#[derive(Clone, Copy)]
+enum ScopeOperand {
+    /// A string, a number, a boolean or `null`.
+    Primitive,
+    /// A number.
+    Number,
+    /// A string.
+    String,
+    /// A boolean.
+    Boolean,
+}
+
+impl ScopeOperand {
+    fn accepts(self, value: &Value) -> bool {
+        match self {
+            Self::Primitive => !value.is_array() && !value.is_object(),
+            Self::Number => value.is_number(),
+            Self::String => value.is_string(),
+            Self::Boolean => value.is_boolean(),
+        }
+    }
+}
+
+/// Whether the catalog engine reads `query` as a compliance `raw-query` scope.
+///
+/// A mirror of the engine's grammar (`CatalogQuery` in its `models/compliance_scope.rs`), which
+/// it now enforces when the evaluation is requested: anything else is a `400`, and since this
+/// server builds the scope, that `400` is reported as this server's defect. The mirror is
+/// stricter than the engine where the engine is lenient — one key per object, at least one child
+/// per group — because nothing this server emits needs the leniency.
+fn engine_reads_as_scope(query: &Value) -> Result<(), String> {
+    let Some(object) = query.as_object() else {
+        return Err(format!("not an object: {query}"));
+    };
+
+    let [(key, value)] = object.iter().collect::<Vec<_>>()[..] else {
+        return Err(format!("not exactly one key: {query}"));
+    };
+
+    if key == "and" || key == "or" {
+        let children = value
+            .as_array()
+            .ok_or_else(|| format!("`{key}` is not an array: {query}"))?;
+        if children.is_empty() {
+            return Err(format!("`{key}` has no children: {query}"));
+        }
+
+        return children.iter().try_for_each(engine_reads_as_scope);
+    }
+
+    let Some(operator) = value.as_object() else {
+        return Err(format!("`{key}` has no operator: {query}"));
+    };
+
+    let [(name, operand)] = operator.iter().collect::<Vec<_>>()[..] else {
+        return Err(format!("`{key}` has not exactly one operator: {query}"));
+    };
+
+    match SCOPE_OPERATORS.iter().find(|(known, _)| known == name) {
+        Some((_, expected)) if expected.accepts(operand) => Ok(()),
+        Some(_) => Err(format!(
+            "`{name}` on `{key}` has the wrong operand: {query}"
+        )),
+        None => Err(format!("`{name}` is not an operator: {query}")),
+    }
+}
+
+/// The mirror refuses what the engine refuses — the engine's own cases — so a pass below means
+/// something.
+#[rstest]
+#[case::string(json!("foo"))]
+#[case::number(json!(42))]
+#[case::array(json!([]))]
+#[case::null(json!(null))]
+#[case::predicate_without_operator(json!({ "kind": "Service" }))]
+#[case::unknown_operator(json!({ "kind": { "equals": "Service" } }))]
+#[case::and_not_an_array(json!({ "and": {} }))]
+#[case::and_with_invalid_child(json!({ "and": [{ "kind": "Service" }] }))]
+#[case::comparison_on_a_string(json!({ "spec.replicas": { "gt": "3" } }))]
+#[case::exists_on_a_string(json!({ "metadata.owner": { "exists": "yes" } }))]
+fn test_the_scope_grammar_refuses_what_the_engine_refuses(#[case] query: Value) {
+    assert!(engine_reads_as_scope(&query).is_err(), "accepted {query}");
+}
+
+/// Every predicate this server can build is a scope the engine reads: each operator, each value
+/// type, and both groups, nested.
+#[rstest]
+#[case::eq_string(eq("kind", "Service"))]
+#[case::eq_integer(Predicate::Eq { field: field("spec.replicas"), value: QueryValue::Integer(3) })]
+#[case::eq_number(Predicate::Eq { field: field("spec.ratio"), value: QueryValue::Number(0.5) })]
+#[case::eq_boolean(Predicate::Eq { field: field("spec.public"), value: QueryValue::Boolean(true) })]
+#[case::eq_null(Predicate::Eq { field: field("spec.tier"), value: QueryValue::Null })]
+#[case::matches(Predicate::Matches {
+    field: field("metadata.title"),
+    pattern: RegexLiteral::containing("gateway").expect("a short literal"),
+})]
+#[case::missing(Predicate::Missing { field: field("metadata.owner") })]
+#[case::present(Predicate::Present { field: field("spec.runEndTime") })]
+#[case::and_or_nested(Predicate::And(vec![
+    eq("apiVersion", "example.com/v1"),
+    eq("kind", "Service"),
+    Predicate::Or(vec![
+        eq("metadata.labels.team", "payments"),
+        Predicate::Missing { field: field("metadata.labels.team") },
+    ]),
+]))]
+fn test_every_predicate_is_a_scope_the_engine_reads(#[case] predicate: Predicate) {
+    let scope = predicate
+        .to_raw_query_scope()
+        .expect("a small query serialises");
+
+    assert_eq!(engine_reads_as_scope(&scope), Ok(()));
+}
+
 /// A query that fits stays in one parameter.
 #[rstest]
 fn test_a_small_query_is_one_parameter() {
