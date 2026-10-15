@@ -120,6 +120,13 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             )
             .await
             .map(|_| ()),
+        "patch_item_custom_fields" => client
+            .patch_item_custom_fields(
+                &mock_address(),
+                &serde_json::json!({ "sensitivity": "high" }),
+            )
+            .await
+            .map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
     }
 }
@@ -268,7 +275,8 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "count_family_items",
             "get_relationships",
             "get_item_metadata",
-            "evaluate_compliance"
+            "evaluate_compliance",
+            "patch_item_custom_fields"
         ]
     );
 }
@@ -1191,4 +1199,93 @@ async fn test_evaluate_is_never_retried_and_a_5xx_is_unknown_outcome() {
 
     assert_eq!(error.code, codes::UNKNOWN_OUTCOME);
     assert_eq!(error.remedy, Remedy::Unknown);
+}
+
+/// The custom-fields patch goes to the item's `custom-fields` path with **one** `Content-Type`,
+/// the merge-patch one, no query string, and the body as given — `null` kept, since it removes.
+#[rstest]
+#[tokio::test]
+async fn test_the_custom_fields_patch_sends_one_merge_patch_content_type() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("PATCH"))
+        .and(path(
+            "/stable.example.com/v1/items/services/example-item/custom-fields",
+        ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_item(MOCK_ITEM_NAME)))
+        .expect(1)
+        .mount(engine.server())
+        .await;
+    let fields = serde_json::json!({ "sensitivity": "high", "owner-team": null });
+
+    engine
+        .client(mock_identity())
+        .patch_item_custom_fields(&mock_address(), &fields)
+        .await
+        .expect("the patch is accepted");
+
+    let requests = engine
+        .server()
+        .received_requests()
+        .await
+        .expect("the mock records its requests");
+    let content_types: Vec<_> = requests[0]
+        .headers
+        .get_all(http::header::CONTENT_TYPE)
+        .iter()
+        .collect();
+    assert_eq!(content_types, vec!["application/merge-patch+json"]);
+    assert_eq!(requests[0].url.query(), None);
+
+    let sent: serde_json::Value = serde_json::from_slice(&requests[0].body).expect("a JSON body");
+    assert_eq!(sent, fields);
+}
+
+/// A top-level merge patch is idempotent, so a `502` is retried and the second answer used.
+#[rstest]
+#[tokio::test]
+async fn test_the_custom_fields_patch_is_retried_on_a_gateway_failure() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("PATCH"))
+        .respond_with(ResponseTemplate::new(502))
+        .up_to_n_times(1)
+        .mount(engine.server())
+        .await;
+    Mock::given(method("PATCH"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(mock_item(MOCK_ITEM_NAME)))
+        .expect(1)
+        .mount(engine.server())
+        .await;
+
+    engine
+        .client(mock_identity())
+        .patch_item_custom_fields(&mock_address(), &serde_json::json!({ "tier": "gold" }))
+        .await
+        .expect("the retry lands");
+}
+
+/// A `400` from the patch is the caller's to correct, never a defect of ours.
+#[rstest]
+#[tokio::test]
+async fn test_a_400_on_the_custom_fields_patch_is_invalid_input() {
+    let engine = MockEngine::start().await;
+    Mock::given(method("PATCH"))
+        .respond_with(
+            ResponseTemplate::new(400).set_body_json(crate::testing::mock_error_body(
+                400,
+                "Unknown custom field key 'tier': it is not registered or not applicable to this \
+             item type",
+            )),
+        )
+        .mount(engine.server())
+        .await;
+
+    let error = engine
+        .client(mock_identity())
+        .patch_item_custom_fields(&mock_address(), &serde_json::json!({ "tier": "gold" }))
+        .await
+        .expect_err("the engine refused the key");
+
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert_eq!(error.remedy, Remedy::RetryAfterChange);
+    assert!(error.message.contains("Unknown custom field key 'tier'"));
 }

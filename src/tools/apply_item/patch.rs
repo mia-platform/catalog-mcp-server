@@ -125,7 +125,7 @@ fn custom_fields_refused(field: &str) -> ToolError {
         codes::INVALID_INPUT,
         Remedy::RetryAfterChange,
         "Custom fields cannot be set with apply_item: a catalog write ignores them. Remove \
-         `customFields` and send the rest.",
+         `customFields` and send the rest; set them with patch_item_custom_fields.",
     )
     .with_details(json!({ "field": field }))
 }

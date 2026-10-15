@@ -41,6 +41,10 @@ pub mod apply_item;
 /// change means for the items already stored.
 pub mod apply_item_type;
 
+/// Set or remove an item's custom fields — the only writer of them — or discover the keys its
+/// type can take.
+pub mod patch_item_custom_fields;
+
 /// Delete one type and every item of it, guarded by the item count.
 pub mod delete_item_type;
 

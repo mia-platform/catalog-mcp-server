@@ -1726,3 +1726,196 @@ async fn test_an_owner_is_written_found_and_removed() {
         .await
         .expect("the probe goes");
 }
+
+/// A type no seeded item has, for the field that applies elsewhere.
+const OTHER_TYPE_URN: &str = "urn:mia-platform-catalog:e2e.example.com:v1:Elsewhere";
+
+/// What one custom-fields test seeded: its own probe item and fields, named after the test, since
+/// the tests run in parallel and a second create of the same item is a conflict.
+struct CustomFieldsProbe {
+    /// The probe item.
+    item: ItemAddress,
+
+    /// The key of the field for the probe's type.
+    field: String,
+
+    /// The key of the field for another type only.
+    other_type_field: String,
+}
+
+/// Creates a probe item — a copy of a seeded agent — and two custom fields, through the API: a
+/// field's `applicableTo` is required there, so both list their types.
+async fn seed_custom_fields(client: &EngineClient, test: &str) -> CustomFieldsProbe {
+    let template = ItemAddress::new("ai.mia-platform.eu", "v1", "agents", DESCRIBED_AGENT)
+        .expect("a well-formed address");
+    let item = ItemAddress::new(
+        "ai.mia-platform.eu",
+        "v1",
+        "agents",
+        format!("e2e-cf-{test}"),
+    )
+    .expect("a well-formed address");
+    let seeded = client
+        .get_item(&template)
+        .await
+        .expect("the engine seeds the described agent")
+        .value;
+
+    client
+        .put_item(
+            &item,
+            &serde_json::json!({
+                "apiVersion": seeded.api_version,
+                "kind": seeded.kind,
+                "metadata": { "name": item.name() },
+                "spec": seeded.spec,
+            }),
+            false,
+        )
+        .await
+        .expect("the probe is created");
+
+    let probe = CustomFieldsProbe {
+        item,
+        field: format!("e2e-sensitivity-{test}"),
+        other_type_field: format!("e2e-other-type-{test}"),
+    };
+    let probe_type = format!(
+        "urn:mia-platform-catalog:ai.mia-platform.eu:v1:{}",
+        seeded.kind
+    );
+
+    for (key, applicable_to) in [
+        (&probe.field, probe_type.as_str()),
+        (&probe.other_type_field, OTHER_TYPE_URN),
+    ] {
+        let address = ItemAddress::new("mia-platform.eu", "v1", "custom-fields", key)
+            .expect("a well-formed address");
+        client
+            .put_item(
+                &address,
+                &serde_json::json!({
+                    "apiVersion": "mia-platform.eu/v1",
+                    "kind": "CustomField",
+                    "metadata": { "name": key },
+                    "spec": {
+                        "key": key,
+                        "schema": { "type": "string", "enum": ["public", "internal"] },
+                        "applicableTo": [applicable_to],
+                    },
+                }),
+                false,
+            )
+            .await
+            .expect("the custom field is defined");
+    }
+
+    probe
+}
+
+/// **Live: a custom field is set, replaced and removed**, with the merge-patch content type the
+/// engine accepts, no `resourceVersion`, and the whole item answered — what
+/// `patch_item_custom_fields` relies on.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_custom_field_is_set_replaced_and_removed() {
+    let client = client();
+    let probe = seed_custom_fields(&client, "write").await;
+
+    for value in ["public", "internal"] {
+        let patched = client
+            .patch_item_custom_fields(&probe.item, &serde_json::json!({ &probe.field: value }))
+            .await
+            .expect("the patch lands")
+            .value;
+        assert_eq!(
+            patched.custom_fields,
+            Some(serde_json::json!({ &probe.field: value })),
+            "the answer is the whole item, its map included"
+        );
+    }
+
+    let removed = client
+        .patch_item_custom_fields(&probe.item, &serde_json::json!({ &probe.field: null }))
+        .await
+        .expect("the removal lands")
+        .value;
+    assert_eq!(removed.custom_fields, Some(serde_json::json!({})));
+
+    let stored = client
+        .get_item(&probe.item)
+        .await
+        .expect("the item reads back")
+        .value;
+    assert_eq!(stored.custom_fields, Some(serde_json::json!({})));
+}
+
+/// **Live: the engine refuses keys as `patch_item_custom_fields` expects** — one message for an
+/// unknown key and a key of another type, another for a value, `422` for a kind that takes none —
+/// and the definitions read back from the family listing with `applicableTo` kept.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_the_engine_refuses_custom_fields_as_expected() {
+    let client = client();
+    let probe = seed_custom_fields(&client, "refusals").await;
+
+    for key in ["e2e-no-such-field", probe.other_type_field.as_str()] {
+        let error = client
+            .patch_item_custom_fields(&probe.item, &serde_json::json!({ key: "public" }))
+            .await
+            .expect_err("the key is refused");
+        assert_eq!(error.code, codes::INVALID_INPUT);
+        assert!(
+            error.message.contains("Unknown custom field key"),
+            "{}",
+            error.message
+        );
+    }
+
+    let error = client
+        .patch_item_custom_fields(&probe.item, &serde_json::json!({ &probe.field: "secret" }))
+        .await
+        .expect_err("the value is refused");
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(
+        error.message.contains("Value for custom field"),
+        "{}",
+        error.message
+    );
+
+    let view = ItemAddress::new("mia-platform.eu", "v1", "views", "e2e-any-view")
+        .expect("a well-formed address");
+    let error = client
+        .patch_item_custom_fields(&view, &serde_json::json!({ &probe.field: "public" }))
+        .await
+        .expect_err("views take no custom fields");
+    assert_eq!(error.code, codes::UNSUPPORTED_FOR_TYPE);
+
+    let family =
+        FamilyAddress::new("mia-platform.eu", "v1", "custom-fields").expect("a well-formed family");
+    let definitions: Vec<catalog_client::models::CustomFieldSpec> = paginate_all(|cursor| {
+        let query = ListQuery {
+            limit: Some(MAX_LIMIT),
+            cursor,
+            ..ListQuery::default()
+        };
+        let (client, family) = (&client, &family);
+
+        async move {
+            client
+                .list_family_items(family, &query)
+                .await
+                .map(|response| response.value)
+        }
+    })
+    .await
+    .expect("the definitions are listed")
+    .into_iter()
+    .map(|item| serde_json::from_value(item.spec).expect("a definition reads"))
+    .collect();
+    let other = definitions
+        .iter()
+        .find(|definition| definition.key == probe.other_type_field)
+        .expect("the field for another type is listed");
+    assert_eq!(other.applicable_to, Some(vec![OTHER_TYPE_URN.to_string()]));
+}

@@ -94,6 +94,21 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
+/// One item's custom fields, merge-patched at the top level of the map.
+pub const PATCH_ITEM_CUSTOM_FIELDS: OperationSpec = OperationSpec {
+    id: "patch_item_custom_fields",
+    method: "patch",
+    path: "/{group}/{version}/items/{family}/{name}/custom-fields",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
+/// The media type the custom-fields patch takes, and the only one: anything else is a `415`.
+pub const MERGE_PATCH_CONTENT_TYPE: &str = "application/merge-patch+json";
+
+/// The path segment that turns an item's address into its custom fields.
+const CUSTOM_FIELDS_SEGMENT: &str = "custom-fields";
+
 /// One item, deleted — with its relationships, both directions, and its revisions.
 pub const DELETE_ITEM: OperationSpec = OperationSpec {
     id: "delete_item",
@@ -198,6 +213,7 @@ pub const OPERATIONS: &[OperationSpec] = &[
     GET_RELATIONSHIPS,
     GET_ITEM_METADATA,
     EVALUATE_COMPLIANCE,
+    PATCH_ITEM_CUSTOM_FIELDS,
 ];
 
 /// How a listing is narrowed and paged.
@@ -367,6 +383,33 @@ impl EngineClient {
             url,
             manifest,
             retryable,
+            BadRequestOrigin::CallerInput,
+        )
+        .await
+    }
+
+    /// `PATCH /{group}/{version}/items/{family}/{name}/custom-fields` — merge `fields` into the
+    /// item's custom fields: a value sets its key, `null` removes it, a key left out is kept.
+    ///
+    /// Sent **without** `resourceVersion`: the engine then merges onto what it reads itself and
+    /// re-merges when another write lands in between, so concurrent patches to different keys
+    /// both survive. A top-level merge patch is idempotent, so the request is retryable. The answer
+    /// is the whole item, its new `customFields` included.
+    pub async fn patch_item_custom_fields(
+        &self,
+        address: &ItemAddress,
+        fields: &serde_json::Value,
+    ) -> Result<EngineResponse<Item>, ToolError> {
+        let [group, version, items, family, name] = address.segments();
+        let url = self.url([group, version, items, family, name, CUSTOM_FIELDS_SEGMENT])?;
+
+        // The keys and values are the caller's: a `400` is one it can correct.
+        self.patch_json(
+            &PATCH_ITEM_CUSTOM_FIELDS,
+            url,
+            fields,
+            MERGE_PATCH_CONTENT_TYPE,
+            true,
             BadRequestOrigin::CallerInput,
         )
         .await

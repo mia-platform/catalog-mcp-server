@@ -177,6 +177,9 @@ impl Registry {
                 .with_route(route_for(tools::get_item_schema::GetItemSchema))
                 .with_route(route_for(tools::list_catalog_types::ListCatalogTypes))
                 .with_route(route_for(
+                    tools::patch_item_custom_fields::PatchItemCustomFields,
+                ))
+                .with_route(route_for(
                     tools::run_compliance_evaluation::RunComplianceEvaluation::new(defaults),
                 ))
                 .with_route(route_for(tools::search_catalog::SearchCatalog)),

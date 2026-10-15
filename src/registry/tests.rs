@@ -263,6 +263,13 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
     deserialise::<crate::tools::delete_item_type::DeleteItemTypeInput>,
     serde_json::json!({ "kind": "Service", "group": "example.com", "expected_items": 3 })
 )]
+#[case::patch_item_custom_fields(
+    deserialise::<crate::tools::patch_item_custom_fields::PatchItemCustomFieldsInput>,
+    serde_json::json!({
+        "name": "example-item", "kind": "Service", "group": "example.com",
+        "fields": { "sensitivity": "high", "owner-team": null }
+    })
+)]
 fn test_every_documented_argument_is_accepted(
     #[case] deserialise: fn(Value) -> Result<(), String>,
     #[case] arguments: Value,
@@ -322,6 +329,16 @@ fn test_every_documented_argument_is_accepted(
     deserialise::<crate::tools::delete_item_type::DeleteItemTypeInput>,
     serde_json::json!({ "kind": "Service", "confirm": true }),
     "confirm"
+)]
+#[case::patch_item_custom_fields_resource_version(
+    deserialise::<crate::tools::patch_item_custom_fields::PatchItemCustomFieldsInput>,
+    serde_json::json!({ "name": "example-item", "kind": "Service", "fields": {}, "resourceVersion": "1" }),
+    "resourceVersion"
+)]
+#[case::patch_item_custom_fields_custom_fields(
+    deserialise::<crate::tools::patch_item_custom_fields::PatchItemCustomFieldsInput>,
+    serde_json::json!({ "name": "example-item", "kind": "Service", "customFields": {} }),
+    "customFields"
 )]
 fn test_an_unknown_argument_is_refused_by_name(
     #[case] deserialise: fn(Value) -> Result<(), String>,

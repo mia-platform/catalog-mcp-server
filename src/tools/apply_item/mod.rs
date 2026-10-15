@@ -42,13 +42,12 @@ pub(crate) use patch::present;
 pub const TOOL_NAME: &str = "apply_item";
 
 /// What the tool does. Every sentence is load-bearing: preservation, deletion, array semantics,
-/// and custom fields. The last names no tool, because `patch_item_custom_fields` is not built
-/// yet and a pointer to a tool that does not exist would send the model looking.
+/// and custom fields, which name the one tool that writes them.
 const TOOL_DESCRIPTION: &str = "Creates or updates a catalog item. Send only the fields to \
      change; anything left out is kept. `null` removes a field. Lists such as `tags` are \
-     replaced, not appended. Custom fields cannot be set here. Returns `created`, the `changed` \
-     field paths (empty if nothing changed) and `retried` (a conflict was resolved by \
-     re-reading). Address the item by `name` and `kind` (and `group` for a shared kind); put the \
+     replaced, not appended. Custom fields are set with patch_item_custom_fields. Returns \
+     `created`, the `changed` field paths (empty if nothing changed) and `retried` (a conflict \
+     was resolved by re-reading). Address the item by `name` and `kind` (and `group` for a shared kind); put the \
      changes in `spec` and `metadata`. Creating or changing a `Campaign` schedules notifications \
      to item owners and followers: confirm with the user first.";
 

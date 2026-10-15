@@ -38,6 +38,10 @@ pub mod compliance;
 /// A relationship between two items, as the relationships listing returns it.
 pub mod relationship;
 
+/// A custom field's definition.
+pub mod custom_field;
+
+pub use custom_field::CustomFieldSpec;
 pub use item::{Item, Link, ObjectMetadata, PartialObjectMetadata};
 pub use item_type_definition::{
     ItdHistory, ItdListEntry, ItdListMetadata, ItdSpec, ItdVersion, ItemTypeDefinition,

@@ -40,15 +40,16 @@ const READ_ONLY_METADATA_FIELDS: &[&str] = &[
 
 /// Where the optimistic-concurrency token goes on a given endpoint.
 ///
-/// Items and Item Type Definitions carry it **in the body**; custom fields and restore take it
-/// as a **query parameter**. Hiding the difference behind an enum is what stops six tools each
-/// remembering which is which.
+/// Items and Item Type Definitions carry it **in the body**; restore takes it as a **query
+/// parameter**. Hiding the difference behind an enum is what stops each tool remembering which is
+/// which. The custom-fields patch does not go through this cycle: the engine merges and guards
+/// that write itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceVersionIn {
     /// `PUT` on an item or an Item Type Definition.
     Body,
 
-    /// `PATCH …/custom-fields` and `POST …/restore`.
+    /// `POST …/restore`.
     Query,
 }
 
@@ -58,9 +59,8 @@ pub enum ResourceVersionIn {
 /// is permitted only when the intent is independent of the state it lands on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConflictPolicy {
-    /// Re-read and re-apply **once**. For merge-patch intents — `apply_item`,
-    /// `patch_item_custom_fields` — where "set these fields" means the same thing whatever else
-    /// changed underneath.
+    /// Re-read and re-apply **once**. For merge-patch intents — `apply_item` — where "set these
+    /// fields" means the same thing whatever else changed underneath.
     RetryOnce,
 
     /// Report the conflict. For deletes, restores and type writes, where the caller's intent

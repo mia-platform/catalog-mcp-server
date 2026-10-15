@@ -541,6 +541,32 @@ impl EngineClient {
         self.decode(raw)
     }
 
+    /// Issues one `PATCH` carrying `body` as `content_type`, and deserialises what the engine
+    /// answered.
+    ///
+    /// The content type is the operation's own — a merge patch is not `application/json` — and is
+    /// sent **once**. Retried only when the caller says the intent may be repeated, as for a `PUT`.
+    pub async fn patch_json<T: DeserializeOwned>(
+        &self,
+        operation: &'static OperationSpec,
+        url: Url,
+        body: &Value,
+        content_type: &'static str,
+        retryable: bool,
+        origin: BadRequestOrigin,
+    ) -> Result<EngineResponse<T>, ToolError> {
+        let raw = self
+            .send(
+                operation,
+                Request::patch(url, body.clone(), content_type),
+                Intent::Write { retryable },
+                origin,
+            )
+            .await?;
+
+        self.decode(raw)
+    }
+
     /// Issues one `DELETE`, whose success carries no body — only the warnings the engine attached.
     ///
     /// Never retried: a delete that may have landed is `unknown_outcome`, and whether a
@@ -818,10 +844,26 @@ impl EngineClient {
 /// rather than held — which also keeps the retry loop from accidentally retrying a half-consumed
 /// body.
 enum Request {
-    Get { url: Url, accept: String },
-    Put { url: Url, body: Value },
-    Post { url: Url, body: Option<Value> },
-    Delete { url: Url },
+    Get {
+        url: Url,
+        accept: String,
+    },
+    Put {
+        url: Url,
+        body: Value,
+    },
+    Post {
+        url: Url,
+        body: Option<Value>,
+    },
+    Patch {
+        url: Url,
+        body: Value,
+        content_type: &'static str,
+    },
+    Delete {
+        url: Url,
+    },
 }
 
 impl Request {
@@ -831,6 +873,7 @@ impl Request {
             Self::Get { .. } => "GET",
             Self::Put { .. } => "PUT",
             Self::Post { .. } => "POST",
+            Self::Patch { .. } => "PATCH",
             Self::Delete { .. } => "DELETE",
         }
     }
@@ -851,6 +894,15 @@ impl Request {
     /// A `POST`, with a body or without one.
     fn post(url: Url, body: Option<Value>) -> Self {
         Self::Post { url, body }
+    }
+
+    /// A `PATCH` carrying `body` as `content_type`.
+    fn patch(url: Url, body: Value, content_type: &'static str) -> Self {
+        Self::Patch {
+            url,
+            body,
+            content_type,
+        }
     }
 
     /// A `DELETE`, which carries no body either way.
@@ -882,6 +934,20 @@ impl Request {
                     None => builder,
                 }
             }
+            // The body is serialised here rather than with `.json()`, which would add
+            // `application/json` beside ours: the engine reads the first value and refuses it.
+            Self::Patch {
+                url,
+                body,
+                content_type,
+            } => http
+                .patch(url.clone())
+                .header(
+                    http::header::ACCEPT,
+                    crate::projection::Projection::Full.accept(),
+                )
+                .header(http::header::CONTENT_TYPE, *content_type)
+                .body(body.to_string()),
             // The engine answers a delete with `204` and no body; an error is its usual JSON.
             Self::Delete { url } => http.delete(url.clone()).header(
                 http::header::ACCEPT,
