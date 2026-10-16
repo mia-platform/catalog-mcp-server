@@ -1,0 +1,27 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The item's type.",
+      "type": "string"
+    },
+    "name": {
+      "description": "The item's name.",
+      "type": "string"
+    },
+    "versionName": {
+      "description": "The version's SemVer name, such as `1.4.0`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "kind",
+    "versionName"
+  ],
+  "type": "object"
+}

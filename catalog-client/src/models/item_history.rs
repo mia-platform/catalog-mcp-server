@@ -41,6 +41,19 @@ pub struct ItemRevision {
     /// The revision's identity and time.
     #[serde(rename = "metadata")]
     pub metadata: ItemRevisionMetadata,
+
+    /// Why it was recorded.
+    #[serde(rename = "spec", default)]
+    pub spec: Option<ItemRevisionSpec>,
+}
+
+/// Why a revision was recorded — only what is read.
+#[derive(Clone, Deserialize, Serialize)]
+#[cfg_attr(any(test, feature = "testing"), derive(Debug, PartialEq))]
+pub struct ItemRevisionSpec {
+    /// The version a restore wrote this revision from; absent on any other revision.
+    #[serde(rename = "restoredFrom", default)]
+    pub restored_from: Option<String>,
 }
 
 /// A revision's identity and time.

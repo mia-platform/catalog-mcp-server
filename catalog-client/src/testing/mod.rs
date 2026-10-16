@@ -231,6 +231,35 @@ pub fn mock_item(name: &str) -> Value {
     })
 }
 
+/// A revision of an item, as the revision listing shows it: `restored_from` when a restore wrote it.
+pub fn mock_item_revision(uid: &str, recorded_at: &str, restored_from: Option<&str>) -> Value {
+    let mut spec = json!({ "origin": "Observed" });
+    if let Some(version) = restored_from {
+        spec["restoredFrom"] = json!(version);
+    }
+
+    json!({
+        "apiVersion": "mia-platform.eu/v1",
+        "kind": "ItemRevision",
+        "metadata": { "uid": uid, "creationTimestamp": recorded_at },
+        "spec": spec,
+    })
+}
+
+/// A version named `name` tagging `revision`, cut by `author`.
+pub fn mock_item_version(name: &str, revision: &str, author: &str) -> Value {
+    json!({
+        "apiVersion": "mia-platform.eu/v1",
+        "kind": "ItemVersion",
+        "metadata": {
+            "name": name,
+            "creationTimestamp": "2026-09-18T10:30:45Z",
+            "author": { "id": author, "displayName": "Ada Lovelace" },
+        },
+        "spec": { "revisionId": revision },
+    })
+}
+
 /// A realistic Item Type Definition, shaped as the engine's own manifests are.
 pub fn mock_item_type_definition(kind: &str, plural: &str, group: &str) -> Value {
     json!({

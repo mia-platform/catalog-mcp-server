@@ -17,7 +17,7 @@
  */
 // The SemVer names an item's versions carry: checked here as the engine checks them, with the
 // engine's own crate, corrected when the mistake is unambiguous, and — when a name is taken — the
-// nearest one that is free.
+// nearest one that is free. Also what a version write's bodiless `403` means, read from the item.
 
 use catalog_client::{Remedy, ToolError, error::codes};
 use regex::Regex;
@@ -39,6 +39,73 @@ static MAJOR_MINOR_RE: LazyLock<Regex> = LazyLock::new(|| {
     // PANIC: a compile-time constant pattern.
     Regex::new(r"^[0-9]+\.[0-9]+$").expect("MAJOR_MINOR_RE is a constant pattern")
 });
+
+/// The AI Foundry's group, whose items the gateway lets only the AI Foundry write.
+const AI_FOUNDRY_GROUP: &str = "ai.mia-platform.eu";
+
+/// The name suffixes the gateway reserves for built-in items.
+const BUILT_IN_SUFFIXES: [&str; 3] = [".mia-platform.eu", ".mia-care.io", ".mia-fintech.io"];
+
+/// A write on an item's versions, as a refusal names it.
+#[derive(Clone, Copy)]
+pub enum VersionWrite {
+    /// Tagging a revision.
+    Tag,
+
+    /// Restoring a version.
+    Restore,
+}
+
+impl VersionWrite {
+    /// What the AI Foundry's items are, for this write, only from the AI Foundry.
+    fn ai_foundry(self) -> &'static str {
+        match self {
+            Self::Tag => {
+                "AI Foundry items are versioned only from the AI Foundry, or with a permission \
+                 this caller lacks."
+            }
+            Self::Restore => {
+                "AI Foundry items are restored only from the AI Foundry, or with a permission \
+                 this caller lacks."
+            }
+        }
+    }
+
+    /// What built-in items never are.
+    fn built_in(self) -> &'static str {
+        match self {
+            Self::Tag => "Built-in items cannot be tagged.",
+            Self::Restore => "Built-in items cannot be restored.",
+        }
+    }
+}
+
+/// The gateway's `403` on a version write, which has no body: the item — `name` of `group` — is the
+/// only way to say why. Any other `403` is returned as it came.
+pub fn explain_forbidden(
+    write: VersionWrite,
+    name: &str,
+    group: &str,
+    error: ToolError,
+) -> ToolError {
+    let lowered = name.to_lowercase();
+
+    let message = if group.eq_ignore_ascii_case(AI_FOUNDRY_GROUP) {
+        write.ai_foundry()
+    } else if BUILT_IN_SUFFIXES
+        .iter()
+        .any(|suffix| lowered.ends_with(suffix))
+    {
+        write.built_in()
+    } else {
+        return error;
+    };
+
+    ToolError {
+        message: message.to_string(),
+        ..error
+    }
+}
 
 /// Checks a version name as the engine will: a SemVer 2.0.0 version, nothing else.
 pub fn validate_version_name(text: &str) -> Result<(), ToolError> {

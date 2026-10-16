@@ -54,8 +54,8 @@ pub use audit_log::{
 pub use custom_field::CustomFieldSpec;
 pub use item::{Item, Link, ObjectMetadata, PartialObjectMetadata};
 pub use item_history::{
-    HistoryAuthor, ItemRevision, ItemRevisionMetadata, ItemVersion, ItemVersionMetadata,
-    ItemVersionSpec,
+    HistoryAuthor, ItemRevision, ItemRevisionMetadata, ItemRevisionSpec, ItemVersion,
+    ItemVersionMetadata, ItemVersionSpec,
 };
 pub use item_type_definition::{
     ItdHistory, ItdListEntry, ItdListMetadata, ItdSpec, ItdVersion, ItemTypeDefinition,

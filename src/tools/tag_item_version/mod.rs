@@ -27,7 +27,7 @@ use crate::{
     tools::{
         apply_item::{MAX_KIND_BYTES, MAX_NAME_BYTES},
         arguments::validate_group,
-        versions::{suggest_free, validate_version_name},
+        versions::{VersionWrite, explain_forbidden, suggest_free, validate_version_name},
     },
 };
 use catalog_client::{
@@ -63,12 +63,6 @@ pub const MAX_DESCRIPTION_BYTES: usize = 512;
 
 /// How many existing names a taken name's error lists.
 const MAX_LISTED_VERSIONS: usize = 20;
-
-/// The AI Foundry's group, whose items the gateway lets only the AI Foundry write.
-const AI_FOUNDRY_GROUP: &str = "ai.mia-platform.eu";
-
-/// The name suffixes the gateway reserves for built-in items.
-const BUILT_IN_SUFFIXES: [&str; 3] = [".mia-platform.eu", ".mia-care.io", ".mia-fintech.io"];
 
 /// Said when the newest recorded revision is older than the item's last change.
 const STALE_WARNING: &str = "The newest recorded revision is older than the item's last change; \
@@ -340,7 +334,12 @@ async fn refused(
         codes::NOT_FOUND => Err(on_not_found(engine, address, target, error).await),
         codes::UNSUPPORTED_FOR_TYPE => Err(HistoryRefusal::of_engine_message(&error.message)
             .map_or(error, |refusal| refusal.to_error(&coordinates.kind))),
-        codes::FORBIDDEN => Err(on_forbidden(input, coordinates, error)),
+        codes::FORBIDDEN => Err(explain_forbidden(
+            VersionWrite::Tag,
+            &input.name,
+            &coordinates.group,
+            error,
+        )),
         codes::UNKNOWN_OUTCOME => Err(error.with_next_step(
             "call again with the same arguments; a repeat of this tag is recognised",
         )),
@@ -461,32 +460,6 @@ async fn on_not_found(
         .with_next_step(
             "omit `revision` to tag the item as it stands, or take a uid from the item's history",
         ),
-    }
-}
-
-/// The gateway's `403`, which has no body: the item is the only way to say why.
-fn on_forbidden(
-    input: &TagItemVersionInput,
-    coordinates: &TypeCoordinates,
-    error: ToolError,
-) -> ToolError {
-    let lowered = input.name.to_lowercase();
-
-    let message = if coordinates.group.eq_ignore_ascii_case(AI_FOUNDRY_GROUP) {
-        "AI Foundry items are versioned only from the AI Foundry, or with a permission this caller \
-         lacks."
-    } else if BUILT_IN_SUFFIXES
-        .iter()
-        .any(|suffix| lowered.ends_with(suffix))
-    {
-        "Built-in items cannot be tagged."
-    } else {
-        return error;
-    };
-
-    ToolError {
-        message: message.to_string(),
-        ..error
     }
 }
 

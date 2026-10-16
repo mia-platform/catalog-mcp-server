@@ -40,16 +40,17 @@ const READ_ONLY_METADATA_FIELDS: &[&str] = &[
 
 /// Where the optimistic-concurrency token goes on a given endpoint.
 ///
-/// Items and Item Type Definitions carry it **in the body**; restore takes it as a **query
+/// Items and Item Type Definitions carry it **in the body**; some endpoints take it as a **query
 /// parameter**. Hiding the difference behind an enum is what stops each tool remembering which is
-/// which. The custom-fields patch does not go through this cycle: the engine merges and guards
-/// that write itself.
+/// which. The custom-fields patch and the restore do not go through this cycle: the engine merges
+/// and guards the first itself, and the second has no body to merge, so it sends the token on its
+/// own.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResourceVersionIn {
     /// `PUT` on an item or an Item Type Definition.
     Body,
 
-    /// `POST …/restore`.
+    /// A query parameter. No tool's write uses it today.
     Query,
 }
 

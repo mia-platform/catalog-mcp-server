@@ -23,8 +23,8 @@ use catalog_client::{
     CallerIdentity, Deadline, EngineClientFactory, Remedy, ToolError,
     error::codes,
     testing::{
-        MockEngine, mock_acl_context, mock_error_body, mock_item, mock_item_type_definition,
-        mock_list_envelope,
+        MockEngine, mock_acl_context, mock_error_body, mock_item, mock_item_revision,
+        mock_item_type_definition, mock_item_version, mock_list_envelope,
     },
 };
 use rstest::rstest;
@@ -122,16 +122,6 @@ fn mock_arguments(version_name: &str, extra: Value) -> Value {
     arguments
 }
 
-/// A version named `name` tagging `revision`, cut by `author`.
-fn mock_version(name: &str, revision: &str, author: &str) -> Value {
-    json!({
-        "apiVersion": "mia-platform.eu/v1", "kind": "ItemVersion",
-        "metadata": { "name": name, "creationTimestamp": "2026-09-18T10:30:45Z",
-                      "author": { "id": author, "displayName": "Ada Lovelace" } },
-        "spec": { "revisionId": revision }
-    })
-}
-
 /// An engine error response.
 fn mock_failure(status: u16, message: &str) -> ResponseTemplate {
     ResponseTemplate::new(status).set_body_json(mock_error_body(status, message))
@@ -163,11 +153,7 @@ async fn mock_engine() -> MockEngine {
 async fn mount_now(engine: &MockEngine, revisions: &[(&str, &str)], updated: &str) {
     let items: Vec<Value> = revisions
         .iter()
-        .map(|(uid, time)| {
-            json!({ "apiVersion": "mia-platform.eu/v1", "kind": "ItemRevision",
-                    "metadata": { "uid": uid, "creationTimestamp": time },
-                    "spec": { "origin": "Observed" } })
-        })
+        .map(|(uid, time)| mock_item_revision(uid, time, None))
         .collect();
     Mock::given(method("GET"))
         .and(path(REVISIONS_PATH))
@@ -227,7 +213,7 @@ async fn test_the_item_as_it_stands_is_tagged() {
     mount_now(&engine, &[(NEWEST, RECORDED_AT)], RECORDED_AT).await;
     mount_tag(
         &engine,
-        ResponseTemplate::new(201).set_body_json(mock_version("1.4.0", NEWEST, CALLER)),
+        ResponseTemplate::new(201).set_body_json(mock_item_version("1.4.0", NEWEST, CALLER)),
     )
     .await;
 
@@ -272,7 +258,7 @@ async fn test_a_stale_newest_revision_is_warned_about() {
     mount_now(&engine, &[(NEWEST, RECORDED_AT)], "2026-09-18T11:00:00Z").await;
     mount_tag(
         &engine,
-        ResponseTemplate::new(201).set_body_json(mock_version("1.4.0", NEWEST, CALLER)),
+        ResponseTemplate::new(201).set_body_json(mock_item_version("1.4.0", NEWEST, CALLER)),
     )
     .await;
 
@@ -293,7 +279,7 @@ async fn test_a_given_revision_needs_no_read() {
     let engine = mock_engine().await;
     mount_tag(
         &engine,
-        ResponseTemplate::new(201).set_body_json(mock_version("1.3.0", OLDER, CALLER)),
+        ResponseTemplate::new(201).set_body_json(mock_item_version("1.3.0", OLDER, CALLER)),
     )
     .await;
 
@@ -469,7 +455,7 @@ async fn test_a_repeat_is_recognised(#[case] author: &str, #[case] by_you: bool)
         mock_failure(409, "A version with name '1.3.0' already exists"),
     )
     .await;
-    mount_versions(&engine, vec![mock_version("1.3.0", OLDER, author)]).await;
+    mount_versions(&engine, vec![mock_item_version("1.3.0", OLDER, author)]).await;
 
     let payload = run(
         &engine,
@@ -498,8 +484,8 @@ async fn test_a_taken_name_suggests_a_free_one() {
     mount_versions(
         &engine,
         vec![
-            mock_version("1.4.1", OLDER, OTHER),
-            mock_version("1.4.0", OLDER, OTHER),
+            mock_item_version("1.4.1", OLDER, OTHER),
+            mock_item_version("1.4.0", OLDER, OTHER),
         ],
     )
     .await;
@@ -531,7 +517,7 @@ async fn test_every_page_of_versions_is_read() {
         .and(path(VERSIONS_PATH))
         .and(query_param_is_missing("continue"))
         .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(
-            vec![mock_version("2.0.0", NEWEST, OTHER)],
+            vec![mock_item_version("2.0.0", NEWEST, OTHER)],
             Some("page-2"),
         )))
         .mount(engine.server())
@@ -540,7 +526,7 @@ async fn test_every_page_of_versions_is_read() {
         .and(path(VERSIONS_PATH))
         .and(query_param("continue", "page-2"))
         .respond_with(ResponseTemplate::new(200).set_body_json(mock_list_envelope(
-            vec![mock_version("1.0.0", OLDER, CALLER)],
+            vec![mock_item_version("1.0.0", OLDER, CALLER)],
             None,
         )))
         .mount(engine.server())

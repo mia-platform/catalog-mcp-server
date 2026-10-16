@@ -152,6 +152,14 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             )
             .await
             .map(|_| ()),
+        "get_revision" => client
+            .get_revision(&mock_address(), "019f1cb8-0000-7000-8000-000000000001")
+            .await
+            .map(|_| ()),
+        "restore_version" => client
+            .restore_version(&mock_address(), "1.0.0", Some("7"))
+            .await
+            .map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
     }
 }
@@ -306,7 +314,9 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "list_audit_log_actions",
             "list_revisions",
             "list_versions",
-            "create_version"
+            "create_version",
+            "get_revision",
+            "restore_version"
         ]
     );
 }

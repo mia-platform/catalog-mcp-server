@@ -23,6 +23,7 @@ use crate::{
     pagination::EngineCursor,
     projection::Projection,
 };
+use serde_json::Value;
 use url::Url;
 
 /// One engine operation this client wraps.
@@ -118,6 +119,24 @@ pub const CREATE_VERSION: OperationSpec = OperationSpec {
     method: "post",
     path: "/{group}/{version}/items/{family}/{name}/versions",
     query: &[],
+    upstream: Upstream::Catalog,
+};
+
+/// One revision of an item, its manifest as it was then.
+pub const GET_REVISION: OperationSpec = OperationSpec {
+    id: "get_revision",
+    method: "get",
+    path: "/{group}/{version}/items/{family}/{name}/revisions/{revisionUid}",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
+/// An item rewritten with one of its versions. No body; never retried.
+pub const RESTORE_VERSION: OperationSpec = OperationSpec {
+    id: "restore_version",
+    method: "post",
+    path: "/{group}/{version}/items/{family}/{name}/versions/{versionName}/restore",
+    query: &["resourceVersion"],
     upstream: Upstream::Catalog,
 };
 
@@ -276,6 +295,8 @@ pub const OPERATIONS: &[OperationSpec] = &[
     LIST_REVISIONS,
     LIST_VERSIONS,
     CREATE_VERSION,
+    GET_REVISION,
+    RESTORE_VERSION,
 ];
 
 /// How a listing is narrowed and paged.
@@ -373,6 +394,26 @@ impl ListQuery {
 impl EngineClient {
     /// `GET /{group}/{version}/items/{family}/{name}` — one item, by address.
     pub async fn get_item(&self, address: &ItemAddress) -> Result<EngineResponse<Item>, ToolError> {
+        let url = self.url(address.segments())?;
+
+        // The address is the caller's, validated but still theirs.
+        self.get_json(
+            &GET_ITEM,
+            url,
+            Projection::Full.accept(),
+            BadRequestOrigin::CallerInput,
+        )
+        .await
+    }
+
+    /// `GET /{group}/{version}/items/{family}/{name}` — one item, by address, as the engine sent it.
+    ///
+    /// For comparing two states of an item field by field: the typed item reads an empty list and
+    /// a missing one alike, where the engine keeps them apart.
+    pub async fn get_item_raw(
+        &self,
+        address: &ItemAddress,
+    ) -> Result<EngineResponse<Value>, ToolError> {
         let url = self.url(address.segments())?;
 
         // The address is the caller's, validated but still theirs.

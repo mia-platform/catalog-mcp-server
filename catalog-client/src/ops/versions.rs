@@ -15,25 +15,29 @@
  *
  * SPDX-License-Identifier: Apache-2.0
  */
-// An item's history: its newest revisions, its versions, and tagging one revision as a version.
-// Written once here for every tool that reads or tags history.
+// An item's history: its newest revisions, one revision's manifest, its versions, tagging one
+// revision as a version, and restoring one. Written once here for every tool that reads or writes
+// history.
 
 use crate::{
     address::ItemAddress,
     client::{EngineClient, EngineResponse},
     error::{BadRequestOrigin, ToolError},
     models::{ItemRevision, ItemVersion, ListEnvelope},
-    ops::{CREATE_VERSION, LIST_REVISIONS, LIST_VERSIONS},
+    ops::{CREATE_VERSION, GET_REVISION, LIST_REVISIONS, LIST_VERSIONS, RESTORE_VERSION},
     pagination::{EngineCursor, ListPage},
     projection::Projection,
 };
-use serde_json::json;
+use serde_json::{Value, json};
 
 /// The path segment of an item's revisions.
 const REVISIONS_SEGMENT: &str = "revisions";
 
 /// The path segment of an item's versions.
 const VERSIONS_SEGMENT: &str = "versions";
+
+/// The path segment that restores a version.
+const RESTORE_SEGMENT: &str = "restore";
 
 impl EngineClient {
     /// `GET …/{name}/revisions` — the newest `limit` revisions of an item, newest first: the order
@@ -64,6 +68,26 @@ impl EngineClient {
             value: ListPage::from_envelope(response.value),
             warnings: response.warnings,
         })
+    }
+
+    /// `GET …/{name}/revisions/{uid}` — the item's manifest as one revision recorded it, raw: the
+    /// same shape as the item's own read, without `resourceVersion`.
+    pub async fn get_revision(
+        &self,
+        address: &ItemAddress,
+        uid: &str,
+    ) -> Result<EngineResponse<Value>, ToolError> {
+        let [group, version, items, family, name] = address.segments();
+        let url = self.url([group, version, items, family, name, REVISIONS_SEGMENT, uid])?;
+
+        // Only ever a uid the engine itself listed.
+        self.get_json(
+            &GET_REVISION,
+            url,
+            Projection::Full.accept(),
+            BadRequestOrigin::ServerBuilt,
+        )
+        .await
     }
 
     /// `GET …/{name}/versions` — one page of an item's versions, highest SemVer first.
@@ -125,5 +149,37 @@ impl EngineClient {
             BadRequestOrigin::CallerInput,
         )
         .await
+    }
+
+    /// `POST …/{name}/versions/{versionName}/restore?resourceVersion=…` — rewrite the item with
+    /// the version's manifest, **with no body**; the answer is the item as it now stands, raw.
+    ///
+    /// **Never retried**, as every `POST`. `resource_version` guards the write on the state the
+    /// caller read; the engine checks it only at the final write.
+    pub async fn restore_version(
+        &self,
+        address: &ItemAddress,
+        version_name: &str,
+        resource_version: Option<&str>,
+    ) -> Result<EngineResponse<Value>, ToolError> {
+        let [group, version, items, family, name] = address.segments();
+        let mut url = self.url([
+            group,
+            version,
+            items,
+            family,
+            name,
+            VERSIONS_SEGMENT,
+            version_name,
+            RESTORE_SEGMENT,
+        ])?;
+        if let Some(resource_version) = resource_version {
+            url.query_pairs_mut()
+                .append_pair("resourceVersion", resource_version);
+        }
+
+        // The version name is the caller's.
+        self.post_json(&RESTORE_VERSION, url, None, BadRequestOrigin::CallerInput)
+            .await
     }
 }

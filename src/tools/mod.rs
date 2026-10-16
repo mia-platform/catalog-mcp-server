@@ -54,6 +54,9 @@ pub(crate) mod versions;
 /// Tag a revision of an item with a SemVer name, so it can be restored later.
 pub mod tag_item_version;
 
+/// Replace an item's content with one of its versions, guarded and checked.
+pub mod restore_item_version;
+
 /// Delete one type and every item of it, guarded by the item count.
 pub mod delete_item_type;
 

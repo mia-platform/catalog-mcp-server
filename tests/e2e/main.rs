@@ -1096,12 +1096,13 @@ async fn test_relationships_are_listed_with_their_references() {
 }
 
 /// The groups of the types the write tests create, which the seeded-type walk leaves out.
-const E2E_TYPE_GROUPS: [&str; 5] = [
+const E2E_TYPE_GROUPS: [&str; 6] = [
     PROBE_TYPE_GROUP,
     DOOMED_TYPE_GROUP,
     OWNED_TYPE_GROUP,
     VERSIONED_TYPE_GROUP,
     UNRECORDED_TYPE_GROUP,
+    RESTORED_TYPE_GROUP,
 ];
 
 /// The throwaway type the owner-filter test creates: its own group, one selectable spec field.
@@ -2218,6 +2219,175 @@ async fn test_a_revision_is_tagged_and_the_history_refusals_are_worded() {
     assert_eq!(error.code, codes::UNSUPPORTED_FOR_TYPE);
     assert!(
         error.message.contains("cannot have revision history"),
+        "{}",
+        error.message
+    );
+}
+
+/// The type the restore test restores items of: its own group, history recorded from its creation.
+const RESTORED_TYPE_GROUP: &str = "e2e-restored.example.com";
+
+/// **Live: a version is restored, and what `restore_item_version` relies on holds** — the restore
+/// takes no body and answers the item as it now stands; its own revision is the newest, marked
+/// `restoredFrom` and recorded no earlier than the item's update time; the one below it is the
+/// state before, read by uid in the same shape as the item; a repeat records nothing; a missing
+/// version is a `404` while the item exists; a stale `resourceVersion` is a `409`; and a version the
+/// type's rules no longer admit is a `400` worded as the tool reads it.
+///
+/// Every refusal here comes after the engine has named the item, so none disturbs the audit log
+/// the audit-log test reads.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_version_is_restored_and_its_history_checks_out() {
+    let client = client();
+    let item_type = create_probe_type(&client, RESTORED_TYPE_GROUP, true).await;
+
+    let item = ItemAddress::new(RESTORED_TYPE_GROUP, "v1", "probes", "e2e-restored")
+        .expect("a well-formed address");
+    let cycle = WriteCycle::new(&client, ConflictPolicy::RetryOnce, ResourceVersionIn::Body);
+    let first = serde_json::json!({
+        "apiVersion": format!("{RESTORED_TYPE_GROUP}/v1"),
+        "kind": "Probe",
+        "metadata": { "name": "e2e-restored", "title": "First" },
+        "spec": {},
+    });
+    cycle
+        .apply(&item, &first)
+        .await
+        .expect("the item is created");
+    let tagged = client
+        .list_revisions(&item, 1)
+        .await
+        .expect("the revisions are listed")
+        .value
+        .items;
+    client
+        .create_version(&item, "1.0.0", &tagged[0].metadata.uid, None)
+        .await
+        .expect("the first state is tagged");
+
+    let mut second = first.clone();
+    second["metadata"]["title"] = serde_json::json!("Second");
+    second["metadata"]["labels"] = serde_json::json!({ "stage": "two" });
+    cycle
+        .apply(&item, &second)
+        .await
+        .expect("the item is changed");
+
+    let before = client
+        .get_item_raw(&item)
+        .await
+        .expect("the item is read")
+        .value;
+    let stale = before["resourceVersion"]
+        .as_str()
+        .expect("a live item has a resourceVersion")
+        .to_string();
+
+    let after = client
+        .restore_version(&item, "1.0.0", Some(&stale))
+        .await
+        .expect("the version is restored")
+        .value;
+    assert_eq!(after["metadata"]["title"], "First");
+    assert!(after["metadata"].get("labels").is_none(), "{after}");
+    assert_ne!(after["resourceVersion"], before["resourceVersion"]);
+
+    let revisions = client
+        .list_revisions(&item, 2)
+        .await
+        .expect("the revisions are listed")
+        .value
+        .items;
+    assert_eq!(revisions.len(), 2);
+    let own = &revisions[0];
+    assert_eq!(
+        own.spec
+            .as_ref()
+            .and_then(|spec| spec.restored_from.as_deref()),
+        Some("1.0.0")
+    );
+    let updated = after["metadata"]["updateTimestamp"]
+        .as_str()
+        .expect("the answer has an update time");
+    assert!(
+        own.metadata.creation_timestamp.as_str() >= updated,
+        "{} < {updated}",
+        own.metadata.creation_timestamp
+    );
+
+    let below = client
+        .get_revision(&item, &revisions[1].metadata.uid)
+        .await
+        .expect("the revision below is read")
+        .value;
+    assert!(below.get("resourceVersion").is_none());
+    for field in [
+        "/spec",
+        "/metadata/title",
+        "/metadata/labels",
+        "/metadata/owner",
+    ] {
+        assert_eq!(
+            below.pointer(field),
+            before.pointer(field),
+            "the revision below is the state before, at {field}"
+        );
+    }
+
+    // A repeat: written, recorded nothing.
+    client
+        .restore_version(&item, "1.0.0", None)
+        .await
+        .expect("a repeat is accepted");
+    let newest = client
+        .list_revisions(&item, 1)
+        .await
+        .expect("the revisions are listed")
+        .value
+        .items;
+    assert_eq!(
+        newest[0].metadata.uid, own.metadata.uid,
+        "a no-op records nothing"
+    );
+
+    let error = client
+        .restore_version(&item, "9.9.9", None)
+        .await
+        .expect_err("no such version");
+    assert_eq!(error.code, codes::NOT_FOUND);
+
+    let error = client
+        .restore_version(&item, "1.0.0", Some(&stale))
+        .await
+        .expect_err("the item moved on");
+    assert_eq!(error.code, codes::CONFLICT);
+
+    // The type now requires a field the version does not have.
+    let mut definition = client
+        .get_item_type_definition(&item_type)
+        .await
+        .expect("the type is read")
+        .value;
+    definition["spec"]["versions"][0]["schema"]["openAPIV31Schema"]["properties"]["spec"] = serde_json::json!({
+        "type": "object",
+        "properties": { "replicas": { "type": "integer" } },
+        "required": ["replicas"],
+    });
+    WriteCycle::new(&client, ConflictPolicy::Report, ResourceVersionIn::Body)
+        .apply_item_type(&item_type, &definition, Existence::Present)
+        .await
+        .expect("the type is tightened");
+
+    let error = client
+        .restore_version(&item, "1.0.0", None)
+        .await
+        .expect_err("the version no longer fits");
+    assert_eq!(error.code, codes::INVALID_INPUT);
+    assert!(
+        error
+            .message
+            .starts_with("Body does not conform to Item Type Definition schema"),
         "{}",
         error.message
     );

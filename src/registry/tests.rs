@@ -278,6 +278,12 @@ fn deserialise<T: serde::de::DeserializeOwned>(arguments: Value) -> Result<(), S
         "description": "Before the move", "revision": "01998f1e-0000-7000-8000-000000000001"
     })
 )]
+#[case::restore_item_version(
+    deserialise::<crate::tools::restore_item_version::RestoreItemVersionInput>,
+    serde_json::json!({
+        "name": "example-item", "kind": "Service", "group": "example.com", "versionName": "1.4.0"
+    })
+)]
 #[case::get_audit_log(
     deserialise::<crate::tools::get_audit_log::GetAuditLogInput>,
     serde_json::json!({
@@ -351,6 +357,13 @@ fn test_every_documented_argument_is_accepted(
     deserialise::<crate::tools::tag_item_version::TagItemVersionInput>,
     serde_json::json!({ "name": "example-item", "kind": "Service", "version": "1.4.0" }),
     "version"
+)]
+#[case::restore_item_version_resource_version(
+    deserialise::<crate::tools::restore_item_version::RestoreItemVersionInput>,
+    serde_json::json!({
+        "name": "example-item", "kind": "Service", "versionName": "1.4.0", "resourceVersion": "7"
+    }),
+    "resourceVersion"
 )]
 #[case::get_audit_log_include_audit_log_reads(
     deserialise::<crate::tools::get_audit_log::GetAuditLogInput>,
