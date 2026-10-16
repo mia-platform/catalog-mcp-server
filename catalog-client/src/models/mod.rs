@@ -44,12 +44,19 @@ pub mod custom_field;
 /// The audit log's page and entries.
 pub mod audit_log;
 
+/// An item's revisions and versions.
+pub mod item_history;
+
 pub use audit_log::{
     AuditAction, AuditCaller, AuditLogEntry, AuditLogPage, AuditLogPageMetadata, AuditResource,
     AuditResult,
 };
 pub use custom_field::CustomFieldSpec;
 pub use item::{Item, Link, ObjectMetadata, PartialObjectMetadata};
+pub use item_history::{
+    HistoryAuthor, ItemRevision, ItemRevisionMetadata, ItemVersion, ItemVersionMetadata,
+    ItemVersionSpec,
+};
 pub use item_type_definition::{
     ItdHistory, ItdListEntry, ItdListMetadata, ItdSpec, ItdVersion, ItemTypeDefinition,
     ItemTypeDefinitionSpec, TypeNames, TypeVersion,

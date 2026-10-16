@@ -94,6 +94,33 @@ pub const PUT_ITEM: OperationSpec = OperationSpec {
     upstream: Upstream::Catalog,
 };
 
+/// An item's newest revisions — newest first, the order fixed by the engine.
+pub const LIST_REVISIONS: OperationSpec = OperationSpec {
+    id: "list_revisions",
+    method: "get",
+    path: "/{group}/{version}/items/{family}/{name}/revisions",
+    query: &["limit"],
+    upstream: Upstream::Catalog,
+};
+
+/// An item's versions, highest SemVer first.
+pub const LIST_VERSIONS: OperationSpec = OperationSpec {
+    id: "list_versions",
+    method: "get",
+    path: "/{group}/{version}/items/{family}/{name}/versions",
+    query: &["limit", "continue"],
+    upstream: Upstream::Catalog,
+};
+
+/// One revision of an item tagged as a version. Never retried.
+pub const CREATE_VERSION: OperationSpec = OperationSpec {
+    id: "create_version",
+    method: "post",
+    path: "/{group}/{version}/items/{family}/{name}/versions",
+    query: &[],
+    upstream: Upstream::Catalog,
+};
+
 /// One page of the tenant's audit log — offset-addressed, the only listing that is.
 /// `includeAuditLogReads` is deliberately absent: reads of the log itself are never asked for.
 pub const LIST_AUDIT_LOG: OperationSpec = OperationSpec {
@@ -246,6 +273,9 @@ pub const OPERATIONS: &[OperationSpec] = &[
     PATCH_ITEM_CUSTOM_FIELDS,
     LIST_AUDIT_LOG,
     LIST_AUDIT_LOG_ACTIONS,
+    LIST_REVISIONS,
+    LIST_VERSIONS,
+    CREATE_VERSION,
 ];
 
 /// How a listing is narrowed and paged.
@@ -453,6 +483,9 @@ pub mod items;
 
 /// The audit log and its action vocabulary.
 pub mod audit_log;
+
+/// An item's revisions and versions, and tagging one revision as a version.
+pub mod versions;
 
 /// The Item Type Definition listing, generic over the model it is read into.
 pub mod item_type_definitions;

@@ -39,7 +39,7 @@ pub const UNAUTHENTICATED: &str = "unauthenticated";
 /// A `403`. The model cannot widen its own scope.
 pub const FORBIDDEN: &str = "forbidden";
 
-/// A `404` on an item or a type.
+/// A `404` on an item or a type — or, for a history write, an item with no recorded revision yet.
 pub const NOT_FOUND: &str = "not_found";
 
 /// A `409`, after the write helper's own conflict policy has decided whether to retry.

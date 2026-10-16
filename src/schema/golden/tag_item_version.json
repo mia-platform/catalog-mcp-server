@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "description": {
+      "description": "What the version is.",
+      "type": "string"
+    },
+    "group": {
+      "description": "The kind's group, if several types share it.",
+      "type": "string"
+    },
+    "kind": {
+      "description": "The item's type.",
+      "type": "string"
+    },
+    "name": {
+      "description": "The item's name.",
+      "type": "string"
+    },
+    "revision": {
+      "description": "A revision uid; omitted, the item as it stands.",
+      "type": "string"
+    },
+    "versionName": {
+      "description": "The SemVer name to give, such as `1.4.0`.",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "kind",
+    "versionName"
+  ],
+  "type": "object"
+}

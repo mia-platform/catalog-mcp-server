@@ -32,6 +32,9 @@ pub mod client;
 /// The tool-error contract: `Remedy`, `ToolError` and the status mapping.
 pub mod error;
 
+/// Whether an item's type keeps history, and the refusals a history write meets.
+pub mod history;
+
 /// The caller's forwarded identity.
 pub mod identity;
 

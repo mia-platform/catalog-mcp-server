@@ -138,6 +138,20 @@ async fn exercise(client: &EngineClient, spec: &OperationSpec) -> Result<(), Too
             .await
             .map(|_| ()),
         "list_audit_log_actions" => client.list_audit_log_actions().await.map(|_| ()),
+        "list_revisions" => client.list_revisions(&mock_address(), 1).await.map(|_| ()),
+        "list_versions" => client
+            .list_versions(&mock_address(), 200, None)
+            .await
+            .map(|_| ()),
+        "create_version" => client
+            .create_version(
+                &mock_address(),
+                "1.0.0",
+                "019f1cb8-0000-7000-8000-000000000001",
+                None,
+            )
+            .await
+            .map(|_| ()),
         unknown => panic!("`{unknown}` is an operation `exercise` does not know how to call"),
     }
 }
@@ -289,7 +303,10 @@ fn test_the_operation_list_matches_what_the_client_implements() {
             "evaluate_compliance",
             "patch_item_custom_fields",
             "list_audit_log",
-            "list_audit_log_actions"
+            "list_audit_log_actions",
+            "list_revisions",
+            "list_versions",
+            "create_version"
         ]
     );
 }

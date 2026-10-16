@@ -1096,7 +1096,13 @@ async fn test_relationships_are_listed_with_their_references() {
 }
 
 /// The groups of the types the write tests create, which the seeded-type walk leaves out.
-const E2E_TYPE_GROUPS: [&str; 3] = [PROBE_TYPE_GROUP, DOOMED_TYPE_GROUP, OWNED_TYPE_GROUP];
+const E2E_TYPE_GROUPS: [&str; 5] = [
+    PROBE_TYPE_GROUP,
+    DOOMED_TYPE_GROUP,
+    OWNED_TYPE_GROUP,
+    VERSIONED_TYPE_GROUP,
+    UNRECORDED_TYPE_GROUP,
+];
 
 /// The throwaway type the owner-filter test creates: its own group, one selectable spec field.
 const OWNED_TYPE_GROUP: &str = "e2e-owned.example.com";
@@ -2056,4 +2062,163 @@ async fn test_the_audit_log_records_a_write_and_filters_it() {
         .expect("the vocabulary is listed")
         .value;
     assert!(vocabulary.iter().any(|action| action.code == "item.upsert"));
+}
+
+/// The type the versions test tags items of: its own group, history recorded from its creation.
+const VERSIONED_TYPE_GROUP: &str = "e2e-versioned.example.com";
+
+/// A type of its own with history not recorded, for the setting's refusal.
+const UNRECORDED_TYPE_GROUP: &str = "e2e-unrecorded.example.com";
+
+/// Creates a probe type in `group`, recording history when `history` is set.
+async fn create_probe_type(client: &EngineClient, group: &str, history: bool) -> ItemTypeAddress {
+    let address = ItemTypeAddress::new(group, "probes").expect("a well-formed type address");
+    let mut spec = serde_json::json!({
+        "group": group,
+        "names": { "kind": "Probe", "plural": "probes", "singular": "probe" },
+        "scope": "Tenant",
+        "versions": [{
+            "name": "v1",
+            "served": true,
+            "schema": { "openAPIV31Schema": {
+                "type": "object",
+                "properties": { "spec": { "type": "object", "properties": {} } },
+            } },
+        }],
+    });
+    if history {
+        spec["history"] = serde_json::json!({ "enabled": true });
+    }
+
+    WriteCycle::new(client, ConflictPolicy::Report, ResourceVersionIn::Body)
+        .apply_item_type(
+            &address,
+            &serde_json::json!({
+                "apiVersion": ItemTypeAddress::api_version(),
+                "kind": ItemTypeAddress::KIND,
+                "metadata": { "name": address.name() },
+                "spec": spec,
+            }),
+            Existence::Absent,
+        )
+        .await
+        .expect("the engine creates the probe type");
+
+    address
+}
+
+/// **Live: an item's revision is tagged, and what `tag_item_version` relies on holds** — the newest
+/// revision first; a tag of it and of an older one; the same name again a `409` whose listing shows
+/// the revision it tags, so a repeat is recognisable; versions highest first; and the engine's two
+/// history refusals, worded as the tool's fallback reads them.
+///
+/// No write is refused before it names its resource: the engine would drop the audit entries
+/// flushed with it, which the audit-log test reads.
+#[tokio::test]
+#[ignore = "needs `cargo make e2e`"]
+async fn test_a_revision_is_tagged_and_the_history_refusals_are_worded() {
+    let client = client();
+    create_probe_type(&client, VERSIONED_TYPE_GROUP, true).await;
+    create_probe_type(&client, UNRECORDED_TYPE_GROUP, false).await;
+
+    let item = ItemAddress::new(VERSIONED_TYPE_GROUP, "v1", "probes", "e2e-tagged")
+        .expect("a well-formed address");
+    let cycle = WriteCycle::new(&client, ConflictPolicy::RetryOnce, ResourceVersionIn::Body);
+    let identity = serde_json::json!({
+        "apiVersion": format!("{VERSIONED_TYPE_GROUP}/v1"),
+        "kind": "Probe",
+        "metadata": { "name": "e2e-tagged", "title": "First" },
+        "spec": {},
+    });
+    cycle
+        .apply(&item, &identity)
+        .await
+        .expect("the item is created");
+    let mut changed = identity.clone();
+    changed["metadata"]["title"] = serde_json::json!("Second");
+    cycle
+        .apply(&item, &changed)
+        .await
+        .expect("the item is changed");
+
+    let revisions = client
+        .list_revisions(&item, 2)
+        .await
+        .expect("the revisions are listed")
+        .value
+        .items;
+    assert_eq!(revisions.len(), 2, "one revision per change");
+    let (newest, older) = (&revisions[0].metadata.uid, &revisions[1].metadata.uid);
+    assert!(revisions[0].metadata.creation_timestamp >= revisions[1].metadata.creation_timestamp);
+
+    let tagged = client
+        .create_version(&item, "1.0.0", newest, Some("The second state"))
+        .await
+        .expect("the newest revision is tagged")
+        .value;
+    assert_eq!(tagged.metadata.name, "1.0.0");
+    assert_eq!(
+        tagged.spec.and_then(|spec| spec.revision_id).as_deref(),
+        Some(newest.as_str())
+    );
+    client
+        .create_version(&item, "0.9.0", older, None)
+        .await
+        .expect("an older revision is tagged");
+
+    for revision in [newest, older] {
+        let error = client
+            .create_version(&item, "1.0.0", revision, None)
+            .await
+            .expect_err("the name is taken");
+        assert_eq!(error.code, codes::CONFLICT);
+    }
+
+    let versions = client
+        .list_versions(&item, 200, None)
+        .await
+        .expect("the versions are listed")
+        .value
+        .items;
+    let names: Vec<&str> = versions
+        .iter()
+        .map(|version| version.metadata.name.as_str())
+        .collect();
+    assert_eq!(names, vec!["1.0.0", "0.9.0"], "highest first");
+    assert_eq!(
+        versions[0]
+            .spec
+            .as_ref()
+            .and_then(|spec| spec.revision_id.as_deref()),
+        Some(newest.as_str()),
+        "a repeat is recognisable by the revision the name tags"
+    );
+
+    // The engine's two refusals, as the tool's fallback reads them.
+    let unrecorded = ItemAddress::new(UNRECORDED_TYPE_GROUP, "v1", "probes", "e2e-untagged")
+        .expect("a well-formed address");
+    let any_revision = "01998f1e-0000-7000-8000-000000000001";
+    let error = client
+        .create_version(&unrecorded, "1.0.0", any_revision, None)
+        .await
+        .expect_err("recording is off");
+    assert_eq!(error.code, codes::UNSUPPORTED_FOR_TYPE);
+    assert!(
+        error.message.contains("is not being recorded"),
+        "{}",
+        error.message
+    );
+
+    let relationship = ItemAddress::new("mia-platform.eu", "v1", "relationships", "e2e-any")
+        .expect("a well-formed address");
+    let error = client
+        .create_version(&relationship, "1.0.0", any_revision, None)
+        .await
+        .expect_err("relationships never record");
+    assert_eq!(error.code, codes::UNSUPPORTED_FOR_TYPE);
+    assert!(
+        error.message.contains("cannot have revision history"),
+        "{}",
+        error.message
+    );
 }

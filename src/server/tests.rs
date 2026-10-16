@@ -109,8 +109,8 @@ fn mock_echo_router(mock_config: Config) -> Router {
     )
 }
 
-/// The twelve tools this server ships, in `tools/list` order.
-const SHIPPED_TOOLS: [&str; 12] = [
+/// The thirteen tools this server ships, in `tools/list` order.
+const SHIPPED_TOOLS: [&str; 13] = [
     "apply_item",
     "apply_item_type",
     "delete_item",
@@ -123,6 +123,7 @@ const SHIPPED_TOOLS: [&str; 12] = [
     "patch_item_custom_fields",
     "run_compliance_evaluation",
     "search_catalog",
+    "tag_item_version",
 ];
 
 /// One POST to the MCP endpoint, returning the status, the response headers and the body.

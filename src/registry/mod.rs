@@ -183,7 +183,8 @@ impl Registry {
                 .with_route(route_for(
                     tools::run_compliance_evaluation::RunComplianceEvaluation::new(defaults),
                 ))
-                .with_route(route_for(tools::search_catalog::SearchCatalog)),
+                .with_route(route_for(tools::search_catalog::SearchCatalog))
+                .with_route(route_for(tools::tag_item_version::TagItemVersion)),
         )
     }
 
